@@ -36,6 +36,14 @@ export interface BuildWalkingGraphInput {
   kTarget: number;
   /** Haversine radius for the initial PostGIS k-NN over-fetch (metres). */
   radiusM: number;
+  /**
+   * HARD upper bound on edge walking distance. Pairs whose OSRM walking leg
+   * exceeds this are dropped from the graph entirely. Without this guard a
+   * river-crossing detour (200 m Haversine → 5 km on foot) sneaks into the
+   * top-k and lets Louvain fuse cross-river clusters via the long edge.
+   * Caller typically passes `PlanInput.maxLinkMeters` (default 1500).
+   */
+  maxEdgeMeters: number;
   profile: Routing.RoutingProfile;
 }
 
@@ -74,7 +82,7 @@ export async function buildWalkingGraph(
   concurrency = 8,
 ): Promise<WalkingEdge[]> {
   const logger = new Logger(buildWalkingGraph.name);
-  const { caches, kTarget, radiusM, profile, ownerId } = input;
+  const { caches, kTarget, radiusM, maxEdgeMeters, profile, ownerId } = input;
   if (caches.length < 2 || kTarget <= 0) return [];
 
   const kCandidates = Math.max(kTarget * 3, kTarget + 5);
@@ -173,16 +181,33 @@ export async function buildWalkingGraph(
     await deps.routing.upsertMatrixCells(toPersist);
   }
 
-  // 3. Re-rank each origin's candidates by walking distance, keep top kTarget.
-  const kNN = new Map<number, Array<{ to: number; meters: number; seconds: number }>>();
+  // 3. Re-rank each origin's candidates by walking distance, drop anything
+  //    over the hard maxEdgeMeters cap, keep top kTarget. Dropping detours
+  //    that exceed the cap is what prevents Louvain from fusing communities
+  //    via a single river-crossing edge.
+  const kNN = new Map<
+    number,
+    Array<{ to: number; meters: number; seconds: number }>
+  >();
+  let droppedFar = 0;
   for (const [originId, cands] of candidatesByOrigin) {
     const ranked: Array<{ to: number; meters: number; seconds: number }> = [];
     for (const toId of cands) {
       const cell = cachedMap.get(cachedKey(originId, toId));
-      if (cell) ranked.push({ to: toId, meters: cell.meters, seconds: cell.seconds });
+      if (!cell) continue;
+      if (cell.meters > maxEdgeMeters) {
+        droppedFar += 1;
+        continue;
+      }
+      ranked.push({ to: toId, meters: cell.meters, seconds: cell.seconds });
     }
     ranked.sort((a, b) => a.meters - b.meters);
     kNN.set(originId, ranked.slice(0, kTarget));
+  }
+  if (droppedFar > 0) {
+    logger.debug(
+      `walking-graph: dropped ${droppedFar} candidate edges exceeding maxEdgeMeters=${maxEdgeMeters}`,
+    );
   }
 
   // 4. Symmetrise: keep edge (a,b) if b ∈ kNN(a) OR a ∈ kNN(b). The graph
