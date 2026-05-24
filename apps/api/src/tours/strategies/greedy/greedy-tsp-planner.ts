@@ -124,13 +124,16 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       pool.map((c) => c.id),
     );
 
-    // 2. Sparse walking graph.
+    // 2. Sparse walking graph. `maxEdgeMeters = maxLinkMeters` hard-caps
+    //    any single edge — without it, river-crossing detours sneak into
+    //    the top-k and Louvain fuses communities across them.
     const edges: WalkingEdge[] = await buildWalkingGraph(
       {
         ownerId,
         caches: coordinated,
         kTarget: KNN_TARGET,
         radiusM: Math.min(input.maxLinkMeters * 2, 4000),
+        maxEdgeMeters: input.maxLinkMeters,
         profile: PROFILE,
       },
       { caches: this.cachesRepo, routing: this.routingRepo, osrm: this.osrm },
@@ -150,16 +153,21 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       sigmaMeters,
     });
 
-    // Build a walking-distance closure over the SPARSE graph for the
-    // safety-net split. Edges not in the graph → +Infinity (unwalkable).
-    const edgeWeights = new Map<string, number>();
-    for (const e of edges) {
-      edgeWeights.set(`${e.fromCacheId}:${e.toCacheId}`, e.meters);
-      edgeWeights.set(`${e.toCacheId}:${e.fromCacheId}`, e.meters);
-    }
-    const sparseWalkingMeters = (a: number, b: number): number => {
+    // Cluster-spread metric for scoring + safety-net split. Use Haversine
+    // (not the sparse walking graph): the sparse graph drops most pairs as
+    // +Infinity, so summing only the few finite edges yields a meaningless
+    // MST of a few hundred metres for a 10-cache cluster spanning kilometres.
+    // Haversine is a robust geographic spread proxy; walking-detour cost is
+    // handled in Pass 2 where the real OSRM matrix is computed.
+    const clusterDistanceMeters = (a: number, b: number): number => {
       if (a === b) return 0;
-      return edgeWeights.get(`${a}:${b}`) ?? Number.POSITIVE_INFINITY;
+      const ca = poolById.get(a);
+      const cb = poolById.get(b);
+      if (!ca || !cb) return Number.POSITIVE_INFINITY;
+      return haversineMeters(
+        [ca.location.coordinates[0]!, ca.location.coordinates[1]!],
+        [cb.location.coordinates[0]!, cb.location.coordinates[1]!],
+      );
     };
 
     // 5. Safety-net split: any community over budget/size gets MST-cut.
@@ -167,7 +175,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     for (const cand of rawCandidates) {
       const parts = splitByMstCut(
         cand.cacheIds,
-        sparseWalkingMeters,
+        clusterDistanceMeters,
         input.distanceBudgetMeters,
         input.minClusterSize,
         input.maxCaches,
@@ -182,10 +190,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     const scored = splitClusters.map((cacheIds) => {
       const cluster = cacheIds.map((id) => poolById.get(id)!).filter(Boolean);
-      // MST over the cluster using the sparse walking graph (Infinity for
-      // unconnected pairs — those rare cases get a large but finite mst).
+      // MST over the cluster using Haversine — geographic spread, always
+      // finite, robust against sparse-graph gaps that would otherwise make
+      // a 10-cache cluster spanning kilometres report MST ≈ 20 m.
       const mst = mstLengthByDistance(cluster.length, (i, j) =>
-        sparseWalkingMeters(cluster[i]!.id, cluster[j]!.id),
+        clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
       );
       const { total, breakdown } = scoreCluster({
         caches: cluster,
@@ -222,12 +231,12 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     // 7. Diagnostics — one component entry per seed subgraph (so the web UI
     //    can still show "we found N seed-anchored neighbourhoods of these
-    //    sizes"). Connectivity uses the sparse graph's per-cache nearest.
+    //    sizes"). MST uses Haversine for the same reason as cluster scoring.
     const components: Tours.ClusterComponent[] = subgraphs.map((sub) => ({
       cacheIds: sub.cacheIds.slice().sort((a, b) => a - b),
       mstLengthMeters: round2(
         mstLengthByDistance(sub.cacheIds.length, (i, j) =>
-          sparseWalkingMeters(sub.cacheIds[i]!, sub.cacheIds[j]!),
+          clusterDistanceMeters(sub.cacheIds[i]!, sub.cacheIds[j]!),
         ),
       ),
       accepted: scored.some((c) =>
