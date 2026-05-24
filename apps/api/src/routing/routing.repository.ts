@@ -81,6 +81,11 @@ export class RoutingRepository {
       .where("profile", "=", profile)
       .where("from_cache_id", "in", fromIds)
       .where("to_cache_id", "in", toIds)
+      // findLegs returns geometry-bearing routes only. A matrix-only cache
+      // cell (source='table', geom NULL) is a hit for findMatrixCells but a
+      // MISS here — caller falls through to OSRM /route, which upgrades the
+      // row in place to source='route' via upsertLegs.
+      .where("geom", "is not", null)
       .execute()) as unknown as LegRow[];
 
     return rows
