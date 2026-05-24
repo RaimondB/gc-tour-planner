@@ -54,6 +54,27 @@ describe("parseGpx", () => {
     expect(reference?.parentCode).toBe("GCBBB222");
   });
 
+  it("extracts parent cache code from Groundspeak 2-char prefix names", () => {
+    // PQ companion files (-wpts.gpx) name waypoints as <2-char-prefix><cache-suffix>:
+    // PA = parking, FL = final, TH/T0 = trailhead, 01/02 = numbered stages.
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0">
+        <wpt lat="51.87" lon="6.17"><name>PA278XH</name><sym>Parking Area</sym></wpt>
+        <wpt lat="51.87" lon="6.17"><name>FL278XH</name><sym>Final Location</sym></wpt>
+        <wpt lat="51.87" lon="6.17"><name>T09GQV2</name><sym>Trailhead</sym></wpt>
+        <wpt lat="51.87" lon="6.17"><name>018ZQ1F</name><sym>Parking Area</sym></wpt>
+        <wpt lat="51.87" lon="6.17"><name>P095W19</name><sym>Parking Area</sym></wpt>
+      </gpx>`;
+    const result = parseGpx(xml);
+    expect(result.waypoints.map((w) => w.parentCode)).toEqual([
+      "GC278XH",
+      "GC278XH",
+      "GC9GQV2",
+      "GC8ZQ1F",
+      "GC95W19",
+    ]);
+  });
+
   it("warns on caches with no waypoints and ignores wpts missing coordinates", () => {
     const xml = `<?xml version="1.0"?>
       <gpx xmlns="http://www.topografix.com/GPX/1/0">

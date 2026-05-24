@@ -195,13 +195,35 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
     const leave = () => {
       map.getCanvas().style.cursor = "";
     };
+    const parkingHandler = (
+      e: maplibregl.MapMouseEvent & {
+        features?: maplibregl.MapGeoJSONFeature[];
+      },
+    ) => {
+      const f = e.features?.[0];
+      if (!f) return;
+      const code = (f.properties as { cacheCode?: string }).cacheCode ?? "?";
+      const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
+      new maplibregl.Popup({ closeButton: true })
+        .setLngLat([lng, lat])
+        .setHTML(
+          `<div style="font:13px system-ui;padding:2px 4px">Parking for <strong>${code}</strong></div>`,
+        )
+        .addTo(map);
+    };
     map.on("click", CACHES_CIRCLE_LAYER, handler);
     map.on("mouseenter", CACHES_CIRCLE_LAYER, enter);
     map.on("mouseleave", CACHES_CIRCLE_LAYER, leave);
+    map.on("click", PARKING_LAYER, parkingHandler);
+    map.on("mouseenter", PARKING_LAYER, enter);
+    map.on("mouseleave", PARKING_LAYER, leave);
     return () => {
       map.off("click", CACHES_CIRCLE_LAYER, handler);
       map.off("mouseenter", CACHES_CIRCLE_LAYER, enter);
       map.off("mouseleave", CACHES_CIRCLE_LAYER, leave);
+      map.off("click", PARKING_LAYER, parkingHandler);
+      map.off("mouseenter", PARKING_LAYER, enter);
+      map.off("mouseleave", PARKING_LAYER, leave);
     };
   }, [map, ready, queryClient]);
 

@@ -31,7 +31,7 @@ export class GpxRepository {
     caches: readonly ParsedCache[],
     waypoints: readonly ParsedWaypoint[],
   ): Promise<UpsertCachesResult> {
-    if (caches.length === 0) {
+    if (caches.length === 0 && waypoints.length === 0) {
       return {
         insertedOrUpdated: 0,
         waypointsInserted: 0,
@@ -102,8 +102,44 @@ export class GpxRepository {
         }
       }
 
-      // Replace additional waypoints for caches that came in this batch.
-      const affectedCacheIds = Array.from(cacheIdByCode.values());
+      // Resolve parent caches for incoming waypoints. PQs ship caches in
+      // foo.gpx and additional waypoints in foo-wpts.gpx as separate files,
+      // so the parent often isn't in the current batch — fall back to caches
+      // already owned by this user.
+      const codeToCacheId = new Map(cacheIdByCode);
+      const unresolvedCodes = Array.from(
+        new Set(
+          waypoints
+            .map((w) => w.parentCode)
+            .filter((code) => !codeToCacheId.has(code)),
+        ),
+      );
+      if (unresolvedCodes.length > 0) {
+        const rows = await tx
+          .selectFrom("caches")
+          .select(["id", "code"])
+          .where("owner_id", "=", ownerId)
+          .where("code", "in", unresolvedCodes)
+          .execute();
+        for (const r of rows) codeToCacheId.set(r.code, Number(r.id));
+      }
+
+      // Replace additional waypoints for every cache the incoming waypoints
+      // touch — both the caches in this batch and the cross-batch parents we
+      // just resolved. Otherwise a re-uploaded -wpts.gpx would double-insert.
+      const matchedWaypoints = waypoints
+        .map((w) => {
+          const cacheId = codeToCacheId.get(w.parentCode);
+          return cacheId === undefined ? null : { w, cacheId };
+        })
+        .filter((x): x is { w: ParsedWaypoint; cacheId: number } => x !== null);
+
+      const affectedCacheIds = Array.from(
+        new Set([
+          ...cacheIdByCode.values(),
+          ...matchedWaypoints.map((m) => m.cacheId),
+        ]),
+      );
       if (affectedCacheIds.length > 0) {
         await tx
           .deleteFrom("additional_waypoints")
@@ -112,12 +148,6 @@ export class GpxRepository {
       }
 
       let waypointsInserted = 0;
-      const matchedWaypoints = waypoints
-        .map((w) => {
-          const cacheId = cacheIdByCode.get(w.parentCode);
-          return cacheId === undefined ? null : { w, cacheId };
-        })
-        .filter((x): x is { w: ParsedWaypoint; cacheId: number } => x !== null);
 
       if (matchedWaypoints.length > 0) {
         await tx
