@@ -142,6 +142,20 @@ export class HttpOsrmClient implements OsrmClient {
             "gc-tour-planner/0.0 (+https://github.com/RaimondB/gc-tour-planner)",
         },
       });
+    } catch (err) {
+      // `fetch failed` from undici is opaque — surface the actual cause and
+      // a hint about the OSRM_URL env so the dev knows what to fix. The most
+      // common gotcha: `OSRM_URL` defaults to `http://osrm:5000` (the compose
+      // hostname); running the API outside compose needs `http://localhost:5000`.
+      const cause = (err as { cause?: Error }).cause;
+      const detail = cause?.message ?? (err as Error).message;
+      throw new Error(
+        `OSRM request to ${this.base} failed: ${detail}. ` +
+          `Check that the OSRM container is up (docker compose ps osrm) and that ` +
+          `OSRM_URL points to it — host-side dev typically wants ` +
+          `OSRM_URL=http://localhost:5000.`,
+        { cause: err as Error },
+      );
     } finally {
       clearTimeout(timer);
     }

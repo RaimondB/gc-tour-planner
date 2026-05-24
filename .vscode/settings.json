@@ -1,0 +1,16 @@
+{
+  "remote.autoForwardPorts": true,
+  "remote.autoForwardPortsSource": "process",
+  "remote.portsAttributes": {
+    "3030": {
+      "label": "API (Nest) — Swagger UI at /docs/api",
+      "onAutoForward": "openPreview",
+      "requireLocalPort": true
+    },
+    "5173": {
+      "label": "Web (Vite dev server)",
+      "onAutoForward": "openBrowser",
+      "requireLocalPort": true
+    }
+  }
+}

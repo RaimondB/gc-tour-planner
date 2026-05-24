@@ -9,6 +9,22 @@ import { AppModule } from "./app.module.js";
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
+  // CORS: opt-in via env. The dev setup proxies the API through Vite (same
+  // origin), so CORS is unnecessary there. Production deploys that put the
+  // web bundle on a different origin set `CORS_ORIGINS=https://app.example.com`
+  // (comma-separated, no wildcards — credentials would break with `*`).
+  const corsOrigins = (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (corsOrigins.length > 0) {
+    app.enableCors({
+      origin: corsOrigins,
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    });
+  }
+
   const config = new DocumentBuilder()
     .setTitle("gc-tour-planner API")
     .setDescription(

@@ -11,5 +11,6 @@ import { CachesService } from "./caches.service.js";
   imports: [DatabaseModule],
   controllers: [CachesController],
   providers: [CachesService, CachesRepository],
+  exports: [CachesService],
 })
 export class CachesModule {}

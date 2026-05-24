@@ -4,6 +4,12 @@
 import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
+import {
+  ClusterCandidatesResponse,
+  type PlanInput,
+  type PlanLoopInput,
+  PlanResult,
+} from "@gctp/shared/tours";
 
 /**
  * Hand-written typed client. The OpenAPI-generated client lands once the API
@@ -107,4 +113,22 @@ export function unmarkCacheFound(
   cacheId: number,
 ): Promise<{ removed: boolean }> {
   return request(`/caches/${cacheId}/finds`, { method: "DELETE" });
+}
+
+export async function discoverClusters(input: PlanInput) {
+  const raw = await request<unknown>("/tours/clusters", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return ClusterCandidatesResponse.parse(raw);
+}
+
+export async function planLoop(input: PlanLoopInput) {
+  const raw = await request<unknown>("/tours/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return PlanResult.parse(raw);
 }

@@ -32,6 +32,13 @@ test-results/
 .DS_Store
 Thumbs.db
 
+# Local Claude Code scratch (debug exports, transcripts, etc.)
+# `.claude/settings.json` is project-wide tooling config and IS tracked.
+.claude/*
+!.claude/settings.json
+!.claude/agents/
+!.claude/agents/**
+
 # Env
 .env
 .env.*.local

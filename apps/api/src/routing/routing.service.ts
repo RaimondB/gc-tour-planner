@@ -5,8 +5,6 @@ import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Routing } from "@gctp/shared";
 import {
   type CoordRow,
-  type FoundLeg,
-  type PersistLegInput,
   RoutingRepository,
 } from "./routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "./osrm.client.js";
@@ -98,10 +96,13 @@ export class RoutingService {
   }
 
   /**
-   * Resolve the full OD matrix for the supplied cache IDs. Cached pairs
-   * (in either direction) come straight from `route_legs`; missing pairs
-   * trigger one `osrm /table` call for the full set, after which every new
-   * pair is persisted via `route_legs`.
+   * Resolve the full OD matrix for the supplied cache IDs in a single OSRM
+   * `/table` call. The `route_legs` table is intentionally NOT consulted here:
+   * `/table` is geometry-free, so matrix results were never persisted, so the
+   * cache hit rate for this path is zero. Reading from `route_legs` was dead
+   * work — and at N≈100 it built an N×(N-1)-clause SQL predicate large enough
+   * to overflow Kysely's recursive query compiler. `getLeg` (per-pair,
+   * geometry-bearing) still uses the cache.
    *
    * `legs[i][j]` is the leg from `cacheIds[i]` to `cacheIds[j]`; diagonals
    * are { meters: 0, seconds: 0 }. A `null` cell means OSRM couldn't route
@@ -118,70 +119,18 @@ export class RoutingService {
     }
     const coords = await this.coordMapOrThrow(ownerId, ids);
 
-    // Collect every pair (ordered) we'll need.
-    const allPairs: { fromCacheId: number; toCacheId: number }[] = [];
-    for (let i = 0; i < ids.length; i += 1) {
-      for (let j = 0; j < ids.length; j += 1) {
-        if (i === j) continue;
-        allPairs.push({ fromCacheId: ids[i]!, toCacheId: ids[j]! });
-      }
-    }
+    const coordList = ids.map<[number, number]>((id) => {
+      const c = coords.get(id)!;
+      return [c.lng, c.lat];
+    });
+    const osrmTable = await this.osrm.table(coordList, profile);
 
-    const cachedLegs = await this.repo.findLegs(allPairs, profile);
-    const cachedKey = (a: number, b: number) => `${a}:${b}`;
-    const cachedMap = new Map<string, FoundLeg>();
-    for (const l of cachedLegs) {
-      cachedMap.set(cachedKey(l.fromCacheId, l.toCacheId), l);
-    }
-
-    const missingPairs = allPairs.filter(
-      (p) => !cachedMap.has(cachedKey(p.fromCacheId, p.toCacheId)),
+    const legs: (Routing.MatrixEntry | null)[][] = osrmTable.map((row, i) =>
+      row.map((cell, j) => {
+        if (i === j) return { meters: 0, seconds: 0 };
+        return cell;
+      }),
     );
-
-    // Hit OSRM once for the entire matrix if anything's missing — /table is
-    // far cheaper than N(N-1) /route calls. This also re-fetches some pairs
-    // we already have, which is fine; upsert is idempotent.
-    let osrmTable:
-      | (import("./osrm.client.js").OsrmMatrixEntry | null)[][]
-      | null = null;
-    if (missingPairs.length > 0) {
-      const coordList = ids.map<[number, number]>((id) => {
-        const c = coords.get(id)!;
-        return [c.lng, c.lat];
-      });
-      osrmTable = await this.osrm.table(coordList, profile);
-
-      // Persist newly-known legs. We do NOT persist legs whose geometry we
-      // don't have (osrm /table doesn't return geometry). The matrix-only
-      // legs live in osrmTable but aren't written to route_legs — they only
-      // come back as Matrix entries. getLeg() can fill geometry on demand
-      // when M5 actually picks a tour.
-      const persistedFromOsrmTable: PersistLegInput[] = [];
-      // (intentionally empty — /table has no geometry; this list stays for
-      // future use if we move to per-pair /route)
-      await this.repo.upsertLegs(persistedFromOsrmTable);
-    }
-
-    const legs: (Routing.MatrixEntry | null)[][] = [];
-    for (let i = 0; i < ids.length; i += 1) {
-      const row: (Routing.MatrixEntry | null)[] = [];
-      for (let j = 0; j < ids.length; j += 1) {
-        if (i === j) {
-          row.push({ meters: 0, seconds: 0 });
-          continue;
-        }
-        const fromId = ids[i]!;
-        const toId = ids[j]!;
-        const cached = cachedMap.get(cachedKey(fromId, toId));
-        if (cached) {
-          row.push({ meters: cached.meters, seconds: cached.seconds });
-          continue;
-        }
-        const osrmEntry = osrmTable?.[i]?.[j] ?? null;
-        row.push(osrmEntry);
-      }
-      legs.push(row);
-    }
 
     return { profile, cacheIds: ids, legs };
   }

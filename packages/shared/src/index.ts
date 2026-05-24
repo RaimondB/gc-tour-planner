@@ -7,3 +7,4 @@ export * as Gpx from "./gpx/index.js";
 export * as Landuse from "./landuse/index.js";
 export * as Routing from "./routing/index.js";
 export * as Tours from "./tours/index.js";
+export * as Tsp from "./tsp/index.js";

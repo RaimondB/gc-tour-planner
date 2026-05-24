@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm test *)",
+      "Bash(docker info *)",
+      "Bash(pnpm test:integration)",
+      "Bash(pnpm format:check)",
+      "Bash(pnpm format *)",
+      "Bash(pnpm install *)",
+      "Bash(DATABASE_URL=postgresql://gctp:gctp-dev@localhost:5432/gctp API_PORT=3030 pnpm --filter @gctp/api dev)",
+      "Bash(curl -fsS http://localhost:3030/health)",
+      "Read(//tmp/**)",
+      "Bash(curl -fsS http://localhost:5173 -o /dev/null)",
+      "Bash(curl -sS 'http://localhost:5173/api/caches?lng=5.12&lat=52.09&radiusM=5000')",
+      "Bash(pnpm build *)",
+      "Bash(time curl -sS 'http://localhost:3030/landuse?minLng=5.10&minLat=52.05&maxLng=5.15&maxLat=52.10&kinds=forest&kinds=park')",
+      "Bash(curl -sS 'http://localhost:3030/caches?lng=5.12&lat=52.09&radiusM=5000&contexts=park')",
+      "Bash(curl -sS 'http://localhost:3030/caches?lng=5.12&lat=52.09&radiusM=5000')",
+      "Bash(curl -sS -X POST https://overpass-api.de/api/interpreter --data-urlencode 'data=[out:json][timeout:60]; *)",
+      "Bash(curl -sS -X POST https://overpass-api.de/api/interpreter -H 'User-Agent: gc-tour-planner-debug/0.0' --data-urlencode 'data=[out:json][timeout:60]; *)",
+      "Bash(echo \"--- /landuse for s-Heerenberg \\(cold\\) ---\" && time curl -sS 'http://localhost:3030/landuse?minLng=6.16&minLat=51.82&maxLng=6.34&maxLat=51.92' > /tmp/landuse.json && python3 -c \" *)",
+      "Bash(PGPASSWORD=gctp-dev psql -h localhost -U gctp -d gctp -c \"DELETE FROM osm_landuse;\")",
+      "Bash(docker exec *)",
+      "Bash(time curl -sS 'http://localhost:3030/landuse?minLng=6.16&minLat=51.82&maxLng=6.34&maxLat=51.92')",
+      "Bash(pnpm --filter @gctp/api test)",
+      "Bash(pnpm --filter @gctp/api test:integration -- tours.integration)",
+      "Bash(pnpm --filter @gctp/web typecheck)",
+      "Bash(pnpm --filter @gctp/web lint)",
+      "Bash(pnpm --filter @gctp/shared build)",
+      "Bash(pnpm --filter @gctp/api typecheck)",
+      "Bash(pnpm --filter @gctp/api lint)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}

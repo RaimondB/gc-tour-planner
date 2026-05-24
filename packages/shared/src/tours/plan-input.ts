@@ -39,6 +39,21 @@ export const PlanInput = z.object({
   center: LngLat,
   radiusM: z.number().int().positive().max(50_000),
   maxCaches: z.number().int().min(2).max(50).default(15),
+  /**
+   * Lower bound on cluster size. After single-linkage clustering on the
+   * ε-graph, any component smaller than this is dropped. The trim step
+   * also stops shrinking when it would push a cluster below this size.
+   */
+  minClusterSize: z.number().int().min(2).max(50).default(8),
+  /**
+   * Maximum walking distance (meters) between two caches for them to link
+   * into the same cluster — direct knob on DBSCAN's ε. Decoupled from
+   * `distanceBudgetMeters` / `minClusterSize` so the user can experiment
+   * with link distance without fighting the budget math. Walking distance
+   * (not straight-line) — comes from the OSRM matrix the planner already
+   * computes for cluster discovery.
+   */
+  maxLinkMeters: z.number().int().min(200).max(5000).default(1500),
   distanceBudgetMeters: z.number().int().positive().max(25_000).default(8_000),
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   hardFilters: HardFilters,

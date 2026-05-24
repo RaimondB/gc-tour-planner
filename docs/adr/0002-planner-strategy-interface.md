@@ -18,16 +18,25 @@ We want to ship the heuristic now (so M5 is reachable in the MVP timeline) but w
 Define a `TourPlannerStrategy` interface in `apps/api/src/tours/strategies/`. NestJS injects an implementation by DI token; configuration (env var) selects which.
 
 ```ts
-// apps/api/src/tours/strategies/planner.interface.ts
+// packages/shared/src/tours/planner-strategy.ts
 
 export interface TourPlannerStrategy {
-  plan(input: PlanInput): Promise<PlanResult>;
+  /** Pass 1 — top-N candidate clusters, ranked by score. */
+  discoverClusters(
+    ownerId: string,
+    input: PlanInput,
+  ): Promise<ClusterCandidate[]>;
+
+  /** Pass 2 — turn a chosen cluster's cache-id set into a routed closed loop. */
+  planLoop(ownerId: string, input: PlanLoopInput): Promise<PlanResult>;
 }
 
-export const TOUR_PLANNER = Symbol("TOUR_PLANNER");
+export const TOUR_PLANNER = Symbol.for("@gctp/tours/TOUR_PLANNER");
 ```
 
-`PlanInput` and `PlanResult` live in `packages/shared/src/tours/`. They are versioned alongside the wire DTO so client + server + strategies all share the same shapes.
+`PlanInput`, `PlanLoopInput`, `ClusterCandidate`, and `PlanResult` live in `packages/shared/src/tours/`. They are versioned alongside the wire DTOs so client + server + strategies all share the same shapes.
+
+**Why two methods, not one** _(M5-α revision, 2026-05-24)._ The original interface had a single `plan(PlanInput)`. While implementing the greedy planner we found that the UI needs to show the user candidate clusters before paying for the full OSRM matrix + per-leg geometry of any one of them, and that future solver strategies will want the same split (a cheap "show me my options" pass + an expensive "commit to this one" pass). Returning N PlanResults from one call would force the planner to do N times the work, even when the user only ever picks one. The two-method shape makes the cost honest at the API.
 
 MVP ships:
 
@@ -41,12 +50,17 @@ The factory in `tours.module.ts` picks the implementation:
 
 ```ts
 {
-  provide: TOUR_PLANNER,
-  useFactory: (config: ConfigService) =>
-    config.get('TOUR_PLANNER') === 'solver'
-      ? new SolverTourPlanner(...)
-      : new GreedyTspPlanner(...),
-  inject: [ConfigService],
+  provide: Tours.TOUR_PLANNER,
+  useFactory: (config, caches, routing, osrm) => {
+    const flavor = config.get<string>('TOUR_PLANNER') ?? 'greedy';
+    switch (flavor) {
+      case 'greedy':
+      default:
+        return new GreedyTspPlanner(caches, routing, osrm);
+      // case 'solver': return new SolverTourPlanner(...)  // added when M5+ needs it
+    }
+  },
+  inject: [ConfigService, CachesService, RoutingService, OSRM_CLIENT],
 }
 ```
 
