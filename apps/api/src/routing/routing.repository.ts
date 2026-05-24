@@ -132,6 +132,10 @@ export class RoutingRepository {
    * cluster discovery. INSERT … DO NOTHING — never downgrade a 'route' row to
    * 'table'. Pass 2's upsertLegs() can still upgrade a 'table' row to 'route'
    * later (its DO UPDATE SET overwrites source).
+   *
+   * Chunks at 5 000 rows per INSERT (≈ 35 k bind parameters @ 7 cols, safely
+   * under Postgres's 65 535 hard cap). A single 1000-cache Pass 1 run with
+   * k=12 produces ~24 k cells, so the chunking kicks in.
    */
   async upsertMatrixCells(
     cells: readonly {
@@ -143,23 +147,27 @@ export class RoutingRepository {
     }[],
   ): Promise<void> {
     if (cells.length === 0) return;
-    await this.db
-      .insertInto("route_legs")
-      .values(
-        cells.map((c) => ({
-          from_cache_id: c.fromCacheId,
-          to_cache_id: c.toCacheId,
-          profile: c.profile,
-          meters: c.meters,
-          seconds: c.seconds,
-          source: "table",
-          geom: null,
-        })),
-      )
-      .onConflict((oc) =>
-        oc.columns(["from_cache_id", "to_cache_id", "profile"]).doNothing(),
-      )
-      .execute();
+    const CHUNK = 5_000;
+    for (let i = 0; i < cells.length; i += CHUNK) {
+      const slice = cells.slice(i, i + CHUNK);
+      await this.db
+        .insertInto("route_legs")
+        .values(
+          slice.map((c) => ({
+            from_cache_id: c.fromCacheId,
+            to_cache_id: c.toCacheId,
+            profile: c.profile,
+            meters: c.meters,
+            seconds: c.seconds,
+            source: "table",
+            geom: null,
+          })),
+        )
+        .onConflict((oc) =>
+          oc.columns(["from_cache_id", "to_cache_id", "profile"]).doNothing(),
+        )
+        .execute();
+    }
   }
 
   /**
