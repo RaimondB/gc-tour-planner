@@ -103,8 +103,23 @@ export interface RouteLegsTable {
   profile: string;
   meters: ColumnType<string, string | number, string | number>;
   seconds: ColumnType<string, string | number, string | number>;
-  geom: Geography;
+  /**
+   * `'table'` = cell came from OSRM /table (sparse matrix; no geometry).
+   * `'route'` = cell came from OSRM /route (full LineString in `geom`).
+   * Pass 2 upgrades a 'table' row to 'route' in place when it asks for getLeg.
+   */
+  source: string;
+  /** NULL when `source = 'table'`. Required (DB CHECK) when `source = 'route'`. */
+  geom: Geography | null;
   fetched_at: Generated<Date>;
+}
+
+export interface CacheLanduseTable {
+  cache_id: number;
+  landuse_id: number;
+  /** Mirror of osm_landuse.kind; denormalised for fast scoring queries. */
+  kind: string;
+  computed_at: Generated<Date>;
 }
 
 export interface Database {
@@ -116,4 +131,5 @@ export interface Database {
   cache_finds: CacheFindsTable;
   osm_landuse: OsmLanduseTable;
   route_legs: RouteLegsTable;
+  cache_landuse: CacheLanduseTable;
 }
