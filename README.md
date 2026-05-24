@@ -36,13 +36,13 @@ Full layout and module-by-module breakdown: [docs/ARCHITECTURE.md](docs/ARCHITEC
 
 ## Documentation
 
-| Document | What it covers |
-| --- | --- |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Functional + non-functional requirements |
+| Document                                     | What it covers                            |
+| -------------------------------------------- | ----------------------------------------- |
+| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Functional + non-functional requirements  |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, repo layout, modules |
-| [docs/DESIGN.md](docs/DESIGN.md) | Data model, algorithms, API surface |
-| [docs/LICENSING.md](docs/LICENSING.md) | GPLv3 compliance, third-party data terms |
-| [docs/adr/](docs/adr/) | Architecture Decision Records |
+| [docs/DESIGN.md](docs/DESIGN.md)             | Data model, algorithms, API surface       |
+| [docs/LICENSING.md](docs/LICENSING.md)       | GPLv3 compliance, third-party data terms  |
+| [docs/adr/](docs/adr/)                       | Architecture Decision Records             |
 
 ## Tech stack (locked)
 

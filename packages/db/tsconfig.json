@@ -1,0 +1,16 @@
+{
+  "extends": "@gctp/config/tsconfig.node.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "migrations",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}

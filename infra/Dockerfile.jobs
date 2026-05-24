@@ -1,0 +1,28 @@
+# Copyright (C) 2026 Raimond Brookman and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Job-worker image. Shares the same artifact as the API; the JOBS_ENTRYPOINT
+# env (set in compose) decides which entry to run. M4+ adds a dedicated
+# worker entrypoint; for now this just no-ops so docker-compose stays valid.
+
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS build
+COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY packages packages
+COPY apps/api apps/api
+RUN pnpm install --frozen-lockfile=false
+RUN pnpm --filter @gctp/shared build \
+ && pnpm --filter @gctp/db build \
+ && pnpm --filter @gctp/api build
+RUN pnpm deploy --filter @gctp/api --prod /out
+
+FROM node:22-bookworm-slim AS runtime
+WORKDIR /app
+COPY --from=build /out ./
+ENV NODE_ENV=production
+# Placeholder until the BullMQ worker entrypoint lands in M4.
+CMD ["node", "-e", "console.warn('[jobs] worker stub — real entrypoint lands in M4'); setInterval(()=>{}, 1<<30);"]

@@ -24,7 +24,7 @@ export interface TourPlannerStrategy {
   plan(input: PlanInput): Promise<PlanResult>;
 }
 
-export const TOUR_PLANNER = Symbol('TOUR_PLANNER');
+export const TOUR_PLANNER = Symbol("TOUR_PLANNER");
 ```
 
 `PlanInput` and `PlanResult` live in `packages/shared/src/tours/`. They are versioned alongside the wire DTO so client + server + strategies all share the same shapes.

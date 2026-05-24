@@ -141,13 +141,13 @@ OpenAPI spec is auto-generated from NestJS decorators. The TypeScript client is 
 
 ```ts
 const CachesQuery = z.object({
-  center: z.tuple([z.number(), z.number()]),         // [lng, lat]
+  center: z.tuple([z.number(), z.number()]), // [lng, lat]
   radiusM: z.number().int().positive().max(50_000),
   types: z.array(z.enum(CACHE_TYPES)).optional(),
-  attributes: z                                       // AND-of-OR groups
+  attributes: z // AND-of-OR groups
     .array(z.array(z.object({ id: z.number(), positive: z.boolean() })))
     .optional(),
-  contexts: z.array(z.string()).optional(),           // landuse kinds to filter to (hard)
+  contexts: z.array(z.string()).optional(), // landuse kinds to filter to (hard)
 });
 type CachesResponse = {
   caches: CacheDTO[];
@@ -175,12 +175,18 @@ const PlanInput = z.object({
   softPreferences: z.object({
     landuseProfileId: z.string().uuid().optional(),
     attributePreferences: z.record(z.string(), z.number()).optional(),
-    difficultyTarget: z.object({ value: z.number(), tolerance: z.number(), weight: z.number() }).optional(),
-    terrainTarget:    z.object({ value: z.number(), tolerance: z.number(), weight: z.number() }).optional(),
-    clusterDensityWeight:    z.number().default(1),
-    loopCompactnessWeight:   z.number().default(1),
+    difficultyTarget: z
+      .object({ value: z.number(), tolerance: z.number(), weight: z.number() })
+      .optional(),
+    terrainTarget: z
+      .object({ value: z.number(), tolerance: z.number(), weight: z.number() })
+      .optional(),
+    clusterDensityWeight: z.number().default(1),
+    loopCompactnessWeight: z.number().default(1),
   }),
-  startPreference: z.enum(['parking-waypoint', 'osrm-nearest-road', 'user-supplied-point']).default('parking-waypoint'),
+  startPreference: z
+    .enum(["parking-waypoint", "osrm-nearest-road", "user-supplied-point"])
+    .default("parking-waypoint"),
   userSuppliedStart: z.tuple([z.number(), z.number()]).optional(),
 });
 
@@ -188,7 +194,11 @@ type PlanResult = {
   orderedCacheIds: number[];
   polyline: GeoJsonLineString;
   totals: { meters: number; seconds: number; visitMinutes: number };
-  parking: { type: 'pq' | 'osrm-nearest' | 'user'; point: GeoJsonPoint; reason: string };
+  parking: {
+    type: "pq" | "osrm-nearest" | "user";
+    point: GeoJsonPoint;
+    reason: string;
+  };
   scoreBreakdown: Record<string, number>;
 };
 ```

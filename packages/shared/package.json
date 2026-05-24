@@ -1,0 +1,48 @@
+{
+  "name": "@gctp/shared",
+  "version": "0.0.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tours": {
+      "types": "./dist/tours/index.d.ts",
+      "import": "./dist/tours/index.js"
+    },
+    "./caches": {
+      "types": "./dist/caches/index.d.ts",
+      "import": "./dist/caches/index.js"
+    },
+    "./geo": {
+      "types": "./dist/geo/index.d.ts",
+      "import": "./dist/geo/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@gctp/config": "workspace:*",
+    "eslint": "9.15.0",
+    "typescript": "5.6.3",
+    "vitest": "2.1.5"
+  }
+}

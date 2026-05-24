@@ -8,9 +8,9 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 
 **States:** `Proposed` → `Accepted` / `Rejected` → `Superseded by ADR-XXXX`. Never delete or rewrite a superseded ADR — write a new one that references it.
 
-| # | Title | Status |
-| --- | --- | --- |
-| [0001](0001-stack-choices.md) | Tech stack (TypeScript + NestJS + React + PostGIS) | Accepted |
-| [0002](0002-planner-strategy-interface.md) | Pluggable `TourPlannerStrategy` | Accepted |
-| [0003](0003-license-gplv3.md) | License: GPL-3.0-or-later | Accepted |
-| [0004](0004-valkey-over-redis.md) | Use Valkey instead of Redis | Accepted |
+| #                                          | Title                                              | Status   |
+| ------------------------------------------ | -------------------------------------------------- | -------- |
+| [0001](0001-stack-choices.md)              | Tech stack (TypeScript + NestJS + React + PostGIS) | Accepted |
+| [0002](0002-planner-strategy-interface.md) | Pluggable `TourPlannerStrategy`                    | Accepted |
+| [0003](0003-license-gplv3.md)              | License: GPL-3.0-or-later                          | Accepted |
+| [0004](0004-valkey-over-redis.md)          | Use Valkey instead of Redis                        | Accepted |
