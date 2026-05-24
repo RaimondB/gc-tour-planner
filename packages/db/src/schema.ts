@@ -96,6 +96,17 @@ export interface OsmLanduseTable {
   fetched_at: Generated<Date>;
 }
 
+export interface RouteLegsTable {
+  from_cache_id: number;
+  to_cache_id: number;
+  /** 'foot' (MVP). Other profiles deferred. */
+  profile: string;
+  meters: ColumnType<string, string | number, string | number>;
+  seconds: ColumnType<string, string | number, string | number>;
+  geom: Geography;
+  fetched_at: Generated<Date>;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
@@ -104,4 +115,5 @@ export interface Database {
   gpx_uploads: GpxUploadsTable;
   cache_finds: CacheFindsTable;
   osm_landuse: OsmLanduseTable;
+  route_legs: RouteLegsTable;
 }

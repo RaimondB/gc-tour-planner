@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module.js";
 import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { OsmModule } from "./osm/osm.module.js";
+import { RoutingModule } from "./routing/routing.module.js";
 import { ToursModule } from "./tours/tours.module.js";
 
 @Module({
@@ -20,6 +21,7 @@ import { ToursModule } from "./tours/tours.module.js";
     GpxModule,
     CachesModule,
     OsmModule,
+    RoutingModule,
     ToursModule,
   ],
 })

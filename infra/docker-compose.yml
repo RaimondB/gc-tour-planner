@@ -45,9 +45,13 @@ services:
       retries: 10
 
   osrm:
-    image: osrm/osrm-backend:latest
+    # ghcr.io/project-osrm/osrm-backend is the actively-maintained image
+    # (Alpine 3.21 base, has wget). The old osrm/osrm-backend on Docker Hub
+    # was abandoned in 2021 — Debian 9 stretch (EOL), no HTTP client,
+    # apt mirrors return 404. Don't switch back without a very good reason.
+    image: ghcr.io/project-osrm/osrm-backend:latest
     restart: unless-stopped
-    entrypoint: ["/bin/bash", "/srv/bootstrap.sh"]
+    entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
     environment:
       OSRM_REGION: ${OSRM_REGION}
     volumes:

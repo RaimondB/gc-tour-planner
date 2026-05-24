@@ -30,6 +30,10 @@
     "./landuse": {
       "types": "./dist/landuse/index.d.ts",
       "import": "./dist/landuse/index.js"
+    },
+    "./routing": {
+      "types": "./dist/routing/index.d.ts",
+      "import": "./dist/routing/index.js"
     }
   },
   "files": [

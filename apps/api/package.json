@@ -7,7 +7,7 @@
   "main": "./dist/main.js",
   "scripts": {
     "build": "nest build",
-    "dev": "tsc-watch -p tsconfig.json --onSuccess \"node dist/main.js\"",
+    "dev": "rm -rf dist && tsc-watch -p tsconfig.json --onSuccess \"node dist/main.js\"",
     "start": "node dist/main.js",
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
