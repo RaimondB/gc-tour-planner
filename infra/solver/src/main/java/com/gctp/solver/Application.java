@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Raimond Brookman and contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package com.gctp.solver;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
