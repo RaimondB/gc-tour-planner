@@ -50,12 +50,28 @@ export const CacheConnectivity = z.object({
 export type CacheConnectivity = z.infer<typeof CacheConnectivity>;
 
 export const ClusterDiagnostics = z.object({
-  /** ε used by DBSCAN this run — typically `PlanInput.maxLinkMeters`. */
+  /**
+   * ε used by DBSCAN this run — populated only by the legacy DBSCAN path.
+   * The new Louvain-on-sparse-graph pipeline leaves this 0 (it doesn't use ε).
+   */
   epsilonMeters: z.number().nonnegative(),
   /** Caches considered (pool size); ≤ MAX_DISCOVERY_POOL. */
   poolSize: z.number().int().nonnegative(),
+  /**
+   * Pre-trim components: legacy DBSCAN connected components or, under the
+   * Louvain pipeline, one entry per seed subgraph (so the user can see how
+   * the H3-seeded neighbourhoods sliced their pool).
+   */
   components: z.array(ClusterComponent),
   cacheConnectivity: z.array(CacheConnectivity),
+  /** Number of H3-density seeds chosen (Louvain pipeline only). */
+  seedCount: z.number().int().nonnegative().optional(),
+  /** Edges in the sparse walking graph (Louvain pipeline only). */
+  edgeCount: z.number().int().nonnegative().optional(),
+  /** Fraction of pool caches that hit at least one landuse polygon (0..1). */
+  landuseCoverageFraction: z.number().min(0).max(1).optional(),
+  /** Resolution values the Louvain sweep used. */
+  resolutionsUsed: z.array(z.number()).optional(),
 });
 export type ClusterDiagnostics = z.infer<typeof ClusterDiagnostics>;
 
