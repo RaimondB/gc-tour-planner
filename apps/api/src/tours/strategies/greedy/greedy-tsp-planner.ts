@@ -148,7 +148,15 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     );
 
     // 4. Louvain across resolutions on each subgraph.
-    const sigmaMeters = input.distanceBudgetMeters / 4;
+    //
+    // σ controls how aggressively distance decays in the edge weight
+    // `exp(-d/σ)`. Earlier we used budget/4 (= 2 km for the 8 km default),
+    // which gave a 1500 m bridge edge between two river-separated pods a
+    // weight of 0.47 — enough for Louvain to fuse them into one community.
+    // Pegging σ to `maxLinkMeters / 3` (≈ 500 m by default) drops that same
+    // bridge edge to weight 0.05, an 11× ratio against intra-pod 300 m edges
+    // (weight 0.55). Modularity now keeps the pods apart.
+    const sigmaMeters = input.maxLinkMeters / 3;
     const rawCandidates = discoverClustersInSubgraphs(subgraphs, {
       sigmaMeters,
     });
@@ -270,19 +278,20 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       return ids;
     };
 
-    // 5. Safety-net split + two-stage trim + post-trim dedup.
+    // 5. Safety-net split + two-stage trim + Jaccard dedup of trimmed cores.
     //
     // splitByMstCut keeps each surviving community within budget+size.
     // trimOutliers drops caches with no in-cluster walking-graph edge.
     // trimGeographicOutliers drops caches > min(2× median, budget/4)
     // from the centroid. Both iterate to a fixed point.
     //
-    // Different raw Louvain candidates often collapse to the SAME trimmed
-    // core (the resolution sweep gives several near-overlapping seeds, all
-    // of which share the same dense pocket). Dedup AFTER trimming so the
-    // user doesn't see five identical clusters with different ids.
+    // Different raw Louvain candidates often converge to near-overlapping
+    // trimmed cores (the resolution sweep gives several seeds rooted in
+    // the same dense pocket). Jaccard dedup at 0.8 drops the "almost same"
+    // duplicates the strict-equality dedup missed.
+    const POST_TRIM_JACCARD = 0.8;
     const splitClusters: number[][] = [];
-    const seenSignatures = new Set<string>();
+    const keptSets: Set<number>[] = [];
     for (const cand of rawCandidates) {
       const parts = splitByMstCut(
         cand.cacheIds,
@@ -295,9 +304,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         const connTrimmed = trimOutliers(part);
         const geoTrimmed = trimGeographicOutliers(connTrimmed);
         if (geoTrimmed.length < input.minClusterSize) continue;
-        const sig = geoTrimmed.slice().sort((a, b) => a - b).join(",");
-        if (seenSignatures.has(sig)) continue;
-        seenSignatures.add(sig);
+        const set = new Set(geoTrimmed);
+        const dup = keptSets.some((k) => jaccard(k, set) >= POST_TRIM_JACCARD);
+        if (dup) continue;
+        keptSets.push(set);
         splitClusters.push(geoTrimmed);
       }
     }
@@ -596,6 +606,15 @@ function round2(n: number): number {
 
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
+}
+
+/** Set Jaccard — |A ∩ B| / |A ∪ B|. Used for post-trim dedup. */
+function jaccard(a: ReadonlySet<number>, b: ReadonlySet<number>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersection = 0;
+  for (const x of a) if (b.has(x)) intersection += 1;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
 }
 
 function bboxOf(
