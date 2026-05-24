@@ -1,11 +1,81 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Placeholder Kysely typings. M2 introduces real tables and replaces this
-// file with codegen output. Until then we only declare an empty `Database`
-// interface so application code can take a typed `Kysely<Database>` instance.
+// Hand-maintained Kysely table typings. They mirror the schema in
+// packages/db/migrations/. Keep migrations and these typings in lockstep;
+// kysely-codegen will replace this file once the schema stabilizes.
+//
+// PostGIS types: a GEOGRAPHY(Point|LineString|Polygon) column is read back
+// as the EWKB hex string by node-pg. Repositories convert with ST_AsGeoJSON
+// in their SELECT lists, so this typing keeps the raw column as `string`
+// — the typed shape (GeoJsonPoint, etc.) belongs in the repository layer.
 
-// Tables land here in M2 (caches, cache_attributes, additional_waypoints, ...).
-// See docs/DESIGN.md §1. Using a type alias for now so an empty interface
-// doesn't trip @typescript-eslint/no-empty-object-type.
-export type Database = Record<string, never>;
+import type { ColumnType, Generated, JSONColumnType } from "kysely";
+
+/** PostGIS column shape — read as EWKB hex, written via spatial functions. */
+type Geography = string;
+
+export interface UsersTable {
+  id: Generated<string>;
+  email: string;
+  display_name: string;
+  password_hash: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface CachesTable {
+  id: Generated<number>;
+  owner_id: string | null;
+  source: string;
+  source_id: string;
+  code: string;
+  type: string;
+  name: string;
+  location: Geography;
+  difficulty: ColumnType<
+    string | null,
+    string | number | null,
+    string | number | null
+  >;
+  terrain: ColumnType<
+    string | null,
+    string | number | null,
+    string | number | null
+  >;
+  size: string | null;
+  archived: ColumnType<boolean, boolean | undefined, boolean>;
+  last_seen_at: Generated<Date>;
+  raw: JSONColumnType<Record<string, unknown>>;
+}
+
+export interface CacheAttributesTable {
+  cache_id: number;
+  attr_id: number;
+  positive: boolean;
+}
+
+export interface AdditionalWaypointsTable {
+  id: Generated<number>;
+  cache_id: number;
+  type: string;
+  location: Geography;
+  note: string | null;
+}
+
+export interface GpxUploadsTable {
+  id: Generated<string>;
+  owner_id: string;
+  filename: string;
+  parsed_count: ColumnType<number, number | undefined, number>;
+  status: string;
+  error: string | null;
+  uploaded_at: Generated<Date>;
+}
+
+export interface Database {
+  users: UsersTable;
+  caches: CachesTable;
+  cache_attributes: CacheAttributesTable;
+  additional_waypoints: AdditionalWaypointsTable;
+  gpx_uploads: GpxUploadsTable;
+}

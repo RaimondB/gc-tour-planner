@@ -3,13 +3,21 @@
 
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { AuthModule } from "./auth/auth.module.js";
+import { CachesModule } from "./caches/caches.module.js";
+import { DatabaseModule } from "./database/database.module.js";
+import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { ToursModule } from "./tours/tours.module.js";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    DatabaseModule,
+    AuthModule,
     HealthModule,
+    GpxModule,
+    CachesModule,
     ToursModule,
   ],
 })

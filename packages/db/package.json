@@ -22,8 +22,9 @@
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo '(no unit tests yet — integration tests live in apps/api/test/)'",
-    "migrate:up": "node-pg-migrate -d DATABASE_URL up -m migrations",
-    "migrate:down": "node-pg-migrate -d DATABASE_URL down -m migrations",
+    "migrate:up": "node-pg-migrate up --migrations-dir migrations --migration-filename-format utc",
+    "migrate:down": "node-pg-migrate down --migrations-dir migrations --migration-filename-format utc",
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations --migration-file-language sql --migration-filename-format utc",
     "generate-types": "echo 'TODO: wire kysely-codegen against $DATABASE_URL'",
     "clean": "rm -rf dist .turbo"
   },
