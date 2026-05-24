@@ -84,7 +84,12 @@ export interface OsmLanduseTable {
   id: Generated<number>;
   /** 0.1°-cell coordinate, e.g. "5.1,52.0" */
   area_hash: string;
-  osm_way_id: number;
+  /**
+   * OSM source identifier. 'way:<id>' for a standalone closed way,
+   * 'rel:<id>:<ringIndex>' for one outer ring of a multipolygon relation.
+   * (area_hash, osm_source) is the dedup key.
+   */
+  osm_source: string;
   /** Canonical kind from packages/shared/src/landuse. */
   kind: string;
   polygon: Geography;
