@@ -1,13 +1,18 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CACHE_TYPES, type CacheType } from "@gctp/shared/caches";
 import type { SearchParams } from "../../lib/search-params.js";
 
 export interface FilterSidebarProps {
   value: SearchParams;
-  onChange: (next: SearchParams) => void;
+  /**
+   * `opts.fly` requests that the map camera fly to the new center
+   * (set when the user explicitly invokes "Use my location"). Map-click
+   * recenter and manual input changes both leave the camera alone.
+   */
+  onChange: (next: SearchParams, opts?: { fly?: boolean }) => void;
   cacheCount: number | undefined;
   loading: boolean;
 }
@@ -18,16 +23,33 @@ export function FilterSidebar({
   cacheCount,
   loading,
 }: FilterSidebarProps) {
-  // Local draft so number inputs don't fight the user mid-keystroke.
-  const [lng, setLng] = useState(String(value.center[0]));
-  const [lat, setLat] = useState(String(value.center[1]));
+  // Local draft so the user can type freely without round-tripping every
+  // keystroke through the parent's state.
+  const [lng, setLng] = useState(formatCoord(value.center[0]));
+  const [lat, setLat] = useState(formatCoord(value.center[1]));
+
+  // Sync drafts when the parent's center changes (map click, geolocate).
+  // We compare numerically so a parent-side normalisation doesn't fight the
+  // user — only update when the underlying value really differs.
+  useEffect(() => {
+    setLng((prev) =>
+      Number(prev.replace(",", ".")) === value.center[0]
+        ? prev
+        : formatCoord(value.center[0]),
+    );
+    setLat((prev) =>
+      Number(prev.replace(",", ".")) === value.center[1]
+        ? prev
+        : formatCoord(value.center[1]),
+    );
+  }, [value.center]);
 
   const commitCenter = () => {
-    const nLng = Number(lng);
-    const nLat = Number(lat);
-    if (Number.isFinite(nLng) && Number.isFinite(nLat)) {
-      onChange({ ...value, center: [nLng, nLat] });
-    }
+    const nLng = parseCoord(lng);
+    const nLat = parseCoord(lat);
+    if (nLng === null || nLat === null) return;
+    if (nLng === value.center[0] && nLat === value.center[1]) return;
+    onChange({ ...value, center: [nLng, nLat] });
   };
 
   const toggleType = (t: CacheType) => {
@@ -43,9 +65,9 @@ export function FilterSidebar({
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const c: [number, number] = [pos.coords.longitude, pos.coords.latitude];
-        setLng(String(c[0]));
-        setLat(String(c[1]));
-        onChange({ ...value, center: c });
+        setLng(formatCoord(c[0]));
+        setLat(formatCoord(c[1]));
+        onChange({ ...value, center: c }, { fly: true });
       },
       undefined,
       { enableHighAccuracy: false, timeout: 8_000 },
@@ -60,31 +82,41 @@ export function FilterSidebar({
         <label>
           Longitude
           <input
-            type="number"
-            step="0.0001"
+            type="text"
+            inputMode="decimal"
+            // `lang="en"` keeps any browser-localised number widgets dot-only.
+            lang="en"
             value={lng}
             onChange={(e) => setLng(e.target.value)}
             onBlur={commitCenter}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
           />
         </label>
         <label>
           Latitude
           <input
-            type="number"
-            step="0.0001"
+            type="text"
+            inputMode="decimal"
+            lang="en"
             value={lat}
             onChange={(e) => setLat(e.target.value)}
             onBlur={commitCenter}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
           />
         </label>
         <button type="button" onClick={useMyLocation}>
           Use my location
         </button>
+        <small>Click the map to set the search center.</small>
       </div>
 
       <div className="field">
         <label>
-          Radius (m): {value.radiusM.toLocaleString()}
+          Radius (m): {value.radiusM.toLocaleString("en-US")}
           <input
             type="range"
             min={500}
@@ -122,4 +154,16 @@ export function FilterSidebar({
       </div>
     </aside>
   );
+}
+
+/** Always uses `.` as decimal separator. */
+function formatCoord(n: number): string {
+  // String(num) is locale-independent — never produces a comma.
+  return String(n);
+}
+
+/** Accepts `.` or `,` decimal separators; returns null on invalid input. */
+function parseCoord(raw: string): number | null {
+  const n = Number(raw.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }

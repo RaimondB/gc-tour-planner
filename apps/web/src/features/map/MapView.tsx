@@ -27,16 +27,34 @@ export interface MapViewProps {
   /** Initial center; the map is uncontrolled afterwards (user pans/zooms freely). */
   initialCenter?: [number, number];
   initialZoom?: number;
+  /**
+   * Fires on a left-click on the map background (i.e. not on top of an
+   * interactive feature like a cache marker). Use to pick a new search center
+   * — the camera intentionally does not jump; the user already chose the
+   * location visually.
+   */
+  onPickCenter?: (lngLat: [number, number]) => void;
+  /**
+   * Fires once when the map instance is created and again with `null` on
+   * unmount. Use to grab a ref for imperative camera moves like flyTo.
+   */
+  onReady?: (map: maplibregl.Map | null) => void;
   children?: ReactNode;
 }
 
 export function MapView({
   initialCenter = DEFAULT_CENTER,
   initialZoom = DEFAULT_ZOOM,
+  onPickCenter,
+  onReady,
   children,
 }: MapViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [api, setApi] = useState<MapApi | null>(null);
+  const onPickRef = useRef(onPickCenter);
+  onPickRef.current = onPickCenter;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -49,13 +67,25 @@ export function MapView({
       center: initialCenter,
       zoom: initialZoom,
     });
-    const ready = { current: false };
     map.on("load", () => {
-      ready.current = true;
       setApi({ map, ready: true });
     });
     setApi({ map, ready: false });
+    onReadyRef.current?.(map);
+
+    const clickHandler = (e: maplibregl.MapMouseEvent) => {
+      // Skip if the click hit a feature layer (those have their own handlers).
+      const hits = map.queryRenderedFeatures(e.point, {
+        layers: ["gctp-caches-circle"].filter((id) => map.getLayer(id)),
+      });
+      if (hits.length > 0) return;
+      onPickRef.current?.([e.lngLat.lng, e.lngLat.lat]);
+    };
+    map.on("click", clickHandler);
+
     return () => {
+      map.off("click", clickHandler);
+      onReadyRef.current?.(null);
       map.remove();
       setApi(null);
     };
