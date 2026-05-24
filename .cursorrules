@@ -1,0 +1,40 @@
+# Cursor rules — gc-tour-planner
+
+Authoritative agent guidance is in `CLAUDE.md` — read it first. This file mirrors the high-priority rules for Cursor/Copilot-style agents that don't load CLAUDE.md.
+
+## Project shape
+
+- pnpm + Turborepo monorepo. TypeScript end-to-end.
+- `apps/api` (NestJS) · `apps/web` (React + Vite + MapLibre) · `packages/shared` (zod, GPX parser, TSP, geo utils) · `packages/db` (Kysely + node-pg-migrate) · `packages/config` (eslint/prettier/tsconfig presets).
+- DB: Postgres 16 + PostGIS 3. Cache/queue: **Valkey** (NOT Redis). Routing: self-hosted OSRM (foot profile). OSM context: Overpass.
+- License: GPL-3.0-or-later. Every runtime dep must be GPLv3-compatible.
+
+## Hard rules — do not violate
+
+1. **Valkey, not Redis.** Redis 7.4+ is SSPL/RSAL — incompatible with our license.
+2. **Never bundle Groundspeak attribute icons** — copyrighted. Use Material Symbols (Apache-2.0) or text chips.
+3. **OSM attribution** ("© OpenStreetMap contributors") on every map view.
+4. **Per-user GPX isolation.** User-uploaded caches have `owner_id` set; public-source rows have `owner_id = NULL`. Enforce in repositories.
+5. **No third-party API creds in the DB.** Project identity only. GC.com partner key (M8) lives in env.
+6. **Layering:** controller → service → repository → Kysely. Controllers never touch SQL.
+7. **No source code outside `apps/`, `packages/`, `infra/`.** Don't drop files at the repo root.
+8. **Migrations are append-only.** One change per file; never edit a merged migration.
+9. **Zod schemas live in `packages/shared`**; never duplicate a wire-DTO shape between client and server.
+10. **GPLv3 header** on every TS/JS/SQL source file in `apps/` and `packages/`:
+    ```
+    // Copyright (C) 2026 Raimond Brookman and contributors
+    // SPDX-License-Identifier: GPL-3.0-or-later
+    ```
+
+## Conventions
+
+- Filenames: `kebab-case.ts`. React components: `PascalCase`. Nest classes: `PascalCase`.
+- Tests co-located as `*.spec.ts`. E2E under `apps/web/e2e/` (Playwright). Integration tests use Testcontainers PostGIS — **do not mock the DB**.
+- Comments only when the _why_ is non-obvious.
+- PostGIS in Kysely: `sql\`ST_DWithin(...)\`` fragments. Document each spatial query's supporting index in the migration.
+
+## See also
+
+- `CLAUDE.md`
+- `docs/REQUIREMENTS.md` · `docs/ARCHITECTURE.md` · `docs/DESIGN.md` · `docs/LICENSING.md`
+- `docs/adr/`

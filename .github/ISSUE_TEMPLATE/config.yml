@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/RaimondB/gc-tour-planner/discussions
+    about: For "how do I…" or design discussion — please use Discussions instead of opening an issue.
