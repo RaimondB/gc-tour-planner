@@ -7,7 +7,6 @@ import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
 
 const SOURCE_ID = "gctp-radius";
-const FILL_LAYER = "gctp-radius-fill";
 const LINE_LAYER = "gctp-radius-line";
 const CENTER_SOURCE = "gctp-search-center";
 const CENTER_LAYER = "gctp-search-center-dot";
@@ -43,20 +42,6 @@ export function RadiusLayer({ params }: { params: SearchParams }): null {
     upsert(map, SOURCE_ID, fc);
     upsert(map, CENTER_SOURCE, centerFc);
 
-    if (!map.getLayer(FILL_LAYER)) {
-      map.addLayer(
-        {
-          id: FILL_LAYER,
-          type: "fill",
-          source: SOURCE_ID,
-          paint: {
-            "fill-color": "#2563eb",
-            "fill-opacity": 0.08,
-          },
-        },
-        firstSymbolOrCachesLayer(map),
-      );
-    }
     if (!map.getLayer(LINE_LAYER)) {
       map.addLayer(
         {

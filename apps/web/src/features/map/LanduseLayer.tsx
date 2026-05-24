@@ -13,18 +13,23 @@ const SOURCE_ID = "gctp-landuse";
 const FILL_LAYER = "gctp-landuse-fill";
 const LINE_LAYER = "gctp-landuse-line";
 
-/** Distinct, low-saturation per-kind palette so caches still pop on top. */
+/**
+ * Saturated, distinct per-kind palette. Each fill renders at 35% opacity, so
+ * the basemap stays legible while every kind is unambiguous against the
+ * default OSM raster. Residential is intentionally pink/red (clearly NOT
+ * basemap gray) and water is vivid blue (separable from the search circle).
+ */
 const KIND_COLORS: Record<LanduseKind, string> = {
   forest: "#2e7d32",
-  park: "#66bb6a",
-  residential: "#9e9e9e",
-  farmland: "#d4ac0d",
-  industrial: "#6d4c41",
-  meadow: "#aed581",
-  water: "#42a5f5",
-  wetland: "#80deea",
-  heath: "#bcaaa4",
-  scrub: "#827717",
+  park: "#7cb342",
+  residential: "#ef5350",
+  farmland: "#fbc02d",
+  industrial: "#8e24aa",
+  meadow: "#c0ca33",
+  water: "#1e88e5",
+  wetland: "#26c6da",
+  heath: "#a1887f",
+  scrub: "#9e9d24",
 };
 
 /**
@@ -76,7 +81,7 @@ export function LanduseLayer({ params }: { params: SearchParams }): null {
           source: SOURCE_ID,
           paint: {
             "fill-color": ["get", "color"],
-            "fill-opacity": 0.25,
+            "fill-opacity": 0.4,
           },
         },
         firstLayerAbove(map),
@@ -90,8 +95,8 @@ export function LanduseLayer({ params }: { params: SearchParams }): null {
           source: SOURCE_ID,
           paint: {
             "line-color": ["get", "color"],
-            "line-width": 0.5,
-            "line-opacity": 0.6,
+            "line-width": 0.75,
+            "line-opacity": 0.8,
           },
         },
         firstLayerAbove(map),
@@ -112,10 +117,14 @@ export function LanduseLayer({ params }: { params: SearchParams }): null {
   return null;
 }
 
-/** Insert landuse below the radius circle so the radius outline stays visible. */
+/**
+ * Insert landuse below the radius outline and the cache markers so they all
+ * stay visible on top. Returns undefined if no such layer exists yet — then
+ * MapLibre appends to the top, which is fine for the first paint.
+ */
 function firstLayerAbove(map: maplibregl.Map): string | undefined {
   const layers = map.getStyle().layers ?? [];
-  for (const id of ["gctp-radius-fill", "gctp-caches-circle"]) {
+  for (const id of ["gctp-radius-line", "gctp-caches-circle"]) {
     if (layers.some((l) => l.id === id)) return id;
   }
   return undefined;

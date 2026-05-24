@@ -72,11 +72,15 @@ export class OsmRepository {
         .values(
           fetched.map((f) => ({
             area_hash: areaHash,
-            osm_way_id: f.osmWayId,
+            osm_source: f.osmSource,
             kind: f.kind,
             polygon: sql<string>`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(f.polygon)}), 4326)::geography`,
           })),
         )
+        // The transactional delete-then-insert guarantees no pre-existing
+        // rows; the ON CONFLICT is belt-and-braces against an upstream
+        // dedup bug where the parser yields the same osm_source twice.
+        .onConflict((oc) => oc.columns(["area_hash", "osm_source"]).doNothing())
         .execute();
     });
   }

@@ -34,7 +34,7 @@ const fixturePath = fileURLToPath(
  * verify the contexts hard filter without touching real Overpass.
  */
 const FAKE_FOREST: FetchedLanduse = {
-  osmWayId: 999_001,
+  osmSource: "way:999001",
   kind: "forest",
   polygon: {
     type: "Polygon",
