@@ -170,7 +170,59 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       );
     };
 
+    // Adjacency on the (already capped-by-maxEdgeMeters) walking graph for
+    // outlier trimming: a cluster member with no walking-graph edge to any
+    // other cluster member is geographically attached but not walk-connected
+    // — Louvain put it there by global modularity, but it's not part of the
+    // user's loop. Drop those before scoring.
+    const adj = new Map<number, Set<number>>();
+    for (const e of edges) {
+      let a = adj.get(e.fromCacheId);
+      if (!a) {
+        a = new Set();
+        adj.set(e.fromCacheId, a);
+      }
+      a.add(e.toCacheId);
+      let b = adj.get(e.toCacheId);
+      if (!b) {
+        b = new Set();
+        adj.set(e.toCacheId, b);
+      }
+      b.add(e.fromCacheId);
+    }
+    const trimOutliers = (cacheIds: readonly number[]): number[] => {
+      const set = new Set(cacheIds);
+      // Iterate until no more outliers — dropping one outlier might make a
+      // previously-adjacent cache an outlier too if its only in-cluster
+      // neighbour was the just-dropped node.
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const id of set) {
+          const neighbours = adj.get(id);
+          if (!neighbours) {
+            set.delete(id);
+            changed = true;
+            continue;
+          }
+          let hasInCluster = false;
+          for (const n of neighbours) {
+            if (set.has(n)) {
+              hasInCluster = true;
+              break;
+            }
+          }
+          if (!hasInCluster) {
+            set.delete(id);
+            changed = true;
+          }
+        }
+      }
+      return Array.from(set).sort((a, b) => a - b);
+    };
+
     // 5. Safety-net split: any community over budget/size gets MST-cut.
+    //    After splitting, trim outliers per sub-cluster.
     const splitClusters: number[][] = [];
     for (const cand of rawCandidates) {
       const parts = splitByMstCut(
@@ -180,7 +232,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         input.minClusterSize,
         input.maxCaches,
       );
-      splitClusters.push(...parts);
+      for (const part of parts) {
+        const trimmed = trimOutliers(part);
+        if (trimmed.length >= input.minClusterSize) splitClusters.push(trimmed);
+      }
     }
 
     // 6. Score + sort.
