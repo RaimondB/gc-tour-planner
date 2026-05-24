@@ -224,12 +224,22 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     /**
      * Geographic outlier trim. A cache walking-connected via a long bridge
      * may legitimately satisfy `trimOutliers` (it has in-cluster walking-graph
-     * edges) yet still sit visually far from the cluster's centre — across a
-     * river, way down the road, etc. Drop any cache whose distance to the
-     * cluster centroid exceeds `2 × median(distances)`. Iterate until stable
-     * (dropping a far cache shifts the centroid, which can newly-qualify
-     * another fringe cache as an outlier).
+     * edges) yet still sit visually far from the cluster's centre.
+     *
+     * Drop any cache whose distance to the cluster centroid exceeds
+     * `min(2 × median, distanceBudget / 4)`. The absolute cap matters because
+     * an over-stretched cluster (median 1500 m for an 8 km budget) would
+     * otherwise tolerate 3 km outliers — sloppy for a walking loop. The
+     * budget/4 cap is the same σ the Louvain weighting uses to define
+     * "cluster scale", so the trim and the modularity agree on what's tight.
+     *
+     * Iterate until stable: dropping a far cache shifts the centroid, which
+     * can newly-qualify another fringe cache as an outlier.
+     *
+     * Not every cache HAS to land in a cluster — sub-clusters that fall
+     * below minClusterSize after this pass are discarded entirely (caller).
      */
+    const absoluteCapMeters = input.distanceBudgetMeters / 4;
     const trimGeographicOutliers = (cacheIds: readonly number[]): number[] => {
       let ids = cacheIds.slice();
       let changed = true;
@@ -249,7 +259,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         const distances = coords.map((c) => haversineMeters(c, centroid));
         const sorted = distances.slice().sort((a, b) => a - b);
         const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-        const threshold = median * 2;
+        const threshold = Math.min(median * 2, absoluteCapMeters);
         const kept: number[] = [];
         for (let i = 0; i < ids.length; i += 1) {
           if (distances[i]! <= threshold) kept.push(ids[i]!);
