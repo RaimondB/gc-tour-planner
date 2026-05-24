@@ -72,10 +72,19 @@ export interface GpxUploadsTable {
   uploaded_at: Generated<Date>;
 }
 
+export interface CacheFindsTable {
+  cache_id: number;
+  user_id: string;
+  found_at: Generated<Date>;
+  /** 'manual' | 'gpx-finds-import' | future: 'gc-com' */
+  source: string;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
   cache_attributes: CacheAttributesTable;
   additional_waypoints: AdditionalWaypointsTable;
   gpx_uploads: GpxUploadsTable;
+  cache_finds: CacheFindsTable;
 }

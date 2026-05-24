@@ -3,6 +3,7 @@
 
 import {
   BadRequestException,
+  Body,
   Controller,
   Post,
   UploadedFile,
@@ -35,14 +36,22 @@ export class GpxController {
   @ApiBody({
     schema: {
       type: "object",
-      properties: { file: { type: "string", format: "binary" } },
+      properties: {
+        file: { type: "string", format: "binary" },
+        markAsFound: {
+          type: "string",
+          enum: ["true", "false"],
+          description:
+            "Set to 'true' for a Groundspeak 'My Finds' Pocket Query — every cache in the upload is also marked as found by the current user (idempotent).",
+        },
+      },
       required: ["file"],
     },
   })
   @ApiResponse({
     status: 201,
     description:
-      "GPX parsed and caches upserted. Returns the upload id, the count of caches and waypoints written, and any parser warnings.",
+      "GPX parsed and caches upserted. Returns the upload id, counts (caches, waypoints, finds), and any parser warnings.",
   })
   @UseInterceptors(
     FileInterceptor("file", { limits: { fileSize: MAX_GPX_BYTES } }),
@@ -50,10 +59,14 @@ export class GpxController {
   async upload(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
+    @Body("markAsFound") markAsFoundRaw?: string,
   ): Promise<GpxUploadResult> {
     if (!file)
       throw new BadRequestException('Multipart field "file" is required');
     const xml = file.buffer.toString("utf8");
-    return this.service.ingest(user.id, file.originalname, xml);
+    const markAsFound = markAsFoundRaw === "true" || markAsFoundRaw === "1";
+    return this.service.ingest(user.id, file.originalname, xml, {
+      markAsFound,
+    });
   }
 }

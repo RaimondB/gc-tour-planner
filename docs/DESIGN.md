@@ -121,17 +121,29 @@ CREATE TABLE preference_profiles (
   time_per_cache_minutes   INT NOT NULL DEFAULT 5,
   weights                  JSONB NOT NULL DEFAULT '{}'::jsonb -- cluster, loop-compactness, etc.
 );
+
+CREATE TABLE cache_finds (
+  cache_id  BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
+  user_id   UUID   NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+  found_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source    TEXT   NOT NULL,        -- 'manual' | 'gpx-finds-import' | 'gc-com'
+  PRIMARY KEY (cache_id, user_id)
+);
+CREATE INDEX cache_finds_user_idx ON cache_finds (user_id);
 ```
+
+A separate table (not a `found` column on `caches`) so that public-source rows in M7+ — where `owner_id IS NULL` — can still carry per-user finds without ambiguity.
 
 ### 1.2 Spatial helpers
 
 - Radius search: `ST_DWithin(location, ST_MakePoint(:lng, :lat)::geography, :meters)` — uses the GIST index.
 - Landuse context: `ST_Contains(landuse.polygon::geometry, caches.location::geometry)`.
 - Tour polyline: assembled from `route_legs.geom` concatenated in visit order.
+- Exclude-found filter: `NOT EXISTS (SELECT 1 FROM cache_finds f WHERE f.cache_id = c.id AND f.user_id = :userId)` — also used as a `foundByMe` boolean in the projection so the UI can dim still-shown found markers.
 
 ### 1.3 Row-level access
 
-User-uploaded GPX caches have `owner_id` set. Source-adapter rows (OKAPI / GC.com) have `owner_id = NULL` and are world-readable. Repository methods take an explicit `userId` and union `(owner_id = :userId OR owner_id IS NULL)`. No Postgres RLS — enforced in the data layer because it's read-heavy and an `owner_id IS NULL` shortcut is faster than a row-by-row policy check.
+User-uploaded GPX caches have `owner_id` set. Source-adapter rows (OKAPI / GC.com) have `owner_id = NULL` and are world-readable. Repository methods take an explicit `userId` and union `(owner_id = :userId OR owner_id IS NULL)`. No Postgres RLS — enforced in the data layer because it's read-heavy and an `owner_id IS NULL` shortcut is faster than a row-by-row policy check. The `cache_finds` table follows the same pattern: every find query filters by `user_id` in the data layer.
 
 ## 2. API surface (selected endpoints)
 

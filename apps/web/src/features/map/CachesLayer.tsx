@@ -3,11 +3,13 @@
 
 import { useEffect } from "react";
 import maplibregl from "maplibre-gl";
-import { useQuery } from "@tanstack/react-query";
+import { createRoot } from "react-dom/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheType } from "@gctp/shared/caches";
-import { listCaches } from "../../lib/api.js";
+import { listCaches, markCacheFound, unmarkCacheFound } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
+import { CachePopup } from "./CachePopup.js";
 
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
@@ -28,8 +30,20 @@ const TYPE_COLORS: Record<CacheType, string> = {
   Other: "#616161",
 };
 
+interface CacheProps {
+  id: CacheDTO["id"];
+  code: string;
+  name: string;
+  type: CacheType;
+  difficulty: number | null;
+  terrain: number | null;
+  color: string;
+  foundByMe: number; // 0/1 — MapLibre filter expressions don't accept booleans
+}
+
 export function CachesLayer({ params }: { params: SearchParams }): null {
   const { map, ready } = useMap();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["caches", params],
     queryFn: () =>
@@ -37,6 +51,7 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
         center: params.center,
         radiusM: params.radiusM,
         types: params.types.length > 0 ? params.types : undefined,
+        excludeFound: params.excludeFound || undefined,
       }),
     placeholderData: (prev) => prev,
   });
@@ -60,6 +75,7 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
         difficulty: c.difficulty,
         terrain: c.terrain,
         color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
+        foundByMe: c.foundByMe ? 1 : 0,
       },
     }));
 
@@ -90,6 +106,14 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
           "circle-color": ["get", "color"],
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
+          // Dim found caches so the unfound ones pop without being hidden.
+          "circle-opacity": ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
+          "circle-stroke-opacity": [
+            "case",
+            ["==", ["get", "foundByMe"], 1],
+            0.35,
+            1,
+          ],
         },
       });
     }
@@ -123,12 +147,47 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
       if (!f) return;
       const props = f.properties as unknown as CacheProps;
       const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
-      new maplibregl.Popup({ closeButton: true })
+
+      const container = document.createElement("div");
+      const root = createRoot(container);
+
+      const popup = new maplibregl.Popup({ closeButton: true })
         .setLngLat([lng, lat])
-        .setHTML(
-          `<strong>${escapeHtml(props.code)}</strong> &middot; ${escapeHtml(props.type)}<br/>${escapeHtml(props.name)}<br/><small>D ${props.difficulty ?? "?"} / T ${props.terrain ?? "?"}</small>`,
-        )
+        .setDOMContent(container)
         .addTo(map);
+
+      const renderPopup = (foundByMe: boolean) => {
+        root.render(
+          <CachePopup
+            code={props.code}
+            name={props.name}
+            type={props.type}
+            difficulty={props.difficulty}
+            terrain={props.terrain}
+            foundByMe={foundByMe}
+            onToggleFound={async () => {
+              try {
+                if (foundByMe) {
+                  await unmarkCacheFound(props.id);
+                } else {
+                  await markCacheFound(props.id);
+                }
+                renderPopup(!foundByMe);
+                void queryClient.invalidateQueries({ queryKey: ["caches"] });
+              } catch (err) {
+                console.error("toggle found failed", err);
+              }
+            }}
+          />,
+        );
+      };
+
+      renderPopup(props.foundByMe === 1);
+
+      popup.on("close", () => {
+        // Defer to next microtask so React doesn't unmount mid-event.
+        queueMicrotask(() => root.unmount());
+      });
     };
     const enter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -144,19 +203,9 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
       map.off("mouseenter", CACHES_CIRCLE_LAYER, enter);
       map.off("mouseleave", CACHES_CIRCLE_LAYER, leave);
     };
-  }, [map, ready]);
+  }, [map, ready, queryClient]);
 
   return null;
-}
-
-interface CacheProps {
-  id: CacheDTO["id"];
-  code: string;
-  name: string;
-  type: CacheType;
-  difficulty: number | null;
-  terrain: number | null;
-  color: string;
 }
 
 function upsertGeoJsonSource(
@@ -174,21 +223,4 @@ function upsertGeoJsonSource(
     return;
   }
   map.addSource(id, { type: "geojson", data: collection });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }

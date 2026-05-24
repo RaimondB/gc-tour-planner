@@ -119,4 +119,70 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
     } as never);
     expect(empty.caches).toEqual([]);
   });
+
+  it("marks-as-found via GPX upload and respects excludeFound", async () => {
+    const xml = readFileSync(fixturePath, "utf8");
+
+    const before = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+    } as never);
+    expect(before.caches.every((c) => !c.foundByMe)).toBe(true);
+
+    const findsIngest = await gpxService.ingest(ownerId, "my-finds.gpx", xml, {
+      markAsFound: true,
+    });
+    expect(findsIngest.findsRecorded).toBe(2);
+
+    const all = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+    } as never);
+    expect(all.caches.every((c) => c.foundByMe)).toBe(true);
+
+    const excluded = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+      excludeFound: true,
+    } as never);
+    expect(excluded.caches).toEqual([]);
+
+    // Re-running the find import is idempotent — no new rows.
+    const second = await gpxService.ingest(ownerId, "my-finds.gpx", xml, {
+      markAsFound: true,
+    });
+    expect(second.findsRecorded).toBe(0);
+  });
+
+  it("manual mark/unmark via the caches service", async () => {
+    // Take the first cache we see for this owner — could be GCAAA111 or GCBBB222.
+    const all = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+    } as never);
+    const target = all.caches[0];
+    if (!target) throw new Error("test prerequisite: at least one cache");
+    const cacheId = target.id;
+
+    // Already marked-as-found from the previous test; unmark it.
+    const removed = await cachesService.unmarkFound(ownerId, cacheId);
+    expect(removed.removed).toBe(true);
+
+    // After unmarking it's no longer found.
+    const afterUnmark = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+    } as never);
+    expect(afterUnmark.caches.find((c) => c.id === cacheId)?.foundByMe).toBe(
+      false,
+    );
+
+    // Re-mark via the service.
+    const created = await cachesService.markFound(ownerId, cacheId);
+    expect(created.created).toBe(true);
+
+    // Idempotent second mark.
+    const again = await cachesService.markFound(ownerId, cacheId);
+    expect(again.created).toBe(false);
+  });
 });

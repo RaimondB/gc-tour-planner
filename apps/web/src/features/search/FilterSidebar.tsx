@@ -145,6 +145,24 @@ export function FilterSidebar({
         <small>No selection = any type</small>
       </fieldset>
 
+      <fieldset className="field">
+        <legend>My finds</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={value.excludeFound}
+            onChange={(e) =>
+              onChange({ ...value, excludeFound: e.target.checked })
+            }
+          />
+          Exclude caches I have found
+        </label>
+        <small>
+          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX with the toggle below,
+          or mark caches one-by-one from the map popup.
+        </small>
+      </fieldset>
+
       <div className="result-count">
         {loading
           ? "Loading…"

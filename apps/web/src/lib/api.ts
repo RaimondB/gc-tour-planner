@@ -36,6 +36,7 @@ export interface ListCachesParams {
   radiusM: number;
   types?: CachesQuery["types"];
   attributes?: CachesQuery["attributes"];
+  excludeFound?: boolean;
 }
 
 export async function listCaches(params: ListCachesParams) {
@@ -47,6 +48,7 @@ export async function listCaches(params: ListCachesParams) {
   if (params.attributes && params.attributes.length > 0) {
     search.set("attributes", JSON.stringify(params.attributes));
   }
+  if (params.excludeFound) search.set("excludeFound", "true");
   const raw = await request<unknown>(`/caches?${search.toString()}`);
   return CachesResponse.parse(raw);
 }
@@ -55,14 +57,34 @@ export interface UploadGpxResult {
   uploadId: string;
   cachesUpserted: number;
   waypointsInserted: number;
+  findsRecorded: number;
   warnings: string[];
 }
 
-export async function uploadGpx(file: File): Promise<UploadGpxResult> {
+export interface UploadGpxOptions {
+  /** When true, every cache in the upload is also marked as found. */
+  markAsFound?: boolean;
+}
+
+export async function uploadGpx(
+  file: File,
+  opts: UploadGpxOptions = {},
+): Promise<UploadGpxResult> {
   const form = new FormData();
   form.append("file", file);
+  if (opts.markAsFound) form.append("markAsFound", "true");
   return request<UploadGpxResult>("/gpx/upload", {
     method: "POST",
     body: form,
   });
+}
+
+export function markCacheFound(cacheId: number): Promise<{ created: boolean }> {
+  return request(`/caches/${cacheId}/finds`, { method: "POST" });
+}
+
+export function unmarkCacheFound(
+  cacheId: number,
+): Promise<{ removed: boolean }> {
+  return request(`/caches/${cacheId}/finds`, { method: "DELETE" });
 }
