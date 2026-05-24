@@ -210,33 +210,56 @@ export async function buildWalkingGraph(
     );
   }
 
-  // 4. Symmetrise: keep edge (a,b) if b ∈ kNN(a) OR a ∈ kNN(b). The graph
-  // is treated as undirected downstream; we emit one canonical direction
-  // with the average of the two walking weights to absorb OSRM asymmetry.
-  const edges = new Map<string, WalkingEdge>();
+  // 4. Symmetrise — require BOTH directions under the cap.
+  //
+  // OSRM walking distances are often heavily asymmetric (cache 93 in the
+  // user's exports: 79→93 = 851 m but 93→79 = 7713 m via the same path).
+  // The earlier asymmetric approach (keep edge if either direction is in
+  // top-k) let cheap-in/expensive-out caches sneak into clusters, then
+  // Pass 2's TSP got stuck with 7+ km tour legs. The conservative answer:
+  // an edge is trustworthy only when both directions survive the cap.
+  // Pair walking weight = MAX of the two so the graph honestly reflects
+  // the worst-case tour cost.
   const orderedKey = (a: number, b: number) =>
     a < b ? `${a}:${b}` : `${b}:${a}`;
 
+  // Build forward-direction map: origin → Set(neighbours kept in top-k).
+  const kept = new Map<number, Set<number>>();
+  for (const [originId, kn] of kNN) {
+    kept.set(originId, new Set(kn.map((n) => n.to)));
+  }
+
+  const edges = new Map<string, WalkingEdge>();
+  let droppedAsymmetric = 0;
   for (const [originId, kn] of kNN) {
     for (const { to, meters, seconds } of kn) {
-      const key = orderedKey(originId, to);
-      const existing = edges.get(key);
-      if (existing) {
-        // Reverse direction was already inserted; average the two
-        // (handles OSRM walking asymmetry from one-way stairs etc.).
-        existing.meters = (existing.meters + meters) / 2;
-        existing.seconds = (existing.seconds + seconds) / 2;
-      } else {
-        const [from, dest] =
-          originId < to ? [originId, to] : [to, originId];
-        edges.set(key, {
-          fromCacheId: from,
-          toCacheId: dest,
-          meters,
-          seconds,
-        });
+      // Skip if reverse direction wasn't in the other origin's top-k.
+      // The reverse cell is in cachedMap (we queried it from the other origin's
+      // /table call) — read it and require BOTH to be ≤ cap. If the reverse
+      // origin never had this cache as a candidate at all, treat as asymmetric.
+      const reverse = cachedMap.get(cachedKey(to, originId));
+      const reverseKeptByOther = kept.get(to)?.has(originId) ?? false;
+      if (!reverse || reverse.meters > maxEdgeMeters || !reverseKeptByOther) {
+        droppedAsymmetric += 1;
+        continue;
       }
+      const key = orderedKey(originId, to);
+      if (edges.has(key)) continue; // already inserted from the other direction
+      const [from, dest] = originId < to ? [originId, to] : [to, originId];
+      edges.set(key, {
+        fromCacheId: from,
+        toCacheId: dest,
+        // MAX, not avg — Pass 2's TSP pays whichever direction is harder.
+        meters: Math.max(meters, reverse.meters),
+        seconds: Math.max(seconds, reverse.seconds),
+      });
     }
+  }
+
+  if (droppedAsymmetric > 0) {
+    logger.debug(
+      `walking-graph: dropped ${droppedAsymmetric} asymmetric directional edges (reverse direction missing or over cap)`,
+    );
   }
 
   return Array.from(edges.values());
