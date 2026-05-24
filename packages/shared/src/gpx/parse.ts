@@ -206,7 +206,13 @@ function classifyWaypoint(
   if (s.includes("parking")) return "parking";
   if (s.includes("trailhead")) return "trailhead";
   if (s.includes("reference")) return "reference";
-  if (s.includes("stages") || s.includes("stage of")) return "stages";
+  if (
+    s.includes("stages") ||
+    s.includes("stage of") ||
+    s.includes("virtual stage") ||
+    s.includes("physical stage")
+  )
+    return "stages";
   if (s.includes("final")) return "final";
   if (s.includes("question")) return "question";
 
@@ -221,13 +227,26 @@ function classifyWaypoint(
 }
 
 /**
- * Extract the parent cache code from a waypoint name like `PK1GC12345` or `RP GC12345`.
- * Returns the original name if no `GC…` substring is found, so the upsert can still
- * be retried later if the cache row arrives separately.
+ * Extract the parent cache code from a waypoint name.
+ *
+ * Groundspeak PQ companion files (`*-wpts.gpx`) name waypoints as
+ * `<2-char prefix><cache-code-without-GC>` — e.g. `PA278XH` for parking,
+ * `FL278XH` for the final, `018ZQ1F` for the first numbered stage. The first
+ * two chars encode the waypoint type or sequence; the remaining 4–7 chars are
+ * the cache code suffix.
+ *
+ * GSAK-style names instead embed the full `GCxxxxx` substring, e.g. `PK GC12345`.
+ *
+ * Returns the original name as a last resort so the upsert can still match if
+ * a cache happens to share that exact code.
  */
 function extractParentCode(name: string): string {
-  const m = name.toUpperCase().match(/GC[A-Z0-9]{1,7}/);
-  return m ? m[0] : name;
+  const upper = name.toUpperCase();
+  const gcMatch = upper.match(/GC[A-Z0-9]{1,7}/);
+  if (gcMatch) return gcMatch[0];
+  const prefixMatch = upper.match(/^[A-Z0-9]{2}([A-Z0-9]{4,7})$/);
+  if (prefixMatch) return `GC${prefixMatch[1]}`;
+  return name;
 }
 
 function numOrNull(v: unknown): number | null {
