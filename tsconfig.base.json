@@ -19,8 +19,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "isolatedModules": true,
-    "incremental": true
+    "isolatedModules": true
   },
   "exclude": ["node_modules", "dist", "build", ".turbo", ".vite", "coverage"]
 }

@@ -68,7 +68,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      API_PORT: 3000
+      API_PORT: 3030
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
@@ -77,7 +77,7 @@ services:
       TOUR_PLANNER: ${TOUR_PLANNER}
       LOG_LEVEL: ${LOG_LEVEL}
     ports:
-      - "${API_PORT}:3000"
+      - "${API_PORT}:3030"
 
   jobs:
     build:
