@@ -96,17 +96,17 @@ The monorepo is structured so:
 
 Each module is a folder under `apps/api/src/`, exporting a `*.module.ts`. DI keeps adapters swappable.
 
-| Module | Responsibility | Notable boundaries |
-| --- | --- | --- |
-| `auth` | Local + Google OAuth, JWT in httpOnly cookie, `CurrentUser` guard. | Holds no third-party API creds. GC partner key lives in env, injected only into the `sources/gc-com` adapter. |
-| `caches` | `GET /caches` — spatial+filter query against PostGIS; returns rows + a `clustersHint` grid bucket. | Hard filters → SQL `WHERE`. Soft preferences → not applied here; the planner consumes them. |
-| `gpx` | `POST /gpx/upload` multipart. Streams to the shared parser, upserts caches + additional waypoints. | Parser lives in `packages/shared/gpx/`. Per-user ownership enforced in the service, not the parser. |
-| `osm` | Overpass client. `getLanduseInBBox(bbox, kinds[])` reads `osm_landuse`; refreshes via Overpass when stale (> 30 d). | Valkey lock per bbox dedups concurrent fetches (thundering-herd protection). Refresh is enqueued to `jobs/`, not awaited inline. |
-| `routing` | OSRM client. `getLeg(fromId, toId, profile)` and `getMatrix(ids[])`, both with `route_legs` memoization. | All OSRM calls go through here so the cache is centralized. |
-| `tours` | Two-pass planning + persistence. Defers algorithm to a `TourPlannerStrategy` (DI token). | See [ADR-0002](adr/0002-planner-strategy-interface.md) and [DESIGN.md §Tour planning](DESIGN.md#tour-planning). |
-| `sources/okapi` | OpenCaching adapter — bbox queries, upserts with `source='okapi:<node>'`. (M7) | Treat as a public source: rows are user-agnostic, no per-user RLS. |
-| `sources/gc-com` | Groundspeak partner API adapter. (M8, feature-flagged off) | Single shared partner key from env. Rate-limited, request-cached. |
-| `jobs` | BullMQ workers: `overpass-refresh`, `prefetch-tiles`. | Workers run in a separate `jobs` container, not in the API process. |
+| Module           | Responsibility                                                                                                      | Notable boundaries                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`           | Local + Google OAuth, JWT in httpOnly cookie, `CurrentUser` guard.                                                  | Holds no third-party API creds. GC partner key lives in env, injected only into the `sources/gc-com` adapter.                    |
+| `caches`         | `GET /caches` — spatial+filter query against PostGIS; returns rows + a `clustersHint` grid bucket.                  | Hard filters → SQL `WHERE`. Soft preferences → not applied here; the planner consumes them.                                      |
+| `gpx`            | `POST /gpx/upload` multipart. Streams to the shared parser, upserts caches + additional waypoints.                  | Parser lives in `packages/shared/gpx/`. Per-user ownership enforced in the service, not the parser.                              |
+| `osm`            | Overpass client. `getLanduseInBBox(bbox, kinds[])` reads `osm_landuse`; refreshes via Overpass when stale (> 30 d). | Valkey lock per bbox dedups concurrent fetches (thundering-herd protection). Refresh is enqueued to `jobs/`, not awaited inline. |
+| `routing`        | OSRM client. `getLeg(fromId, toId, profile)` and `getMatrix(ids[])`, both with `route_legs` memoization.            | All OSRM calls go through here so the cache is centralized.                                                                      |
+| `tours`          | Two-pass planning + persistence. Defers algorithm to a `TourPlannerStrategy` (DI token).                            | See [ADR-0002](adr/0002-planner-strategy-interface.md) and [DESIGN.md §Tour planning](DESIGN.md#tour-planning).                  |
+| `sources/okapi`  | OpenCaching adapter — bbox queries, upserts with `source='okapi:<node>'`. (M7)                                      | Treat as a public source: rows are user-agnostic, no per-user RLS.                                                               |
+| `sources/gc-com` | Groundspeak partner API adapter. (M8, feature-flagged off)                                                          | Single shared partner key from env. Rate-limited, request-cached.                                                                |
+| `jobs`           | BullMQ workers: `overpass-refresh`, `prefetch-tiles`.                                                               | Workers run in a separate `jobs` container, not in the API process.                                                              |
 
 ### Layering rule
 
@@ -166,14 +166,14 @@ Workers live in a dedicated `jobs` container (separate Node process) so a job st
 
 Single `docker compose up` brings everything up locally and in production. Services:
 
-| Service | Image | Notes |
-| --- | --- | --- |
-| `postgres` | `postgis/postgis:16-3.4` | Volumes: `pgdata`. |
-| `valkey` | `valkey/valkey:8` | Volumes: `valkey-data` (appendonly). |
-| `osrm` | `osrm/osrm-backend` + `infra/osrm/bootstrap.sh` | On first start, downloads the OSM extract (region from env) and runs `osrm-extract` + `osrm-contract` (foot profile). Volumes: `osrm-data`. |
-| `api` | `infra/Dockerfile.api` (multi-stage) | Reads DB + Valkey + OSRM + Overpass URLs from env. |
-| `web` | `infra/Dockerfile.web` | Nginx serving the Vite build; in dev, Vite dev server with HMR (override compose file). |
-| `jobs` | `infra/Dockerfile.jobs` | BullMQ workers; shares image layer cache with `api`. |
+| Service    | Image                                           | Notes                                                                                                                                       |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `postgres` | `postgis/postgis:16-3.4`                        | Volumes: `pgdata`.                                                                                                                          |
+| `valkey`   | `valkey/valkey:8`                               | Volumes: `valkey-data` (appendonly).                                                                                                        |
+| `osrm`     | `osrm/osrm-backend` + `infra/osrm/bootstrap.sh` | On first start, downloads the OSM extract (region from env) and runs `osrm-extract` + `osrm-contract` (foot profile). Volumes: `osrm-data`. |
+| `api`      | `infra/Dockerfile.api` (multi-stage)            | Reads DB + Valkey + OSRM + Overpass URLs from env.                                                                                          |
+| `web`      | `infra/Dockerfile.web`                          | Nginx serving the Vite build; in dev, Vite dev server with HMR (override compose file).                                                     |
+| `jobs`     | `infra/Dockerfile.jobs`                         | BullMQ workers; shares image layer cache with `api`.                                                                                        |
 
 Production differs only in:
 

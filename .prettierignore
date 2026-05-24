@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.turbo/
+.vite/
+coverage/
+playwright-report/
+test-results/
+
+# Lockfiles managed by the package manager
+pnpm-lock.yaml
+
+# License text is verbatim upstream
+LICENSE
