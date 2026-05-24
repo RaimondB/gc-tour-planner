@@ -54,8 +54,8 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
       kysely:
-        specifier: 0.27.4
-        version: 0.27.4
+        specifier: 0.28.17
+        version: 0.28.17
       nestjs-zod:
         specifier: 4.2.0
         version: 4.2.0(@nestjs/common@10.4.13(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@10.4.13)(@nestjs/swagger@8.0.7(@nestjs/common@10.4.13(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@10.4.13)(reflect-metadata@0.2.2))(zod@3.23.8)
@@ -191,8 +191,8 @@ importers:
   packages/db:
     dependencies:
       kysely:
-        specifier: 0.27.4
-        version: 0.27.4
+        specifier: 0.28.17
+        version: 0.28.17
       pg:
         specifier: 8.13.1
         version: 8.13.1
@@ -2495,9 +2495,9 @@ packages:
     resolution: {integrity: sha512-dcS1ul+9tmeD95T+x28/ehLgd9mENa3LsvDTtzm3vyBEO7RPptvAD+t44WVXaUjTBRcrpFeFlC8WCruUR456hw==}
     engines: {node: '>=0.10.0'}
 
-  kysely@0.27.4:
-    resolution: {integrity: sha512-dyNKv2KRvYOQPLCAOCjjQuCk4YFd33BvGdf/o5bC7FiW+BB6snA81Zt+2wT9QDFzKqxKa5rrOmvlK/anehCcgA==}
-    engines: {node: '>=14.0.0'}
+  kysely@0.28.17:
+    resolution: {integrity: sha512-nbD8lB9EB3wNdMhOCdx5Li8DxnLbvKByylRLcJ1h+4SkrowVeECAyZlyiKMThF7xFdRz0jSQ2MoJr+wXux2y0Q==}
+    engines: {node: '>=20.0.0'}
 
   lazystream@1.0.1:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
@@ -6481,7 +6481,7 @@ snapshots:
 
   kind-of@6.0.3: {}
 
-  kysely@0.27.4: {}
+  kysely@0.28.17: {}
 
   lazystream@1.0.1:
     dependencies:
