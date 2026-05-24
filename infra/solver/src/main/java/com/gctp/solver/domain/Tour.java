@@ -7,35 +7,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ai.timefold.solver.core.api.domain.entity.PlanningEntity;
-import ai.timefold.solver.core.api.domain.solution.PlanningEntityCollectionProperty;
-import ai.timefold.solver.core.api.domain.solution.PlanningScore;
-import ai.timefold.solver.core.api.domain.solution.PlanningSolution;
-import ai.timefold.solver.core.api.domain.solution.ProblemFactCollectionProperty;
-import ai.timefold.solver.core.api.domain.valuerange.ValueRangeProvider;
 import ai.timefold.solver.core.api.domain.variable.PlanningListVariable;
-import ai.timefold.solver.core.api.score.buildin.hardsoft.HardSoftScore;
 
 /**
- * Planning solution AND planning entity (single-entity list-variable pattern).
+ * Planning entity. Owns the ordered list of visited caches plus the per-solve
+ * matrix data and budget caps (carried as plain fields, not planning data, so
+ * constraint streams can read them without joining problem facts).
  *
- * The Tour owns the ordered list of visited caches. Caches absent from
- * {@code visitOrder} are simply skipped — the solver may choose to leave caches
- * out when their inclusion would violate a hard constraint.
- *
- * The full {@code candidateCaches} list is the value range for
- * {@link #visitOrder}; Timefold uses it to source insertion candidates.
- *
- * Distance / time / budget data live on the Tour as problem facts so
- * constraint streams can index into the matrix without round-tripping through
- * Spring beans.
+ * Caches absent from {@link #visitOrder} are simply skipped — Timefold's list
+ * variable allows the solver to leave items out when including them would
+ * break a hard constraint. The seed in {@code PlanService} starts with every
+ * cache assigned; the solver may drop them to satisfy the budgets.
  */
 @PlanningEntity
-@PlanningSolution
 public class Tour {
-
-    @ProblemFactCollectionProperty
-    @ValueRangeProvider
-    private List<Cache> candidateCaches = new ArrayList<>();
 
     @PlanningListVariable
     private List<Cache> visitOrder = new ArrayList<>();
@@ -59,18 +44,7 @@ public class Tour {
 
     private long visitedCountWeight = 100L;
 
-    @PlanningScore
-    private HardSoftScore score;
-
     public Tour() {
-    }
-
-    public List<Cache> getCandidateCaches() {
-        return candidateCaches;
-    }
-
-    public void setCandidateCaches(List<Cache> candidateCaches) {
-        this.candidateCaches = candidateCaches;
     }
 
     public List<Cache> getVisitOrder() {
@@ -159,14 +133,6 @@ public class Tour {
 
     public void setVisitedCountWeight(long visitedCountWeight) {
         this.visitedCountWeight = visitedCountWeight;
-    }
-
-    public HardSoftScore getScore() {
-        return score;
-    }
-
-    public void setScore(HardSoftScore score) {
-        this.score = score;
     }
 
     // ─── Derived helpers used by constraints ──────────────────────────────
