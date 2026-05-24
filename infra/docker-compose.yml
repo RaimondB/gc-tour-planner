@@ -61,6 +61,29 @@ services:
     ports:
       - "${OSRM_PORT}:5000"
 
+  # Timefold sidecar (ADR-0005). Always boots so the dependency below stays
+  # unconditional — compose v2 has no syntax for "depends_on only when
+  # TOUR_PLANNER=solver". Spring Boot startup is a few seconds; the api still
+  # starts well before user-facing requests when TOUR_PLANNER=greedy.
+  solver:
+    build:
+      context: ./solver
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SOLVER_SEED: ${SOLVER_SEED:-42}
+      SOLVER_SPENT_LIMIT: ${SOLVER_SPENT_LIMIT:-5s}
+    ports:
+      - "${SOLVER_PORT:-8088}:8080"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
   api:
     build:
       context: ..
@@ -71,6 +94,8 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      solver:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       API_PORT: 3030
@@ -80,6 +105,7 @@ services:
       OVERPASS_URL: ${OVERPASS_URL}
       JWT_SECRET: ${JWT_SECRET}
       TOUR_PLANNER: ${TOUR_PLANNER}
+      SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
     ports:
       - "${API_PORT}:3030"
