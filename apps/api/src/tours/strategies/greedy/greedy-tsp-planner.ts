@@ -221,6 +221,45 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       return Array.from(set).sort((a, b) => a - b);
     };
 
+    /**
+     * Geographic outlier trim. A cache walking-connected via a long bridge
+     * may legitimately satisfy `trimOutliers` (it has in-cluster walking-graph
+     * edges) yet still sit visually far from the cluster's centre — across a
+     * river, way down the road, etc. Drop any cache whose distance to the
+     * cluster centroid exceeds `2 × median(distances)`. Iterate until stable
+     * (dropping a far cache shifts the centroid, which can newly-qualify
+     * another fringe cache as an outlier).
+     */
+    const trimGeographicOutliers = (cacheIds: readonly number[]): number[] => {
+      let ids = cacheIds.slice();
+      let changed = true;
+      while (changed && ids.length >= input.minClusterSize) {
+        changed = false;
+        const coords = ids
+          .map((id) => poolById.get(id))
+          .filter((c): c is Caches.CacheDTO => c !== undefined)
+          .map((c) => [
+            c.location.coordinates[0]!,
+            c.location.coordinates[1]!,
+          ] as [number, number]);
+        const centroid: [number, number] = [
+          mean(coords.map((c) => c[0])),
+          mean(coords.map((c) => c[1])),
+        ];
+        const distances = coords.map((c) => haversineMeters(c, centroid));
+        const sorted = distances.slice().sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+        const threshold = median * 2;
+        const kept: number[] = [];
+        for (let i = 0; i < ids.length; i += 1) {
+          if (distances[i]! <= threshold) kept.push(ids[i]!);
+          else changed = true;
+        }
+        ids = kept;
+      }
+      return ids;
+    };
+
     // 5. Safety-net split: any community over budget/size gets MST-cut.
     //    After splitting, trim outliers per sub-cluster.
     const splitClusters: number[][] = [];
@@ -233,8 +272,14 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         input.maxCaches,
       );
       for (const part of parts) {
-        const trimmed = trimOutliers(part);
-        if (trimmed.length >= input.minClusterSize) splitClusters.push(trimmed);
+        // Two-stage trim: (a) drop caches with no in-cluster walking-graph
+        // edge; (b) drop caches geographically far from the centroid even
+        // when walking-connected via a long bridge. Both iterate to a fixed
+        // point so cascading drops settle properly.
+        const connTrimmed = trimOutliers(part);
+        const geoTrimmed = trimGeographicOutliers(connTrimmed);
+        if (geoTrimmed.length >= input.minClusterSize)
+          splitClusters.push(geoTrimmed);
       }
     }
 
