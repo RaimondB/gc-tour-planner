@@ -10,7 +10,10 @@ WORKDIR /build
 COPY pom.xml ./
 RUN mvn -B -DskipTests dependency:go-offline
 COPY src ./src
-RUN mvn -B -DskipTests package
+# -Dmaven.test.skip=true skips both test compilation AND execution. The
+# container build's job is to produce a runnable jar; tests are a CI/local
+# concern (`mvn test`) and a test-only bug shouldn't block the image build.
+RUN mvn -B -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app

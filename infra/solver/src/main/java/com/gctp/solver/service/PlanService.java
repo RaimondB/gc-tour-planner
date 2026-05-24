@@ -15,63 +15,63 @@ import ai.timefold.solver.core.api.solver.SolverJob;
 
 import com.gctp.solver.domain.Cache;
 import com.gctp.solver.domain.Tour;
+import com.gctp.solver.domain.TourSolution;
 import com.gctp.solver.rest.PlanRequest;
 import com.gctp.solver.rest.PlanResponse;
 
 /**
  * Bridges the wire DTO and the Timefold {@link SolverManager}.
  *
- * Constructs the {@link Tour} problem instance from the request, runs the
- * solver to completion (termination is configured in application.properties),
+ * Constructs the {@link TourSolution} problem instance from the request, runs
+ * the solver to completion (termination is configured in application.properties),
  * then collapses the best solution into a {@link PlanResponse}.
  */
 @Service
 public class PlanService {
 
-    private final SolverManager<Tour, UUID> solverManager;
+    private final SolverManager<TourSolution, UUID> solverManager;
 
-    public PlanService(SolverManager<Tour, UUID> solverManager) {
+    public PlanService(SolverManager<TourSolution, UUID> solverManager) {
         this.solverManager = solverManager;
     }
 
     public PlanResponse plan(PlanRequest req) throws InterruptedException, ExecutionException {
-        Tour problem = toProblem(req);
+        TourSolution problem = toProblem(req);
 
         // Seed the planning list with all candidate caches. Timefold's list
         // variable allows the solver to remove caches when their presence
         // creates a hard violation, so the seed is just a starting layout.
-        problem.setVisitOrder(new ArrayList<>(problem.getCandidateCaches()));
+        problem.getTour().setVisitOrder(new ArrayList<>(problem.getCandidateCaches()));
 
-        SolverJob<Tour, UUID> job = solverManager.solveBuilder()
+        SolverJob<TourSolution, UUID> job = solverManager.solveBuilder()
                 .withProblemId(UUID.randomUUID())
                 .withProblem(problem)
                 .run();
-        Tour solved = job.getFinalBestSolution();
+        TourSolution solved = job.getFinalBestSolution();
 
-        return toResponse(solved);
+        return toResponse(solved.getTour());
     }
 
-    private Tour toProblem(PlanRequest req) {
-        Tour t = new Tour();
+    private TourSolution toProblem(PlanRequest req) {
         List<Cache> caches = new ArrayList<>(req.caches().size());
         for (int i = 0; i < req.caches().size(); i++) {
             PlanRequest.CacheInput c = req.caches().get(i);
             caches.add(new Cache(c.id(), i, c.lng(), c.lat()));
         }
-        t.setCandidateCaches(caches);
-        t.setMatrixMeters(req.matrixMeters());
-        t.setMatrixSeconds(req.matrixSeconds());
-        t.setParkingToCacheMeters(req.parkingToCacheMeters());
-        t.setParkingToCacheSeconds(req.parkingToCacheSeconds());
-        t.setCacheToParkingMeters(req.cacheToParkingMeters());
-        t.setCacheToParkingSeconds(req.cacheToParkingSeconds());
-        t.setDistanceBudgetMeters(req.distanceBudgetMeters());
-        t.setTimeBudgetSeconds(req.timeBudgetSeconds() == null ? -1L : req.timeBudgetSeconds());
-        t.setVisitSecondsPerCache(req.visitSecondsPerCache());
+        Tour tour = new Tour();
+        tour.setMatrixMeters(req.matrixMeters());
+        tour.setMatrixSeconds(req.matrixSeconds());
+        tour.setParkingToCacheMeters(req.parkingToCacheMeters());
+        tour.setParkingToCacheSeconds(req.parkingToCacheSeconds());
+        tour.setCacheToParkingMeters(req.cacheToParkingMeters());
+        tour.setCacheToParkingSeconds(req.cacheToParkingSeconds());
+        tour.setDistanceBudgetMeters(req.distanceBudgetMeters());
+        tour.setTimeBudgetSeconds(req.timeBudgetSeconds() == null ? -1L : req.timeBudgetSeconds());
+        tour.setVisitSecondsPerCache(req.visitSecondsPerCache());
         if (req.weights() != null && req.weights().visitedCount() != null) {
-            t.setVisitedCountWeight(req.weights().visitedCount());
+            tour.setVisitedCountWeight(req.weights().visitedCount());
         }
-        return t;
+        return new TourSolution(caches, tour);
     }
 
     private PlanResponse toResponse(Tour solved) {

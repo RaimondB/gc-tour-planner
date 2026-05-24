@@ -3,7 +3,7 @@
 
 package com.gctp.solver.solver;
 
-import ai.timefold.solver.core.api.score.buildin.hardsoft.HardSoftScore;
+import ai.timefold.solver.core.api.score.buildin.hardsoftlong.HardSoftLongScore;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
@@ -38,40 +38,40 @@ public class TourConstraintProvider implements ConstraintProvider {
         };
     }
 
-    Constraint distanceBudget(ConstraintFactory factory) {
+    public Constraint distanceBudget(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .filter(tour -> tour.totalMeters() > tour.getDistanceBudgetMeters())
                 .penalizeLong(
-                        HardSoftScore.ONE_HARD,
+                        HardSoftLongScore.ONE_HARD,
                         tour -> Math.max(
                                 1L,
                                 (long) Math.ceil(tour.totalMeters() - tour.getDistanceBudgetMeters())))
                 .asConstraint("distance budget");
     }
 
-    Constraint timeBudget(ConstraintFactory factory) {
+    public Constraint timeBudget(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .filter(tour -> tour.getTimeBudgetSeconds() > 0
                         && tour.totalSeconds() > tour.getTimeBudgetSeconds())
                 .penalizeLong(
-                        HardSoftScore.ONE_HARD,
+                        HardSoftLongScore.ONE_HARD,
                         tour -> Math.max(
                                 1L,
                                 (long) Math.ceil(tour.totalSeconds() - tour.getTimeBudgetSeconds())))
                 .asConstraint("time budget");
     }
 
-    Constraint reachableLegs(ConstraintFactory factory) {
+    public Constraint reachableLegs(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .filter(Tour::hasUnreachableLeg)
-                .penalizeLong(HardSoftScore.ONE_HARD, tour -> 1_000L)
+                .penalizeLong(HardSoftLongScore.ONE_HARD, tour -> 1_000L)
                 .asConstraint("reachable legs");
     }
 
-    Constraint visitedCount(ConstraintFactory factory) {
+    public Constraint visitedCount(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .rewardLong(
-                        HardSoftScore.ONE_SOFT,
+                        HardSoftLongScore.ONE_SOFT,
                         tour -> (long) tour.getVisitOrder().size() * tour.getVisitedCountWeight())
                 .asConstraint("visited count");
     }

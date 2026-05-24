@@ -20,7 +20,7 @@ Produces `target/solver-0.1.0.jar`. A maven wrapper (`mvnw`) is intentionally no
 ## Run (locally, without docker)
 
 ```sh
-SOLVER_SEED=42 SOLVER_SPENT_LIMIT=5s java -jar target/solver-0.1.0.jar
+SOLVER_SPENT_LIMIT=5s java -jar target/solver-0.1.0.jar
 # → listens on :8080
 curl http://localhost:8080/actuator/health
 ```
@@ -77,16 +77,15 @@ Deferred to a follow-up: terrain mix, difficulty mix, landuse preference, walkin
 
 ## Determinism
 
-Timefold's move-selector RNG seed is fixed via `timefold.solver.random-seed`, sourced from the `SOLVER_SEED` env var (default `42`). `timefold.solver.move-thread-count=NONE` keeps the solve single-threaded — multi-threaded solving would break the seed guarantee.
+Determinism is enforced via `timefold.solver.environment-mode=REPRODUCIBLE`, which pins the RNG and disables the parallelism that would otherwise perturb move ordering. (The Spring Boot starter does not expose `random-seed` as a property — REPRODUCIBLE mode is the Timefold-blessed way.) Same input ⇒ same output across runs.
 
-The Nest-side determinism test (`apps/api/src/tours/strategies/solver/solver-tour-planner.spec.ts`) verifies same-input ⇒ same-output via a mocked client; the same expectation holds when the real sidecar is bound, provided the seed is unchanged.
+The Nest-side determinism test (`apps/api/src/tours/strategies/solver/solver-tour-planner.spec.ts`) verifies same-input ⇒ same-output via a mocked client; the same expectation holds when the real sidecar is bound.
 
 ## Env vars
 
 | Var                  | Default | Meaning |
 |----------------------|---------|---------|
 | `SERVER_PORT`        | 8080    | HTTP listen port (Spring Boot standard) |
-| `SOLVER_SEED`        | 42      | Move-selector RNG seed |
 | `SOLVER_SPENT_LIMIT` | 5s      | Best-effort wall-clock cap on a single solve |
 
 ## Tests
