@@ -80,6 +80,17 @@ export interface CacheFindsTable {
   source: string;
 }
 
+export interface OsmLanduseTable {
+  id: Generated<number>;
+  /** 0.1°-cell coordinate, e.g. "5.1,52.0" */
+  area_hash: string;
+  osm_way_id: number;
+  /** Canonical kind from packages/shared/src/landuse. */
+  kind: string;
+  polygon: Geography;
+  fetched_at: Generated<Date>;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
@@ -87,4 +98,5 @@ export interface Database {
   additional_waypoints: AdditionalWaypointsTable;
   gpx_uploads: GpxUploadsTable;
   cache_finds: CacheFindsTable;
+  osm_landuse: OsmLanduseTable;
 }

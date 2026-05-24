@@ -26,6 +26,10 @@
     "./gpx": {
       "types": "./dist/gpx/index.d.ts",
       "import": "./dist/gpx/index.js"
+    },
+    "./landuse": {
+      "types": "./dist/landuse/index.d.ts",
+      "import": "./dist/landuse/index.js"
     }
   },
   "files": [

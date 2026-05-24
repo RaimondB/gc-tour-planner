@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { CACHE_TYPES, type CacheType } from "@gctp/shared/caches";
+import { LANDUSE_KINDS, type LanduseKind } from "@gctp/shared/landuse";
 import type { SearchParams } from "../../lib/search-params.js";
 
 export interface FilterSidebarProps {
@@ -163,6 +164,46 @@ export function FilterSidebar({
         </small>
       </fieldset>
 
+      <fieldset className="field">
+        <legend>Landuse context</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={value.showLanduse}
+            onChange={(e) =>
+              onChange({ ...value, showLanduse: e.target.checked })
+            }
+          />
+          Show landuse overlay
+        </label>
+        {value.showLanduse && (
+          <>
+            {LANDUSE_KINDS.map((k) => (
+              <label key={k} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={value.contexts.includes(k)}
+                  onChange={() => {
+                    const isOn = value.contexts.includes(k);
+                    onChange({
+                      ...value,
+                      contexts: isOn
+                        ? value.contexts.filter((c) => c !== k)
+                        : [...value.contexts, k],
+                    });
+                  }}
+                />
+                {labelForKind(k)}
+              </label>
+            ))}
+            <small>
+              Pick one or more to hard-filter caches to those areas. Polygons
+              are fetched from OpenStreetMap on demand.
+            </small>
+          </>
+        )}
+      </fieldset>
+
       <div className="result-count">
         {loading
           ? "Loading…"
@@ -184,4 +225,29 @@ function formatCoord(n: number): string {
 function parseCoord(raw: string): number | null {
   const n = Number(raw.replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function labelForKind(k: LanduseKind): string {
+  switch (k) {
+    case "forest":
+      return "Forest";
+    case "park":
+      return "Park";
+    case "residential":
+      return "Residential";
+    case "farmland":
+      return "Farmland";
+    case "industrial":
+      return "Industrial";
+    case "meadow":
+      return "Meadow";
+    case "water":
+      return "Water";
+    case "wetland":
+      return "Wetland";
+    case "heath":
+      return "Heath";
+    case "scrub":
+      return "Scrub";
+  }
 }
