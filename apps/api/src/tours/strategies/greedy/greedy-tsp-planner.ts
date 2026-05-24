@@ -270,9 +270,19 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       return ids;
     };
 
-    // 5. Safety-net split: any community over budget/size gets MST-cut.
-    //    After splitting, trim outliers per sub-cluster.
+    // 5. Safety-net split + two-stage trim + post-trim dedup.
+    //
+    // splitByMstCut keeps each surviving community within budget+size.
+    // trimOutliers drops caches with no in-cluster walking-graph edge.
+    // trimGeographicOutliers drops caches > min(2× median, budget/4)
+    // from the centroid. Both iterate to a fixed point.
+    //
+    // Different raw Louvain candidates often collapse to the SAME trimmed
+    // core (the resolution sweep gives several near-overlapping seeds, all
+    // of which share the same dense pocket). Dedup AFTER trimming so the
+    // user doesn't see five identical clusters with different ids.
     const splitClusters: number[][] = [];
+    const seenSignatures = new Set<string>();
     for (const cand of rawCandidates) {
       const parts = splitByMstCut(
         cand.cacheIds,
@@ -282,14 +292,13 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         input.maxCaches,
       );
       for (const part of parts) {
-        // Two-stage trim: (a) drop caches with no in-cluster walking-graph
-        // edge; (b) drop caches geographically far from the centroid even
-        // when walking-connected via a long bridge. Both iterate to a fixed
-        // point so cascading drops settle properly.
         const connTrimmed = trimOutliers(part);
         const geoTrimmed = trimGeographicOutliers(connTrimmed);
-        if (geoTrimmed.length >= input.minClusterSize)
-          splitClusters.push(geoTrimmed);
+        if (geoTrimmed.length < input.minClusterSize) continue;
+        const sig = geoTrimmed.slice().sort((a, b) => a - b).join(",");
+        if (seenSignatures.has(sig)) continue;
+        seenSignatures.add(sig);
+        splitClusters.push(geoTrimmed);
       }
     }
 
