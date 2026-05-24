@@ -30,6 +30,9 @@ Existing tools each solve one slice (filtering, mapping, basic routing). None co
 - **FR-I4.** Per-user row-level isolation: a user only sees caches they uploaded (or that came from a public source adapter).
 - **FR-I5 (M7).** Optional **OKAPI** source adapter for OpenCaching nodes, queryable by bbox.
 - **FR-I6 (M8, feature-flagged off).** GC.com partner-API adapter — single shared partner key from env; never per-user creds in DB.
+- **FR-I7 (record finds).** The user can record which caches they have found, via two paths:
+  - Uploading a Groundspeak **"My Finds"** Pocket Query GPX — every cache in the upload is also marked as found by the current user (idempotent; re-uploading does not duplicate).
+  - **Manual mark / unmark** from the map popup of any cache they own. Finds are per-user; another user does not see them.
 
 ### 3.2 Filtering
 
@@ -40,6 +43,7 @@ Existing tools each solve one slice (filtering, mapping, basic routing). None co
 - **FR-F5.** **Soft preference** on OSM landuse kinds — predefined system profiles (e.g. "Forest hike day", "Urban evening stroll") plus user-owned custom profiles with per-kind weights.
 - **FR-F6.** **Soft preference** on terrain and difficulty target values (with tolerance + weight).
 - **FR-F7.** Filter results render on the map with debounced re-query as the user changes filters.
+- **FR-F8 (exclude my finds).** The user can toggle a "Exclude caches I have found" filter. When enabled, every cache the current user has logged as found is omitted from results _and_ from the tour-planning pool. Found caches that are still shown (toggle off) are visually dimmed so the user can tell at a glance.
 
 ### 3.3 Tour planning
 

@@ -59,6 +59,8 @@ export const CacheDTO = z.object({
   archived: z.boolean(),
   attributeIds: z.array(z.number().int()),
   parkingPoints: z.array(LngLat),
+  /** True if the current user has logged a find for this cache. */
+  foundByMe: z.boolean(),
 });
 export type CacheDTO = z.infer<typeof CacheDTO>;
 
@@ -68,6 +70,8 @@ export const CachesQuery = z.object({
   types: z.array(CacheType).optional(),
   attributes: AttributeFilterGroups.optional(),
   contexts: z.array(z.string()).optional(),
+  /** When true, omit caches the current user has logged as found. */
+  excludeFound: z.boolean().optional(),
 });
 export type CachesQuery = z.infer<typeof CachesQuery>;
 

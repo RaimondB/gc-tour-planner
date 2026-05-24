@@ -26,6 +26,7 @@ export default function App(): JSX.Element {
         center: params.center,
         radiusM: params.radiusM,
         types: params.types.length > 0 ? params.types : undefined,
+        excludeFound: params.excludeFound || undefined,
       }),
     placeholderData: (prev) => prev,
   });

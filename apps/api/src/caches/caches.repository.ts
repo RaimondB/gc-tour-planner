@@ -14,6 +14,8 @@ export interface FindCachesParams {
   types?: readonly Caches.CacheType[];
   /** AND-of-OR groups; an empty outer array means "no attribute filter". */
   attributeGroups?: readonly (readonly Caches.AttributeFilter[])[];
+  /** When true, exclude caches the current user has logged as found. */
+  excludeFound?: boolean;
 }
 
 interface CacheRow {
@@ -32,6 +34,7 @@ interface CacheRow {
   attribute_ids: number[];
   parking_lngs: number[];
   parking_lats: number[];
+  found_by_me: boolean;
 }
 
 @Injectable()
@@ -92,11 +95,34 @@ export class CachesRepository {
             ),
           )
           .as("parking_lats"),
+        eb
+          .exists(
+            eb
+              .selectFrom("cache_finds as f")
+              .select(sql<number>`1`.as("one"))
+              .whereRef("f.cache_id", "=", "c.id")
+              .where("f.user_id", "=", p.ownerId),
+          )
+          .as("found_by_me"),
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
         sql<boolean>`ST_DWithin(c.location, ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography, ${p.radiusM})`,
       );
+
+    if (p.excludeFound) {
+      q = q.where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("cache_finds as f")
+              .select(sql<number>`1`.as("one"))
+              .whereRef("f.cache_id", "=", "c.id")
+              .where("f.user_id", "=", p.ownerId),
+          ),
+        ),
+      );
+    }
 
     if (p.types && p.types.length > 0) {
       q = q.where("c.type", "in", p.types as unknown as string[]);
@@ -153,7 +179,43 @@ export class CachesRepository {
         archived: r.archived,
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
+        foundByMe: Boolean(r.found_by_me),
       };
     });
+  }
+
+  /**
+   * Idempotent mark-as-found for a single cache. Returns true if a new row
+   * was written, false if the cache was already marked.
+   */
+  async markFound(userId: string, cacheId: number): Promise<boolean> {
+    const rows = await this.db
+      .insertInto("cache_finds")
+      .values({ cache_id: cacheId, user_id: userId, source: "manual" })
+      .onConflict((oc) => oc.columns(["cache_id", "user_id"]).doNothing())
+      .returning("cache_id")
+      .execute();
+    return rows.length > 0;
+  }
+
+  async unmarkFound(userId: string, cacheId: number): Promise<boolean> {
+    const rows = await this.db
+      .deleteFrom("cache_finds")
+      .where("cache_id", "=", cacheId)
+      .where("user_id", "=", userId)
+      .returning("cache_id")
+      .execute();
+    return rows.length > 0;
+  }
+
+  /** Quick sanity check used by /caches/:id/finds — ensures the cache exists and belongs to this user. */
+  async existsForOwner(userId: string, cacheId: number): Promise<boolean> {
+    const row = await this.db
+      .selectFrom("caches")
+      .select("id")
+      .where("id", "=", cacheId)
+      .where("owner_id", "=", userId)
+      .executeTakeFirst();
+    return !!row;
   }
 }

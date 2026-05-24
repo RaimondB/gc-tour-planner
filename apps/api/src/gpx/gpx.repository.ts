@@ -10,6 +10,8 @@ import { KYSELY } from "../database/database.tokens.js";
 export interface UpsertCachesResult {
   insertedOrUpdated: number;
   waypointsInserted: number;
+  /** Map of cache code → DB row id for every cache touched by this upload. */
+  cacheIdByCode: ReadonlyMap<string, number>;
 }
 
 @Injectable()
@@ -30,7 +32,11 @@ export class GpxRepository {
     waypoints: readonly ParsedWaypoint[],
   ): Promise<UpsertCachesResult> {
     if (caches.length === 0) {
-      return { insertedOrUpdated: 0, waypointsInserted: 0 };
+      return {
+        insertedOrUpdated: 0,
+        waypointsInserted: 0,
+        cacheIdByCode: new Map(),
+      };
     }
 
     return this.db.transaction().execute(async (tx) => {
@@ -128,8 +134,33 @@ export class GpxRepository {
         waypointsInserted = matchedWaypoints.length;
       }
 
-      return { insertedOrUpdated, waypointsInserted };
+      return { insertedOrUpdated, waypointsInserted, cacheIdByCode };
     });
+  }
+
+  /**
+   * Idempotently mark a batch of caches as found by `userId`. Returns the
+   * number of new find rows written (existing rows are left untouched).
+   */
+  async recordFinds(
+    userId: string,
+    cacheIds: readonly number[],
+    source: "manual" | "gpx-finds-import",
+  ): Promise<number> {
+    if (cacheIds.length === 0) return 0;
+    const inserted = await this.db
+      .insertInto("cache_finds")
+      .values(
+        cacheIds.map((cache_id) => ({
+          cache_id,
+          user_id: userId,
+          source,
+        })),
+      )
+      .onConflict((oc) => oc.columns(["cache_id", "user_id"]).doNothing())
+      .returning("cache_id")
+      .execute();
+    return inserted.length;
   }
 
   async recordUpload(

@@ -9,7 +9,17 @@ export interface GpxUploadResult {
   uploadId: string;
   cachesUpserted: number;
   waypointsInserted: number;
+  findsRecorded: number;
   warnings: string[];
+}
+
+export interface IngestOptions {
+  /**
+   * When true, every cache in the upload is also marked as found by the
+   * uploader (idempotent — existing finds aren't disturbed). Intended for
+   * Groundspeak "My Finds" Pocket Queries.
+   */
+  markAsFound?: boolean;
 }
 
 @Injectable()
@@ -20,6 +30,7 @@ export class GpxService {
     ownerId: string,
     filename: string,
     xml: string,
+    opts: IngestOptions = {},
   ): Promise<GpxUploadResult> {
     let parsed: ParsedGpx;
     try {
@@ -30,8 +41,17 @@ export class GpxService {
       throw new BadRequestException(`Failed to parse GPX: ${message}`);
     }
 
-    const { insertedOrUpdated, waypointsInserted } =
+    const { insertedOrUpdated, waypointsInserted, cacheIdByCode } =
       await this.repo.upsertFromGpx(ownerId, parsed.caches, parsed.waypoints);
+
+    let findsRecorded = 0;
+    if (opts.markAsFound && cacheIdByCode.size > 0) {
+      findsRecorded = await this.repo.recordFinds(
+        ownerId,
+        Array.from(cacheIdByCode.values()),
+        "gpx-finds-import",
+      );
+    }
 
     const uploadId = await this.repo.recordUpload(
       ownerId,
@@ -45,6 +65,7 @@ export class GpxService {
       uploadId,
       cachesUpserted: insertedOrUpdated,
       waypointsInserted,
+      findsRecorded,
       warnings: parsed.warnings,
     };
   }

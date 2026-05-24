@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { Caches } from "@gctp/shared";
 import { CachesRepository } from "./caches.repository.js";
 
@@ -19,6 +19,7 @@ export class CachesService {
       radiusM: q.radiusM,
       types: q.types,
       attributeGroups: q.attributes,
+      excludeFound: q.excludeFound,
     });
 
     // clustersHint is a coarse grid bucket count; the real cluster discovery
@@ -36,5 +37,25 @@ export class CachesService {
     }));
 
     return { caches, clustersHint };
+  }
+
+  async markFound(
+    ownerId: string,
+    cacheId: number,
+  ): Promise<{ created: boolean }> {
+    if (!(await this.repo.existsForOwner(ownerId, cacheId))) {
+      throw new NotFoundException(`Cache ${cacheId} not found for this user`);
+    }
+    return { created: await this.repo.markFound(ownerId, cacheId) };
+  }
+
+  async unmarkFound(
+    ownerId: string,
+    cacheId: number,
+  ): Promise<{ removed: boolean }> {
+    if (!(await this.repo.existsForOwner(ownerId, cacheId))) {
+      throw new NotFoundException(`Cache ${cacheId} not found for this user`);
+    }
+    return { removed: await this.repo.unmarkFound(ownerId, cacheId) };
   }
 }
