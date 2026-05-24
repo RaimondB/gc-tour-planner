@@ -5,8 +5,11 @@ import { Module, type Provider } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Tours } from "@gctp/shared";
 import { CachesModule } from "../caches/caches.module.js";
+import { CachesRepository } from "../caches/caches.repository.js";
 import { CachesService } from "../caches/caches.service.js";
+import { CacheLanduseRepository } from "../caches/cache-landuse.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
+import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { GreedyTspPlanner } from "./strategies/greedy/greedy-tsp-planner.js";
@@ -37,11 +40,21 @@ const tourPlannerProvider: Provider = {
   useFactory: (
     config: ConfigService,
     caches: CachesService,
+    cachesRepo: CachesRepository,
+    cacheLanduse: CacheLanduseRepository,
     routing: RoutingService,
+    routingRepo: RoutingRepository,
     osrm: OsrmClient,
     solver: SolverClient,
   ) => {
-    const greedy = new GreedyTspPlanner(caches, routing, osrm);
+    const greedy = new GreedyTspPlanner(
+      caches,
+      cachesRepo,
+      cacheLanduse,
+      routing,
+      routingRepo,
+      osrm,
+    );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
       case "solver":
@@ -54,7 +67,10 @@ const tourPlannerProvider: Provider = {
   inject: [
     ConfigService,
     CachesService,
+    CachesRepository,
+    CacheLanduseRepository,
     RoutingService,
+    RoutingRepository,
     OSRM_CLIENT,
     SOLVER_CLIENT,
   ],
