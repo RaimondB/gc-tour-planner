@@ -71,7 +71,6 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      SOLVER_SEED: ${SOLVER_SEED:-42}
       SOLVER_SPENT_LIMIT: ${SOLVER_SPENT_LIMIT:-5s}
     ports:
       - "${SOLVER_PORT:-8088}:8080"
