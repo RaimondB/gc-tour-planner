@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/0"
+     xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1"
+     version="1.0" creator="gc-tour-planner test fixture">
+
+  <wpt lat="52.0907" lon="5.1214">
+    <name>GCAAA111</name>
+    <desc>Forest Walk by tester</desc>
+    <sym>Geocache</sym>
+    <type>Geocache|Traditional Cache</type>
+    <groundspeak:cache id="1001" available="True" archived="False">
+      <groundspeak:name>Forest Walk</groundspeak:name>
+      <groundspeak:type>Traditional Cache</groundspeak:type>
+      <groundspeak:container>Small</groundspeak:container>
+      <groundspeak:difficulty>1.5</groundspeak:difficulty>
+      <groundspeak:terrain>2.0</groundspeak:terrain>
+      <groundspeak:attributes>
+        <groundspeak:attribute id="6" inc="1">Recommended for kids</groundspeak:attribute>
+        <groundspeak:attribute id="40" inc="1">Stealth required</groundspeak:attribute>
+        <groundspeak:attribute id="24" inc="0">Wheelchair accessible</groundspeak:attribute>
+      </groundspeak:attributes>
+    </groundspeak:cache>
+  </wpt>
+
+  <wpt lat="52.0920" lon="5.1230">
+    <name>PK1GCAAA111</name>
+    <desc>Parking near GCAAA111</desc>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+  </wpt>
+
+  <wpt lat="52.0950" lon="5.1300">
+    <name>GCBBB222</name>
+    <desc>Urban Puzzle by tester</desc>
+    <sym>Geocache</sym>
+    <type>Geocache|Unknown Cache</type>
+    <groundspeak:cache id="1002" available="True" archived="False">
+      <groundspeak:name>Urban Puzzle</groundspeak:name>
+      <groundspeak:type>Unknown Cache</groundspeak:type>
+      <groundspeak:container>Micro</groundspeak:container>
+      <groundspeak:difficulty>3.5</groundspeak:difficulty>
+      <groundspeak:terrain>1.5</groundspeak:terrain>
+      <groundspeak:attributes>
+        <groundspeak:attribute id="8" inc="1">Available 24/7</groundspeak:attribute>
+      </groundspeak:attributes>
+    </groundspeak:cache>
+  </wpt>
+
+  <wpt lat="52.0951" lon="5.1305">
+    <name>FN1GCBBB222</name>
+    <desc>Final location for GCBBB222</desc>
+    <sym>Final Location</sym>
+    <type>Waypoint|Final Location</type>
+  </wpt>
+
+  <wpt lat="52.1000" lon="5.1400">
+    <name>RP1GCBBB222</name>
+    <desc>Reference point near GCBBB222</desc>
+    <sym>Reference Point</sym>
+    <type>Waypoint|Reference Point</type>
+  </wpt>
+
+</gpx>
