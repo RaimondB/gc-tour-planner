@@ -23,6 +23,12 @@ export interface PlanSettings {
   startPreference: StartPreference;
   /** Per-cache visit time used in time totals. */
   timePerCacheMinutes: number;
+  /**
+   * Walking pace used to convert planned distance into walking time. Lets
+   * the user override OSRM's foot-profile default (~5 km/h) without
+   * re-planning — purely a display concern, recomputed on the client.
+   */
+  avgWalkingKmh: number;
 }
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
@@ -32,6 +38,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   maxLinkMeters: 1_500,
   startPreference: "parking-waypoint",
   timePerCacheMinutes: 5,
+  avgWalkingKmh: 5,
 };
 
 export interface PlannerSidebarProps {
@@ -264,6 +271,22 @@ export function PlannerSidebar({
             }
           />
         </label>
+        <label>
+          Avg walking speed (km/h): {settings.avgWalkingKmh.toFixed(1)}
+          <input
+            type="range"
+            min={2}
+            max={8}
+            step={0.1}
+            value={settings.avgWalkingKmh}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                avgWalkingKmh: Number(e.target.value),
+              })
+            }
+          />
+        </label>
       </div>
 
       <fieldset className="field">
@@ -388,26 +411,56 @@ export function PlannerSidebar({
         </div>
       )}
 
-      {result && <PlanResultPanel result={result} />}
+      {result && (
+        <PlanResultPanel
+          result={result}
+          avgWalkingKmh={settings.avgWalkingKmh}
+        />
+      )}
     </aside>
   );
 }
 
-function PlanResultPanel({ result }: { result: PlanResult }) {
+function PlanResultPanel({
+  result,
+  avgWalkingKmh,
+}: {
+  result: PlanResult;
+  avgWalkingKmh: number;
+}) {
+  const km = result.totals.meters / 1000;
+  // Convert distance → walking minutes at the user's pace. OSRM's own seconds
+  // were profile-default (~5 km/h) — we ignore them so the user sees their
+  // own pace's totals without having to re-run /tours/plan.
+  const walkingMin =
+    avgWalkingKmh > 0 ? (km / avgWalkingKmh) * 60 : Number.POSITIVE_INFINITY;
+  const visitMin = result.totals.visitMinutes;
+  const totalMin = walkingMin + visitMin;
+
   return (
     <div className="plan-result">
       <h3>Planned loop</h3>
+      <div className="plan-headline">
+        <div>
+          <span className="num">{km.toFixed(2)}</span>
+          <span className="unit">km</span>
+        </div>
+        <div>
+          <span className="num">{minutes(totalMin)}</span>
+          <span className="unit">total</span>
+        </div>
+      </div>
       <dl className="totals">
-        <dt>Distance</dt>
-        <dd>{(result.totals.meters / 1000).toFixed(2)} km</dd>
-        <dt>Walking time</dt>
-        <dd>{minutes(result.totals.seconds / 60)}</dd>
-        <dt>Visit time</dt>
-        <dd>{minutes(result.totals.visitMinutes)}</dd>
-        <dt>Total time</dt>
-        <dd>{minutes(result.totals.seconds / 60 + result.totals.visitMinutes)}</dd>
-        <dt>Caches</dt>
-        <dd>{result.orderedCacheIds.length}</dd>
+        <dt>Walking</dt>
+        <dd>
+          {minutes(walkingMin)}{" "}
+          <small>@ {avgWalkingKmh.toFixed(1)} km/h</small>
+        </dd>
+        <dt>Visit</dt>
+        <dd>
+          {minutes(visitMin)}{" "}
+          <small>({result.orderedCacheIds.length} caches)</small>
+        </dd>
         <dt>Parking</dt>
         <dd>
           <strong>{labelForParking(result.parking.type)}</strong>

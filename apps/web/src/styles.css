@@ -419,6 +419,37 @@ body,
   gap: 0.4rem;
 }
 
+.plan-headline {
+  display: flex;
+  gap: 1rem;
+  padding: 0.3rem 0.5rem;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+}
+
+.plan-headline > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+
+.plan-headline .num {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #d84315;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-headline .unit {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.15rem;
+}
+
 .plan-result .totals {
   display: grid;
   grid-template-columns: max-content 1fr;
