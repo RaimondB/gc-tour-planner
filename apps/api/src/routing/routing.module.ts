@@ -16,6 +16,6 @@ import { RoutingService } from "./routing.service.js";
     RoutingRepository,
     { provide: OSRM_CLIENT, useClass: HttpOsrmClient },
   ],
-  exports: [RoutingService],
+  exports: [RoutingService, OSRM_CLIENT],
 })
 export class RoutingModule {}

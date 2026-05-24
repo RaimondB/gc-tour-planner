@@ -43,4 +43,8 @@ if [ ! -f "${OSRM_BASE}.fileIndex" ]; then
 fi
 
 echo "[osrm] osrm-routed listening on :5000"
-exec osrm-routed --algorithm CH --port 5000 "${OSRM_BASE}"
+# OSRM's default --max-table-size is 100, which trips the tour planner's
+# cluster-discovery /table call (we send the full candidate pool, capped at
+# 300 in GreedyTspPlanner). Override via env if you ever push the pool higher.
+MAX_TABLE_SIZE="${OSRM_MAX_TABLE_SIZE:-5000}"
+exec osrm-routed --algorithm CH --port 5000 --max-table-size "${MAX_TABLE_SIZE}" "${OSRM_BASE}"

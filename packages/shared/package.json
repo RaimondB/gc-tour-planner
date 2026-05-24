@@ -34,6 +34,10 @@
     "./routing": {
       "types": "./dist/routing/index.d.ts",
       "import": "./dist/routing/index.js"
+    },
+    "./tsp": {
+      "types": "./dist/tsp/index.d.ts",
+      "import": "./dist/tsp/index.js"
     }
   },
   "files": [

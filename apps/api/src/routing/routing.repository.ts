@@ -54,6 +54,20 @@ export class RoutingRepository {
     profile: Routing.RoutingProfile,
   ): Promise<FoundLeg[]> {
     if (pairs.length === 0) return [];
+
+    // Two flat `IN` clauses on the from/to id sets, then post-filter the
+    // returned rows to the exact pairs requested. The previous shape
+    // (`eb.or(pairs.map(... and(...)))`) builds a binary OR tree that Kysely's
+    // query compiler walks recursively — `getMatrix` over ~100 caches builds
+    // ~10k pairs and blows the JS stack (RangeError: Maximum call stack size
+    // exceeded). The IN/IN form compiles flat regardless of N, and the
+    // post-filter is cheap (Set membership over at most |from|×|to| rows).
+    const fromIds = Array.from(new Set(pairs.map((p) => p.fromCacheId)));
+    const toIds = Array.from(new Set(pairs.map((p) => p.toCacheId)));
+    const wanted = new Set(
+      pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`),
+    );
+
     const rows = (await this.db
       .selectFrom("route_legs")
       .select([
@@ -65,26 +79,20 @@ export class RoutingRepository {
         sql<string>`ST_AsGeoJSON(geom::geometry)`.as("geojson"),
       ])
       .where("profile", "=", profile)
-      .where((eb) =>
-        eb.or(
-          pairs.map((p) =>
-            eb.and([
-              eb("from_cache_id", "=", p.fromCacheId),
-              eb("to_cache_id", "=", p.toCacheId),
-            ]),
-          ),
-        ),
-      )
+      .where("from_cache_id", "in", fromIds)
+      .where("to_cache_id", "in", toIds)
       .execute()) as unknown as LegRow[];
 
-    return rows.map<FoundLeg>((r) => ({
-      fromCacheId: Number(r.from_cache_id),
-      toCacheId: Number(r.to_cache_id),
-      profile: r.profile as Routing.RoutingProfile,
-      meters: Number(r.meters),
-      seconds: Number(r.seconds),
-      geometry: JSON.parse(r.geojson) as Geo.GeoJsonLineString,
-    }));
+    return rows
+      .filter((r) => wanted.has(`${r.from_cache_id}:${r.to_cache_id}`))
+      .map<FoundLeg>((r) => ({
+        fromCacheId: Number(r.from_cache_id),
+        toCacheId: Number(r.to_cache_id),
+        profile: r.profile as Routing.RoutingProfile,
+        meters: Number(r.meters),
+        seconds: Number(r.seconds),
+        geometry: JSON.parse(r.geojson) as Geo.GeoJsonLineString,
+      }));
   }
 
   /** Cache-write. Upserts on the PK (from, to, profile). */

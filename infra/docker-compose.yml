@@ -54,6 +54,7 @@ services:
     entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
     environment:
       OSRM_REGION: ${OSRM_REGION}
+      OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE:-5000}
     volumes:
       - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
       - osrm-data:/data

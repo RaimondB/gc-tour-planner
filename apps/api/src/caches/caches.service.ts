@@ -40,6 +40,18 @@ export class CachesService {
     return { caches, clustersHint };
   }
 
+  /**
+   * Fetch a specific set of caches by id, owner-scoped. Used by the tour
+   * planner — Pass 2 needs coords + parkingPoints for the cluster the user
+   * picked from `/tours/clusters`.
+   */
+  async findByIds(
+    ownerId: string,
+    ids: readonly number[],
+  ): Promise<Caches.CacheDTO[]> {
+    return this.repo.findByIds(ownerId, ids);
+  }
+
   async markFound(
     ownerId: string,
     cacheId: number,

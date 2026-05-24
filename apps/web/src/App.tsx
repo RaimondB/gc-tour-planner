@@ -4,18 +4,47 @@
 import { useCallback, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
+import type {
+  ClusterCandidate,
+  ClusterDiagnostics,
+  PlanResult,
+} from "@gctp/shared/tours";
 import { listCaches } from "./lib/api.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
 import { MapView } from "./features/map/MapView.js";
 import { CachesLayer } from "./features/map/CachesLayer.js";
+import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
+import { TourLayer } from "./features/map/TourLayer.js";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
+import {
+  DEFAULT_PLAN_SETTINGS,
+  PlannerSidebar,
+  type PlanSettings,
+} from "./features/planning/PlannerSidebar.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 
 export default function App(): JSX.Element {
   const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH);
+  const [planSettings, setPlanSettings] = useState<PlanSettings>(
+    DEFAULT_PLAN_SETTINGS,
+  );
+  const [clusters, setClusters] = useState<ClusterCandidate[] | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ClusterDiagnostics | null>(
+    null,
+  );
+  const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
+  const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  const [planResult, setPlanResultRaw] = useState<PlanResult | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // Clear the focused cluster whenever the real OSRM-routed result lands —
+  // the TourLayer takes over and we don't want two polylines fighting on the map.
+  const setPlanResult = useCallback((next: PlanResult | null) => {
+    setPlanResultRaw(next);
+    if (next) setFocusedClusterId(null);
+  }, []);
 
   // Mirror query at App level so the sidebar can show the count without
   // CachesLayer having to lift it up. Same queryKey → same cache entry, no
@@ -67,6 +96,22 @@ export default function App(): JSX.Element {
             cacheCount={cachesQuery.data?.caches.length}
             loading={cachesQuery.isFetching}
           />
+          <PlannerSidebar
+            search={params}
+            settings={planSettings}
+            onSettingsChange={setPlanSettings}
+            clusters={clusters}
+            onClustersChange={setClusters}
+            diagnostics={diagnostics}
+            onDiagnosticsChange={setDiagnostics}
+            chosenClusterId={chosenClusterId}
+            onChosenClusterChange={setChosenClusterId}
+            focusedClusterId={focusedClusterId}
+            onFocusClusterChange={setFocusedClusterId}
+            result={planResult}
+            onResultChange={setPlanResult}
+            caches={cachesQuery.data?.caches}
+          />
         </div>
         <main className="app-main">
           <MapView
@@ -80,6 +125,13 @@ export default function App(): JSX.Element {
             <LanduseLayer params={params} />
             <RadiusLayer params={params} />
             <CachesLayer params={params} />
+            <ClustersPreviewLayer
+              candidates={clusters}
+              caches={cachesQuery.data?.caches}
+              focusedClusterId={focusedClusterId}
+              onCentroidClick={setFocusedClusterId}
+            />
+            <TourLayer result={planResult} />
           </MapView>
         </main>
       </div>

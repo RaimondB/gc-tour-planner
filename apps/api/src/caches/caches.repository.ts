@@ -230,6 +230,113 @@ export class CachesRepository {
     return rows.length > 0;
   }
 
+  /**
+   * Fetch a specific set of caches by id, restricted to caches the user owns
+   * (or world-readable public-source rows once those land in M7). Returns one
+   * `CacheDTO` per id found; the caller decides whether a partial result is
+   * acceptable. Re-uses the same projection as `find` so consumers see the
+   * same shape (including parkingPoints + foundByMe).
+   */
+  async findByIds(
+    userId: string,
+    ids: readonly number[],
+  ): Promise<Caches.CacheDTO[]> {
+    if (ids.length === 0) return [];
+
+    const rows = (await this.db
+      .selectFrom("caches as c")
+      .select((eb) => [
+        "c.id",
+        "c.source",
+        "c.source_id",
+        "c.code",
+        "c.type",
+        "c.name",
+        sql<number>`ST_X(c.location::geometry)`.as("lng"),
+        sql<number>`ST_Y(c.location::geometry)`.as("lat"),
+        "c.difficulty",
+        "c.terrain",
+        "c.size",
+        "c.archived",
+        eb
+          .selectFrom("cache_attributes as a")
+          .whereRef("a.cache_id", "=", "c.id")
+          .where("a.positive", "=", true)
+          .select(
+            sql<
+              number[]
+            >`COALESCE(array_agg(a.attr_id ORDER BY a.attr_id), ARRAY[]::int[])`.as(
+              "attribute_ids",
+            ),
+          )
+          .as("attribute_ids"),
+        eb
+          .selectFrom("additional_waypoints as w")
+          .whereRef("w.cache_id", "=", "c.id")
+          .where("w.type", "=", "parking")
+          .select(
+            sql<
+              number[]
+            >`COALESCE(array_agg(ST_X(w.location::geometry)), ARRAY[]::float8[])`.as(
+              "parking_lngs",
+            ),
+          )
+          .as("parking_lngs"),
+        eb
+          .selectFrom("additional_waypoints as w")
+          .whereRef("w.cache_id", "=", "c.id")
+          .where("w.type", "=", "parking")
+          .select(
+            sql<
+              number[]
+            >`COALESCE(array_agg(ST_Y(w.location::geometry)), ARRAY[]::float8[])`.as(
+              "parking_lats",
+            ),
+          )
+          .as("parking_lats"),
+        eb
+          .exists(
+            eb
+              .selectFrom("cache_finds as f")
+              .select(sql<number>`1`.as("one"))
+              .whereRef("f.cache_id", "=", "c.id")
+              .where("f.user_id", "=", userId),
+          )
+          .as("found_by_me"),
+      ])
+      .where("c.owner_id", "=", userId)
+      .where("c.id", "in", ids as unknown as number[])
+      .execute()) as unknown as CacheRow[];
+
+    return rows.map<Caches.CacheDTO>((r) => {
+      const parking: Caches.CacheDTO["parkingPoints"] = [];
+      const lngs = r.parking_lngs ?? [];
+      const lats = r.parking_lats ?? [];
+      for (let i = 0; i < lngs.length && i < lats.length; i += 1) {
+        const plng = lngs[i];
+        const plat = lats[i];
+        if (typeof plng === "number" && typeof plat === "number")
+          parking.push([plng, plat]);
+      }
+      return {
+        id: Number(r.id),
+        source: r.source,
+        sourceId: r.source_id,
+        code: r.code,
+        type: r.type as Caches.CacheType,
+        name: r.name,
+        location: { type: "Point", coordinates: [r.lng, r.lat] },
+        difficulty: r.difficulty === null ? null : Number(r.difficulty),
+        terrain: r.terrain === null ? null : Number(r.terrain),
+        size: r.size,
+        archived: r.archived,
+        attributeIds: r.attribute_ids ?? [],
+        parkingPoints: parking,
+        foundByMe: Boolean(r.found_by_me),
+      };
+    });
+  }
+
   /** Quick sanity check used by /caches/:id/finds — ensures the cache exists and belongs to this user. */
   async existsForOwner(userId: string, cacheId: number): Promise<boolean> {
     const row = await this.db

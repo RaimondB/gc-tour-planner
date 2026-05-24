@@ -171,7 +171,13 @@ type CachesResponse = {
 
 Multipart upload. Returns `{ uploadId, parsedCount }`. Parsing is synchronous for small files (< 5 MB); large files are queued to `jobs/gpx-parse` and the client polls `GET /gpx/uploads/:id`.
 
-### 2.3 `POST /tours/plan`
+### 2.3 `POST /tours/clusters` + `POST /tours/plan`
+
+Tour planning is split into two passes (see ADR-0002). Pass 1 runs cluster discovery + scoring and returns the top-N candidate clusters cheaply. Pass 2 takes the cache-id list of a chosen cluster and runs the OSRM matrix + per-leg geometry + parking selection to produce a routed loop.
+
+`POST /tours/clusters` accepts a `PlanInput` and returns `{ candidates: ClusterCandidate[] }`. Each candidate carries `clusterId` (stable hash of sorted cache ids), `cacheIds`, `centroid`, `mstLengthMeters`, `score`, and a `scoreBreakdown` so the UI can explain ranking.
+
+`POST /tours/plan` accepts a `PlanLoopInput` (cache-id list + budgets + start preference) and returns a single `PlanResult`. The cache-id list is the source of truth — the planner does not re-run discovery in Pass 2.
 
 ```ts
 const PlanInput = z.object({
@@ -201,6 +207,26 @@ const PlanInput = z.object({
     .default("parking-waypoint"),
   userSuppliedStart: z.tuple([z.number(), z.number()]).optional(),
 });
+
+const PlanLoopInput = z.object({
+  cacheIds: z.array(z.number().int().positive()).min(2).max(50),
+  distanceBudgetMeters: z.number().int().positive().max(25_000).default(8_000),
+  timeBudgetMinutes: z.number().int().positive().max(720).optional(),
+  timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
+  startPreference: z
+    .enum(["parking-waypoint", "osrm-nearest-road", "user-supplied-point"])
+    .default("parking-waypoint"),
+  userSuppliedStart: z.tuple([z.number(), z.number()]).optional(),
+});
+
+type ClusterCandidate = {
+  clusterId: string;
+  cacheIds: number[];
+  centroid: GeoJsonPoint;
+  mstLengthMeters: number;
+  score: number;
+  scoreBreakdown: Record<string, number>;
+};
 
 type PlanResult = {
   orderedCacheIds: number[];
