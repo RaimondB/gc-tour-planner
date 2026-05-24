@@ -337,6 +337,55 @@ export class CachesRepository {
     });
   }
 
+  /**
+   * Pass 1 sparse-matrix support: for each origin cache id, return its
+   * `k` Haversine-nearest neighbours within `radiusM`, owned by the same user.
+   *
+   * Uses PostGIS `<->` (KNN operator) under a GiST index, so the per-origin
+   * cost is sub-linear in pool size. Caller is expected to over-fetch
+   * (3 × target k) and re-rank against OSRM walking distance — Haversine-NN
+   * alone misses caches that are closest on foot but separated from a closer-
+   * by-crow's-flight cache by an unwalkable barrier.
+   */
+  async nearestNeighbors(
+    ownerId: string,
+    originIds: readonly number[],
+    k: number,
+    radiusM: number,
+  ): Promise<Array<{ fromCacheId: number; toCacheId: number }>> {
+    if (originIds.length === 0 || k <= 0) return [];
+    // One round-trip per origin: cheap (KNN, k≈30), and lets us reuse the
+    // origin's location lookup. Could batch with a LATERAL JOIN in a single
+    // query if we ever profile this as hot — for now, simplicity wins.
+    const out: Array<{ fromCacheId: number; toCacheId: number }> = [];
+    for (const originId of originIds) {
+      const rows = (await this.db
+        .selectFrom("caches as origin")
+        .innerJoin("caches as neighbor", (j) =>
+          j.onTrue().on("neighbor.owner_id", "=", ownerId),
+        )
+        .select((eb) => [
+          sql<string>`neighbor.id`.as("neighbor_id"),
+          sql<number>`ST_Distance(origin.location, neighbor.location)`.as(
+            "meters",
+          ),
+        ])
+        .where("origin.id", "=", originId)
+        .where("origin.owner_id", "=", ownerId)
+        .where("neighbor.id", "!=", originId)
+        .where(
+          sql<boolean>`ST_DWithin(origin.location, neighbor.location, ${radiusM})`,
+        )
+        .orderBy(sql`origin.location <-> neighbor.location`)
+        .limit(k)
+        .execute()) as unknown as { neighbor_id: string; meters: number }[];
+      for (const r of rows) {
+        out.push({ fromCacheId: originId, toCacheId: Number(r.neighbor_id) });
+      }
+    }
+    return out;
+  }
+
   /** Quick sanity check used by /caches/:id/finds — ensures the cache exists and belongs to this user. */
   async existsForOwner(userId: string, cacheId: number): Promise<boolean> {
     const row = await this.db

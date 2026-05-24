@@ -95,7 +95,11 @@ export class RoutingRepository {
       }));
   }
 
-  /** Cache-write. Upserts on the PK (from, to, profile). */
+  /**
+   * Cache-write for full /route legs (with geometry). Upserts on the PK
+   * (from, to, profile). Always writes `source='route'`; if a 'table' row
+   * existed it gets upgraded in place.
+   */
   async upsertLegs(legs: readonly PersistLegInput[]): Promise<void> {
     if (legs.length === 0) return;
     await this.db
@@ -107,6 +111,7 @@ export class RoutingRepository {
           profile: l.profile,
           meters: l.meters,
           seconds: l.seconds,
+          source: "route",
           geom: sql<string>`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(l.geometry)}), 4326)::geography`,
         })),
       )
@@ -114,11 +119,91 @@ export class RoutingRepository {
         oc.columns(["from_cache_id", "to_cache_id", "profile"]).doUpdateSet({
           meters: (eb) => eb.ref("excluded.meters"),
           seconds: (eb) => eb.ref("excluded.seconds"),
+          source: (eb) => eb.ref("excluded.source"),
           geom: (eb) => eb.ref("excluded.geom"),
           fetched_at: sql<Date>`now()`,
         }),
       )
       .execute();
+  }
+
+  /**
+   * Sparse matrix-cell cache: meters + seconds only, no geometry. Used by Pass 1
+   * cluster discovery. INSERT … DO NOTHING — never downgrade a 'route' row to
+   * 'table'. Pass 2's upsertLegs() can still upgrade a 'table' row to 'route'
+   * later (its DO UPDATE SET overwrites source).
+   */
+  async upsertMatrixCells(
+    cells: readonly {
+      fromCacheId: number;
+      toCacheId: number;
+      profile: Routing.RoutingProfile;
+      meters: number;
+      seconds: number;
+    }[],
+  ): Promise<void> {
+    if (cells.length === 0) return;
+    await this.db
+      .insertInto("route_legs")
+      .values(
+        cells.map((c) => ({
+          from_cache_id: c.fromCacheId,
+          to_cache_id: c.toCacheId,
+          profile: c.profile,
+          meters: c.meters,
+          seconds: c.seconds,
+          source: "table",
+          geom: null,
+        })),
+      )
+      .onConflict((oc) =>
+        oc.columns(["from_cache_id", "to_cache_id", "profile"]).doNothing(),
+      )
+      .execute();
+  }
+
+  /**
+   * Sparse matrix-cell lookup: meters + seconds for the given pairs, ignoring
+   * geometry. Returns rows for both 'table' and 'route' sources — a route row
+   * is a strict superset of what the sparse path needs.
+   */
+  async findMatrixCells(
+    pairs: readonly { fromCacheId: number; toCacheId: number }[],
+    profile: Routing.RoutingProfile,
+  ): Promise<
+    Array<{
+      fromCacheId: number;
+      toCacheId: number;
+      meters: number;
+      seconds: number;
+    }>
+  > {
+    if (pairs.length === 0) return [];
+    const fromIds = Array.from(new Set(pairs.map((p) => p.fromCacheId)));
+    const toIds = Array.from(new Set(pairs.map((p) => p.toCacheId)));
+    const wanted = new Set(
+      pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`),
+    );
+    const rows = (await this.db
+      .selectFrom("route_legs")
+      .select(["from_cache_id", "to_cache_id", "meters", "seconds"])
+      .where("profile", "=", profile)
+      .where("from_cache_id", "in", fromIds)
+      .where("to_cache_id", "in", toIds)
+      .execute()) as unknown as Array<{
+      from_cache_id: string;
+      to_cache_id: string;
+      meters: string;
+      seconds: string;
+    }>;
+    return rows
+      .filter((r) => wanted.has(`${r.from_cache_id}:${r.to_cache_id}`))
+      .map((r) => ({
+        fromCacheId: Number(r.from_cache_id),
+        toCacheId: Number(r.to_cache_id),
+        meters: Number(r.meters),
+        seconds: Number(r.seconds),
+      }));
   }
 
   /**
