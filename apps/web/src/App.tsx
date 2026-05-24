@@ -8,6 +8,7 @@ import { listCaches } from "./lib/api.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
 import { MapView } from "./features/map/MapView.js";
 import { CachesLayer } from "./features/map/CachesLayer.js";
+import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
@@ -27,6 +28,7 @@ export default function App(): JSX.Element {
         radiusM: params.radiusM,
         types: params.types.length > 0 ? params.types : undefined,
         excludeFound: params.excludeFound || undefined,
+        contexts: params.contexts.length > 0 ? params.contexts : undefined,
       }),
     placeholderData: (prev) => prev,
   });
@@ -75,6 +77,7 @@ export default function App(): JSX.Element {
               mapRef.current = m;
             }}
           >
+            <LanduseLayer params={params} />
             <RadiusLayer params={params} />
             <CachesLayer params={params} />
           </MapView>

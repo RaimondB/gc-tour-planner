@@ -16,6 +16,13 @@ export interface FindCachesParams {
   attributeGroups?: readonly (readonly Caches.AttributeFilter[])[];
   /** When true, exclude caches the current user has logged as found. */
   excludeFound?: boolean;
+  /**
+   * Hard filter: cache must be inside at least one cached osm_landuse polygon
+   * whose `kind` is in this list. Relies on the OSM landuse cache being warm
+   * for the relevant cells — the web app calls /landuse before /caches to
+   * guarantee that.
+   */
+  contexts?: readonly string[];
 }
 
 interface CacheRow {
@@ -120,6 +127,21 @@ export class CachesRepository {
               .whereRef("f.cache_id", "=", "c.id")
               .where("f.user_id", "=", p.ownerId),
           ),
+        ),
+      );
+    }
+
+    if (p.contexts && p.contexts.length > 0) {
+      const contexts = p.contexts;
+      q = q.where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom("osm_landuse as l")
+            .select(sql<number>`1`.as("one"))
+            .where("l.kind", "in", contexts as unknown as string[])
+            .where(
+              sql<boolean>`ST_Contains(l.polygon::geometry, c.location::geometry)`,
+            ),
         ),
       );
     }

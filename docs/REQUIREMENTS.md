@@ -93,16 +93,16 @@ Existing tools each solve one slice (filtering, mapping, basic routing). None co
 
 ## 6. Roadmap
 
-| Phase  | Contents                                                                                                                                                                | Status                               |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| **M1** | Foundations: monorepo scaffold, docs + ADRs, agent instructions, NestJS+Vite skeletons, docker-compose (postgres+valkey), CI, `TourPlannerStrategy` interface skeleton. | _in progress (docs sub-phase first)_ |
-| **M2** | Cache ingest: caches schema + migrations, GPX upload + parser, list endpoint with hard filters, basic map markers.                                                      | pending                              |
-| **M3** | OSM context + radius search: Overpass client + `osm_landuse` cache, `ST_Contains` filter, sidebar UI.                                                                   | pending                              |
-| **M4** | Routing infra: OSRM container + extract bootstrap, `routing` module with cached legs, OD distance matrix.                                                               | pending                              |
-| **M5** | Tour planning: DBSCAN, TSP via NN+2-opt, parking selection, `/tours/plan` + UI.                                                                                         | pending                              |
-| **M6** | Persistence + multi-user: auth, saved tours, read-only sharing links.                                                                                                   | pending                              |
-| **M7** | OKAPI source adapter.                                                                                                                                                   | pending                              |
-| **M8** | GC.com adapter (gated on partner approval; feature-flagged off).                                                                                                        | pending                              |
+| Phase  | Contents                                                                                                                                                                      | Status                       |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **M1** | Foundations: monorepo scaffold, docs + ADRs, agent instructions, NestJS+Vite skeletons, docker-compose (postgres+valkey), CI, `TourPlannerStrategy` interface skeleton.       | done                         |
+| **M2** | Cache ingest: caches schema + migrations, GPX upload + parser, list endpoint with hard filters, basic map markers.                                                            | done                         |
+| **M3** | OSM context + radius search: Overpass client + `osm_landuse` cache, `ST_Contains` filter, sidebar UI. Soft-preference weighting deferred to M5; async refresh deferred to M4. | done — hard filter + overlay |
+| **M4** | Routing infra: OSRM container + extract bootstrap, `routing` module with cached legs, OD distance matrix. Picks up the deferred async Overpass refresh via BullMQ.            | pending                      |
+| **M5** | Tour planning: DBSCAN, TSP via NN+2-opt, parking selection, `/tours/plan` + UI. Adds landuse-weighted soft preferences.                                                       | pending                      |
+| **M6** | Persistence + multi-user: auth, saved tours, read-only sharing links.                                                                                                         | pending                      |
+| **M7** | OKAPI source adapter.                                                                                                                                                         | pending                      |
+| **M8** | GC.com adapter (gated on partner approval; feature-flagged off).                                                                                                              | pending                      |
 
 ## 7. Acceptance — end-to-end smoke (post-M6)
 

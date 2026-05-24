@@ -22,6 +22,13 @@ export const GeoJsonLineString = z.object({
 });
 export type GeoJsonLineString = z.infer<typeof GeoJsonLineString>;
 
+/** A single linear ring; first and last coordinate must be identical (GeoJSON spec). */
+export const GeoJsonPolygon = z.object({
+  type: z.literal("Polygon"),
+  coordinates: z.array(z.array(LngLat).min(4)).min(1),
+});
+export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygon>;
+
 export const BoundingBox = z.object({
   minLng: z.number(),
   minLat: z.number(),

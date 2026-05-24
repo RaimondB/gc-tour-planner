@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
+import type { BoundingBox } from "@gctp/shared/geo";
+import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 
 /**
  * Hand-written typed client. The OpenAPI-generated client lands once the API
@@ -37,6 +39,7 @@ export interface ListCachesParams {
   types?: CachesQuery["types"];
   attributes?: CachesQuery["attributes"];
   excludeFound?: boolean;
+  contexts?: readonly LanduseKind[];
 }
 
 export async function listCaches(params: ListCachesParams) {
@@ -49,8 +52,25 @@ export async function listCaches(params: ListCachesParams) {
     search.set("attributes", JSON.stringify(params.attributes));
   }
   if (params.excludeFound) search.set("excludeFound", "true");
+  for (const c of params.contexts ?? []) search.append("contexts", c);
   const raw = await request<unknown>(`/caches?${search.toString()}`);
   return CachesResponse.parse(raw);
+}
+
+export interface ListLanduseParams {
+  bbox: BoundingBox;
+  kinds?: readonly LanduseKind[];
+}
+
+export async function listLanduse(params: ListLanduseParams) {
+  const search = new URLSearchParams();
+  search.set("minLng", String(params.bbox.minLng));
+  search.set("minLat", String(params.bbox.minLat));
+  search.set("maxLng", String(params.bbox.maxLng));
+  search.set("maxLat", String(params.bbox.maxLat));
+  for (const k of params.kinds ?? []) search.append("kinds", k);
+  const raw = await request<unknown>(`/landuse?${search.toString()}`);
+  return LanduseResponse.parse(raw);
 }
 
 export interface UploadGpxResult {

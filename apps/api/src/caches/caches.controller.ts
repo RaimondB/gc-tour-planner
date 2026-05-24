@@ -59,6 +59,14 @@ export class CachesController {
     type: Boolean,
     description: "When true, omit caches the current user has logged as found",
   })
+  @ApiQuery({
+    name: "contexts",
+    required: false,
+    isArray: true,
+    type: String,
+    description:
+      "Hard-filter on OSM landuse kinds; cache must lie inside at least one cached polygon of the requested kinds. Warm /landuse for the same bbox first.",
+  })
   @ApiResponse({
     status: 200,
     description: "Caches plus a coarse grid clusterHint.",
@@ -71,6 +79,7 @@ export class CachesController {
     @Query("types") typesRaw?: string | string[],
     @Query("attributes") attributesRaw?: string,
     @Query("excludeFound") excludeFoundRaw?: string,
+    @Query("contexts") contextsRaw?: string | string[],
   ): Promise<Caches.CachesResponse> {
     const types =
       typesRaw === undefined
@@ -78,6 +87,12 @@ export class CachesController {
         : Array.isArray(typesRaw)
           ? typesRaw
           : [typesRaw];
+    const contexts =
+      contextsRaw === undefined
+        ? undefined
+        : Array.isArray(contextsRaw)
+          ? contextsRaw
+          : [contextsRaw];
     let attributes: unknown;
     if (attributesRaw !== undefined && attributesRaw !== "") {
       try {
@@ -94,6 +109,7 @@ export class CachesController {
       types,
       attributes,
       excludeFound,
+      contexts,
     });
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.flatten());
