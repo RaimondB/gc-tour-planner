@@ -259,11 +259,21 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         };
       }
       case "osrm-nearest-road": {
+        // Snap centroid to a real road via OSRM /nearest — otherwise a
+        // centroid in a river / field becomes a huge parking-to-first detour.
+        const snapped = await this.osrm.nearest(centroid, PROFILE);
+        if (snapped) {
+          return {
+            type: "osrm-nearest",
+            point: { type: "Point", coordinates: snapped },
+            reason: "Cluster centroid snapped to nearest walkable road",
+          };
+        }
         return {
           type: "osrm-nearest",
           point: { type: "Point", coordinates: centroid },
           reason:
-            "Cluster centroid (OSRM /nearest snapping arrives in a later milestone)",
+            "OSRM /nearest found no walkable road — using raw cluster centroid",
         };
       }
       case "parking-waypoint":

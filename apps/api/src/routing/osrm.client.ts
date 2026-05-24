@@ -31,6 +31,17 @@ export interface OsrmClient {
     coords: readonly [number, number][],
     profile: Routing.RoutingProfile,
   ): Promise<(OsrmMatrixEntry | null)[][]>;
+  /**
+   * Snap a coordinate to the nearest routable node in the OSRM graph for the
+   * given profile. Returns the snapped point or `null` if no road is found
+   * within OSRM's default search radius. Used by the planner to keep parking
+   * out of the middle of rivers — a raw cluster centroid in a river snaps to
+   * the closest footpath/bridge on shore.
+   */
+  nearest(
+    point: [number, number],
+    profile: Routing.RoutingProfile,
+  ): Promise<[number, number] | null>;
 }
 
 export const OSRM_CLIENT = Symbol.for("@gctp/api/routing/OSRM_CLIENT");
@@ -129,6 +140,27 @@ export class HttpOsrmClient implements OsrmClient {
       out.push(row);
     }
     return out;
+  }
+
+  async nearest(
+    point: [number, number],
+    profile: Routing.RoutingProfile,
+  ): Promise<[number, number] | null> {
+    const url = `${this.base}/nearest/v1/${profile}/${fmt(point)}?number=1`;
+    const res = await this.fetchWithTimeout(url);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`OSRM /nearest ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as {
+      code: string;
+      waypoints?: Array<{ location?: [number, number] }>;
+    };
+    if (json.code !== "Ok" || !json.waypoints || json.waypoints.length === 0)
+      return null;
+    const loc = json.waypoints[0]?.location;
+    if (!loc) return null;
+    return [loc[0], loc[1]];
   }
 
   private async fetchWithTimeout(url: string): Promise<Response> {

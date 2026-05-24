@@ -556,14 +556,25 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         };
       }
       case "osrm-nearest-road": {
-        // OSRM's /nearest endpoint isn't exposed by our client yet — fall back
-        // to the cluster centroid. The planner can be upgraded later when
-        // OsrmClient grows .nearest(); the user-facing reason is honest.
+        // Snap the cluster centroid to the nearest routable point in the
+        // OSRM foot graph. Without snapping, a centroid sitting in a river /
+        // lake / field becomes the OSRM /route start, OSRM snaps internally
+        // to the nearest road kilometres away, and the parking-to-first leg
+        // ends up as a huge detour. /nearest puts us back on a real
+        // footpath/road at most a few hundred metres from the geometric centre.
+        const snapped = await this.osrm.nearest(centroid, PROFILE);
+        if (snapped) {
+          return {
+            type: "osrm-nearest",
+            point: { type: "Point", coordinates: snapped },
+            reason: "Cluster centroid snapped to nearest walkable road",
+          };
+        }
         return {
           type: "osrm-nearest",
           point: { type: "Point", coordinates: centroid },
           reason:
-            "Cluster centroid (OSRM /nearest snapping arrives in a later milestone)",
+            "OSRM /nearest found no walkable road — using raw cluster centroid",
         };
       }
       case "parking-waypoint":

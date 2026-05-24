@@ -91,6 +91,7 @@ describe("SolverTourPlanner — determinism", () => {
         ]),
       }),
       table: vi.fn(),
+      nearest: vi.fn().mockResolvedValue([0, 0]),
     };
 
     greedy = {
