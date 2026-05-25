@@ -19,6 +19,11 @@ import {
 } from "./clustering/index.js";
 import { scoreCluster } from "./cluster-scoring.js";
 import { haversineMeters } from "./equirectangular.js";
+import {
+  OverlapGrid,
+  pickAndAccumulate,
+  readLoopOptionsFromEnv,
+} from "./loop-aware-legs.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const TOP_N_CLUSTERS = 5;
@@ -298,17 +303,13 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const { order: tspOrder } = Tsp.solveTwoOpt(distances, startIndex);
     const orderedIds = tspOrder.map((i) => connectedIds[i]!);
 
-    const interCacheLegs: Routing.Leg[] = [];
-    for (let i = 0; i < orderedIds.length - 1; i += 1) {
-      const leg = await this.routing.getLeg(
-        ownerId,
-        orderedIds[i]!,
-        orderedIds[i + 1]!,
-        PROFILE,
-      );
-      if (leg) interCacheLegs.push(leg);
-    }
-
+    // Loop-aware polyline assembly: TSP fixes the order, but each leg gets
+    // a chance to pick a non-overlapping alternative against the polyline
+    // accumulated so far. Stops the tour from walking the same main street
+    // twice in dense village clusters. See ./loop-aware-legs.ts.
+    const loopOpts = readLoopOptionsFromEnv();
+    const grid = new OverlapGrid(loopOpts.picker.gridMeters);
+    const altCount = loopOpts.altCount;
     const firstCoord = byId
       .get(orderedIds[0]!)!
       .location.coordinates as [number, number];
@@ -317,11 +318,73 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       .location.coordinates as [number, number];
     const parkingCoord = parking.point.coordinates as [number, number];
 
-    const [parkingToFirst, lastToParking] = await Promise.all([
-      this.osrm.route(parkingCoord, firstCoord, PROFILE),
-      this.osrm.route(lastCoord, parkingCoord, PROFILE),
-    ]);
-    if (!parkingToFirst || !lastToParking) {
+    // Parking → first cache. No accumulated overlap yet, so this is always
+    // the primary; running it through the picker is just for symmetry.
+    const parkingToFirst = await pickAndAccumulate({
+      from: parkingCoord,
+      to: firstCoord,
+      profile: PROFILE,
+      count: altCount,
+      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+      grid,
+      options: loopOpts.picker,
+      logger: this.logger,
+      label: "parking→first",
+    });
+    if (!parkingToFirst) {
+      throw new NotFoundException(
+        "OSRM could not connect parking to the chosen loop — try a different start preference.",
+      );
+    }
+
+    // Inter-cache legs. Each picks an alternative least-overlapping with
+    // the running polyline, so leg 2 prefers the side-street that avoids
+    // leg 1's main road, etc.
+    const interCacheLegs: Routing.Leg[] = [];
+    for (let i = 0; i < orderedIds.length - 1; i += 1) {
+      const fromId = orderedIds[i]!;
+      const toId = orderedIds[i + 1]!;
+      const fromC = byId.get(fromId)!.location.coordinates as [number, number];
+      const toC = byId.get(toId)!.location.coordinates as [number, number];
+      const picked = await pickAndAccumulate({
+        from: fromC,
+        to: toC,
+        profile: PROFILE,
+        count: altCount,
+        fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+        fetchVia: this.osrm.routeMulti.bind(this.osrm),
+        grid,
+        options: loopOpts.picker,
+        logger: this.logger,
+        label: `leg ${i + 1}`,
+      });
+      if (picked) {
+        interCacheLegs.push({
+          fromCacheId: fromId,
+          toCacheId: toId,
+          profile: PROFILE,
+          meters: picked.meters,
+          seconds: picked.seconds,
+          geometry: picked.geometry,
+        });
+      }
+    }
+
+    // Last cache → parking. Closes the loop; the picker still helps here
+    // because the return leg has the entire outbound polyline to compare
+    // against.
+    const lastToParking = await pickAndAccumulate({
+      from: lastCoord,
+      to: parkingCoord,
+      profile: PROFILE,
+      count: altCount,
+      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+      grid,
+      options: loopOpts.picker,
+      logger: this.logger,
+      label: "last→parking",
+    });
+    if (!lastToParking) {
       throw new NotFoundException(
         "OSRM could not connect parking to the chosen loop — try a different start preference.",
       );
@@ -417,6 +480,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       }
     }
   }
+
 }
 
 // ─── Pure utilities ─────────────────────────────────────────────────────────

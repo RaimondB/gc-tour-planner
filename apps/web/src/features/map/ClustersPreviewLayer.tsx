@@ -97,7 +97,9 @@ export function ClustersPreviewLayer({
         source: CENTROIDS_SOURCE,
         layout: {
           "text-field": ["to-string", ["get", "rank"]],
-          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          // Single font, not a stack — MapLibre 404s on comma-joined
+          // stacks against demotiles. See TourLayer for the rationale.
+          "text-font": ["Noto Sans Bold"],
           "text-size": 13,
           "text-allow-overlap": true,
         },

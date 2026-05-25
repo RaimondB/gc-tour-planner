@@ -8,6 +8,11 @@ import { RoutingService } from "../../../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
 import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
 import {
+  OverlapGrid,
+  pickAndAccumulate,
+  readLoopOptionsFromEnv,
+} from "../greedy/loop-aware-legs.js";
+import {
   SOLVER_CLIENT,
   type SolverClient,
   type SolverPlanRequest,
@@ -171,24 +176,81 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       );
     }
 
-    // Now that we have the order, fetch (or cache-hit) the geometry-bearing
-    // inter-cache legs and reuse the parking legs we already have.
-    const interCacheLegs: Routing.Leg[] = [];
-    for (let i = 0; i < orderedIds.length - 1; i += 1) {
-      const leg = await this.routing.getLeg(
-        ownerId,
-        orderedIds[i]!,
-        orderedIds[i + 1]!,
-        PROFILE,
+    // Loop-aware polyline assembly. The solver was scored on primary-path
+    // distances (the matrix we sent it), so its order is still correct, but
+    // we render each leg using `pickAndAccumulate` against an OverlapGrid
+    // so consecutive legs prefer non-overlapping streets when OSRM offers
+    // alternatives. The picked legs' meters/seconds also feed back into
+    // totals, so the displayed totals match the rendered polyline.
+    const loopOpts = readLoopOptionsFromEnv();
+    const grid = new OverlapGrid(loopOpts.picker.gridMeters);
+    const altCount = loopOpts.altCount;
+    const firstCoord = byId
+      .get(orderedIds[0]!)!
+      .location.coordinates as [number, number];
+    const lastCoord = byId
+      .get(orderedIds[orderedIds.length - 1]!)!
+      .location.coordinates as [number, number];
+
+    const parkingToFirst = await pickAndAccumulate({
+      from: parkingCoord,
+      to: firstCoord,
+      profile: PROFILE,
+      count: altCount,
+      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+      grid,
+      options: loopOpts.picker,
+      logger: this.logger,
+      label: "parking→first",
+    });
+    if (!parkingToFirst) {
+      throw new NotFoundException(
+        "OSRM could not connect parking to the chosen loop — try a different start preference.",
       );
-      if (leg) interCacheLegs.push(leg);
     }
 
-    const firstIdx = ids.indexOf(orderedIds[0]!);
-    const lastIdx = ids.indexOf(orderedIds[orderedIds.length - 1]!);
-    const parkingToFirst = parkingLegs[firstIdx];
-    const lastToParking = closingLegs[lastIdx];
-    if (!parkingToFirst || !lastToParking) {
+    const interCacheLegs: Routing.Leg[] = [];
+    for (let i = 0; i < orderedIds.length - 1; i += 1) {
+      const fromId = orderedIds[i]!;
+      const toId = orderedIds[i + 1]!;
+      const fromC = byId.get(fromId)!.location.coordinates as [number, number];
+      const toC = byId.get(toId)!.location.coordinates as [number, number];
+      const picked = await pickAndAccumulate({
+        from: fromC,
+        to: toC,
+        profile: PROFILE,
+        count: altCount,
+        fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+        fetchVia: this.osrm.routeMulti.bind(this.osrm),
+        grid,
+        options: loopOpts.picker,
+        logger: this.logger,
+        label: `leg ${i + 1}`,
+      });
+      if (picked) {
+        interCacheLegs.push({
+          fromCacheId: fromId,
+          toCacheId: toId,
+          profile: PROFILE,
+          meters: picked.meters,
+          seconds: picked.seconds,
+          geometry: picked.geometry,
+        });
+      }
+    }
+
+    const lastToParking = await pickAndAccumulate({
+      from: lastCoord,
+      to: parkingCoord,
+      profile: PROFILE,
+      count: altCount,
+      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+      grid,
+      options: loopOpts.picker,
+      logger: this.logger,
+      label: "last→parking",
+    });
+    if (!lastToParking) {
       throw new NotFoundException(
         "OSRM could not connect parking to the chosen loop — try a different start preference.",
       );

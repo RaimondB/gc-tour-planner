@@ -3,27 +3,64 @@
 
 import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
+import type { CacheDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { useMap } from "./MapContext.js";
 
 const TOUR_SOURCE = "gctp-tour";
 const TOUR_LAYER = "gctp-tour-line";
 const TOUR_HALO_LAYER = "gctp-tour-halo";
+const TOUR_ARROW_LAYER = "gctp-tour-arrows";
 const PARKING_SOURCE = "gctp-tour-parking";
 const PARKING_LAYER = "gctp-tour-parking-circle";
 const PARKING_LABEL_LAYER = "gctp-tour-parking-label";
+const STOP_SOURCE = "gctp-tour-stops";
+const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
+const STOP_LABEL_LAYER = "gctp-tour-stops-label";
+
+// Single font, not a stack. MapLibre encodes `text-font: [a, b, c]` as a
+// comma-joined `{glyphs}/a,b,c/0-255.pbf` request, and demotiles (the
+// fallback style's glyph server) 404s on anything that isn't a single
+// known font name. Stick to one font that exists on every common glyph
+// source: Noto Sans Bold ships in demotiles, MapTiler styles, and OSM's
+// own font sources.
+const SYMBOL_FONT: string[] = ["Noto Sans Bold"];
 
 /**
- * Renders the planned tour polyline + parking marker on the map.
+ * Renders the planned tour on the map:
+ *  - the polyline + a white halo behind it
+ *  - direction arrows repeated along the line (line-symbol layer)
+ *  - the parking marker
+ *  - one numbered stop badge per cache in visit order (1, 2, …)
  *
  * Source/layer ids are namespaced `gctp-tour-*` so they coexist with the
- * `gctp-caches-*` set from `CachesLayer`. Renders nothing when `result` is null.
+ * `gctp-caches-*` set from `CachesLayer`. Renders nothing when `result` is
+ * null. The `caches` prop is the same array `CachesLayer` already paints;
+ * we use it to resolve `orderedCacheIds` -> coordinates for the numbered
+ * stops.
  */
-export function TourLayer({ result }: { result: PlanResult | null }): null {
+export function TourLayer({
+  result,
+  caches,
+}: {
+  result: PlanResult | null;
+  caches: readonly CacheDTO[] | undefined;
+}): null {
   const { map, ready } = useMap();
 
   useEffect(() => {
     if (!ready) return;
+
+    if (result && import.meta.env.DEV) {
+      // Dev-only diagnostic so the operator can confirm the planner came
+      // back with a real polyline (and not a silently-degenerate result
+      // like `coordinates: [[0,0],[0,0]]` that renders as "no tour").
+      const n = result.polyline?.coordinates?.length ?? 0;
+      // eslint-disable-next-line no-console
+      console.info(
+        `[gctp-tour] rendering tour: ${result.orderedCacheIds.length} caches, ${n}-point polyline`,
+      );
+    }
 
     const tourFc: GeoJSON.FeatureCollection = result
       ? {
@@ -51,80 +88,183 @@ export function TourLayer({ result }: { result: PlanResult | null }): null {
         }
       : { type: "FeatureCollection", features: [] };
 
+    // Numbered visit-order stops. Look up each ordered cache's coordinates
+    // from the caches list (same array CachesLayer paints) — without this
+    // we'd need a separate fetch just to get coordinates the page already
+    // has. If `caches` hasn't loaded yet we render an empty FC and the
+    // layer simply has nothing to draw.
+    const cacheById = new Map<number, CacheDTO>();
+    for (const c of caches ?? []) cacheById.set(c.id, c);
+    const stopsFc: GeoJSON.FeatureCollection = result
+      ? {
+          type: "FeatureCollection",
+          features: result.orderedCacheIds
+            .map<GeoJSON.Feature | null>((id, i) => {
+              const cache = cacheById.get(id);
+              if (!cache) return null;
+              return {
+                type: "Feature",
+                geometry: cache.location,
+                properties: {
+                  order: i + 1,
+                  code: cache.code,
+                },
+              };
+            })
+            .filter((f): f is GeoJSON.Feature => f !== null),
+        }
+      : { type: "FeatureCollection", features: [] };
+
     upsertGeoJsonSource(map, TOUR_SOURCE, tourFc);
     upsertGeoJsonSource(map, PARKING_SOURCE, parkingFc);
+    upsertGeoJsonSource(map, STOP_SOURCE, stopsFc);
 
-    if (!map.getLayer(TOUR_HALO_LAYER)) {
-      map.addLayer({
-        id: TOUR_HALO_LAYER,
-        type: "line",
-        source: TOUR_SOURCE,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            9,
-            5,
-            14,
-            10,
-          ],
-          "line-opacity": 0.85,
-        },
-      });
-    }
-    if (!map.getLayer(TOUR_LAYER)) {
-      map.addLayer({
-        id: TOUR_LAYER,
-        type: "line",
-        source: TOUR_SOURCE,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#d84315",
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            9,
-            2.5,
-            14,
-            5,
-          ],
-        },
-      });
-    }
-    if (!map.getLayer(PARKING_LAYER)) {
-      map.addLayer({
-        id: PARKING_LAYER,
-        type: "circle",
-        source: PARKING_SOURCE,
-        paint: {
-          "circle-radius": 11,
-          "circle-color": "#1565c0",
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
-        },
-      });
-    }
-    if (!map.getLayer(PARKING_LABEL_LAYER)) {
-      map.addLayer({
-        id: PARKING_LABEL_LAYER,
-        type: "symbol",
-        source: PARKING_SOURCE,
-        layout: {
-          "text-field": "P",
-          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-          "text-size": 13,
-          "text-allow-overlap": true,
-        },
-        paint: {
-          "text-color": "#ffffff",
-        },
-      });
-    }
-  }, [map, ready, result]);
+    // Each layer is wrapped so a single MapLibre throw (font/glyph not
+    // available, expression invalid) doesn't take out the rest of the
+    // tour layers. Lines render even when symbols fail.
+    const addLayerSafe = (
+      id: string,
+      spec: maplibregl.LayerSpecification,
+    ): void => {
+      if (map.getLayer(id)) return;
+      try {
+        map.addLayer(spec);
+      } catch (err) {
+        console.warn(
+          `[gctp-tour] addLayer(${id}) failed:`,
+          (err as Error).message,
+        );
+      }
+    };
+
+    addLayerSafe(TOUR_HALO_LAYER, {
+      id: TOUR_HALO_LAYER,
+      type: "line",
+      source: TOUR_SOURCE,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": "#ffffff",
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          9,
+          5,
+          14,
+          10,
+        ],
+        "line-opacity": 0.85,
+      },
+    });
+    addLayerSafe(TOUR_LAYER, {
+      id: TOUR_LAYER,
+      type: "line",
+      source: TOUR_SOURCE,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": "#d84315",
+        "line-width": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          9,
+          2.5,
+          14,
+          5,
+        ],
+      },
+    });
+    // Direction arrows: a symbol layer placed along the line at a fixed
+    // pixel spacing. Plain ASCII '>' renders in every font; MapLibre
+    // rotates the glyph to the line's tangent (so the return leg shows
+    // as '<'). Larger gap at low zoom so the line doesn't disappear under
+    // arrows when fitted to bounds.
+    addLayerSafe(TOUR_ARROW_LAYER, {
+      id: TOUR_ARROW_LAYER,
+      type: "symbol",
+      source: TOUR_SOURCE,
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          10,
+          120,
+          14,
+          80,
+          17,
+          60,
+        ],
+        "text-field": ">",
+        "text-font": SYMBOL_FONT,
+        "text-size": 18,
+        "text-keep-upright": false,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "#d84315",
+        "text-halo-width": 1.8,
+      },
+    });
+    addLayerSafe(PARKING_LAYER, {
+      id: PARKING_LAYER,
+      type: "circle",
+      source: PARKING_SOURCE,
+      paint: {
+        "circle-radius": 11,
+        "circle-color": "#1565c0",
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      },
+    });
+    addLayerSafe(PARKING_LABEL_LAYER, {
+      id: PARKING_LABEL_LAYER,
+      type: "symbol",
+      source: PARKING_SOURCE,
+      layout: {
+        "text-field": "P",
+        "text-font": SYMBOL_FONT,
+        "text-size": 13,
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+      },
+    });
+    // Numbered visit-order badges. Bigger circle than the cache markers
+    // CachesLayer paints so the order is visible without zooming in;
+    // text-allow-overlap so they never get culled even when caches sit
+    // closely together.
+    addLayerSafe(STOP_CIRCLE_LAYER, {
+      id: STOP_CIRCLE_LAYER,
+      type: "circle",
+      source: STOP_SOURCE,
+      paint: {
+        "circle-radius": 12,
+        "circle-color": "#d84315",
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      },
+    });
+    addLayerSafe(STOP_LABEL_LAYER, {
+      id: STOP_LABEL_LAYER,
+      type: "symbol",
+      source: STOP_SOURCE,
+      layout: {
+        "text-field": ["to-string", ["get", "order"]],
+        "text-font": SYMBOL_FONT,
+        "text-size": 13,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+      },
+    });
+  }, [map, ready, result, caches]);
 
   // Auto-fit the camera to the polyline whenever a new tour is planned.
   useEffect(() => {

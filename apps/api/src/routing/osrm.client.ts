@@ -24,6 +24,33 @@ export interface OsrmClient {
     profile: Routing.RoutingProfile,
   ): Promise<OsrmLeg | null>;
   /**
+   * Like `route`, but asks OSRM for up to `count` alternative geometries (the
+   * primary plus alternatives). Always returns at least the primary when OSRM
+   * succeeds; the empty array on disconnect. OSRM may return fewer than
+   * `count` — alternatives only exist when the road network actually offers
+   * distinct paths. Used by the loop-aware leg picker in Pass 2 to choose
+   * non-overlapping polylines and stop the tour from retracing its steps.
+   */
+  routeAlternatives(
+    from: [number, number],
+    to: [number, number],
+    profile: Routing.RoutingProfile,
+    count: number,
+  ): Promise<OsrmLeg[]>;
+  /**
+   * Route through a list of coordinates in order, returning the combined
+   * geometry as one polyline. Used by the via-waypoint nudge to force OSRM
+   * onto a parallel street when its built-in alternative finder doesn't
+   * produce a usable variant. OSRM snaps each intermediate point to the
+   * nearest walkable node — so a via offset 80 m perpendicular to the
+   * straight line A→B effectively says "please route via the street on
+   * that side if one exists; otherwise snap back."
+   */
+  routeMulti(
+    coords: readonly [number, number][],
+    profile: Routing.RoutingProfile,
+  ): Promise<OsrmLeg | null>;
+  /**
    * OD matrix in one call. Returns an N×N grid of { meters, seconds } or null
    * per cell (disconnected). Diagonals are { meters: 0, seconds: 0 }.
    */
@@ -89,6 +116,68 @@ export class HttpOsrmClient implements OsrmClient {
   ): Promise<OsrmLeg | null> {
     const url =
       `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
+      `?overview=full&geometries=geojson&steps=false&annotations=false`;
+    const res = await this.fetchWithTimeout(url);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as OsrmRouteResponse;
+    if (json.code !== "Ok" || !json.routes || json.routes.length === 0)
+      return null;
+    const r = json.routes[0]!;
+    if (r.geometry.type !== "LineString") return null;
+    return {
+      meters: r.distance,
+      seconds: r.duration,
+      geometry: r.geometry as Geo.GeoJsonLineString,
+    };
+  }
+
+  async routeAlternatives(
+    from: [number, number],
+    to: [number, number],
+    profile: Routing.RoutingProfile,
+    count: number,
+  ): Promise<OsrmLeg[]> {
+    if (count < 1) return [];
+    // OSRM's `alternatives` parameter accepts an integer = additional routes
+    // beyond the primary (alternatives=2 → up to 3 total routes). Capped at
+    // 5 — anything higher rarely produces useful variants for foot routing
+    // on dense urban networks.
+    const altParam = Math.min(Math.max(0, count - 1), 5);
+    const url =
+      `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
+      `?overview=full&geometries=geojson&steps=false&annotations=false` +
+      `&alternatives=${altParam}`;
+    const res = await this.fetchWithTimeout(url);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as OsrmRouteResponse;
+    if (json.code !== "Ok" || !json.routes || json.routes.length === 0) {
+      return [];
+    }
+    const legs: OsrmLeg[] = [];
+    for (const r of json.routes) {
+      if (r.geometry.type !== "LineString") continue;
+      legs.push({
+        meters: r.distance,
+        seconds: r.duration,
+        geometry: r.geometry as Geo.GeoJsonLineString,
+      });
+    }
+    return legs;
+  }
+
+  async routeMulti(
+    coords: readonly [number, number][],
+    profile: Routing.RoutingProfile,
+  ): Promise<OsrmLeg | null> {
+    if (coords.length < 2) return null;
+    const url =
+      `${this.base}/route/v1/${profile}/${coords.map(fmt).join(";")}` +
       `?overview=full&geometries=geojson&steps=false&annotations=false`;
     const res = await this.fetchWithTimeout(url);
     if (!res.ok) {

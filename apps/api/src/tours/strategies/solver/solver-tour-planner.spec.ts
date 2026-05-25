@@ -90,6 +90,30 @@ describe("SolverTourPlanner — determinism", () => {
           [0.001, 0.001],
         ]),
       }),
+      // Loop-aware leg picker in planLoop uses /route?alternatives — the
+      // stub returns a single-element array (primary only) which is the
+      // common real-world case for short urban legs.
+      routeAlternatives: vi.fn().mockResolvedValue([
+        {
+          meters: 150,
+          seconds: 180,
+          geometry: line([
+            [0, 0],
+            [0.001, 0.001],
+          ]),
+        },
+      ]),
+      // routeMulti is the via-waypoint nudge fallback. Returning the same
+      // primary geometry mirrors OSRM "snap back to the same road when no
+      // parallel exists" — keeps the spec deterministic.
+      routeMulti: vi.fn().mockResolvedValue({
+        meters: 150,
+        seconds: 180,
+        geometry: line([
+          [0, 0],
+          [0.001, 0.001],
+        ]),
+      }),
       table: vi.fn(),
       nearest: vi.fn().mockResolvedValue([0, 0]),
     };
