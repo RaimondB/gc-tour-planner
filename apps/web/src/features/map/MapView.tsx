@@ -11,6 +11,13 @@ const DEFAULT_ZOOM = 11;
 
 const FALLBACK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
+  // Without `glyphs`, MapLibre silently drops every `symbol` layer's
+  // text-field — that's why the parking "P" label and the tour visit-order
+  // numbers / direction arrows would refuse to render. Demotiles serves
+  // Open Sans glyph PBFs free for development; production deployments
+  // should set VITE_MAP_STYLE_URL to a hosted style that bundles its own
+  // glyphs.
+  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
     osm: {
       type: "raster",

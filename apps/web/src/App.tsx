@@ -163,7 +163,7 @@ export default function App(): JSX.Element {
               focusedClusterId={focusedClusterId}
               onCentroidClick={setFocusedClusterId}
             />
-            <TourLayer result={planResult} />
+            <TourLayer result={planResult} caches={cachesQuery.data?.caches} />
             <WalkingGraphLayer
               enabled={showWalkingGraph}
               params={params}
