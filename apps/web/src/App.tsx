@@ -17,6 +17,12 @@ import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
 import { TourLayer } from "./features/map/TourLayer.js";
+import { WalkingGraphLayer } from "./features/map/WalkingGraphLayer.js";
+import { TestRouteLayer } from "./features/map/TestRouteLayer.js";
+import type {
+  TestRouteResponse,
+  WalkingGraphResponse,
+} from "@gctp/shared/tours";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
 import {
   DEFAULT_PLAN_SETTINGS,
@@ -37,6 +43,21 @@ export default function App(): JSX.Element {
   const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
   const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
   const [planResult, setPlanResultRaw] = useState<PlanResult | null>(null);
+  /**
+   * Manual cluster selection — populated by shift-clicking cache markers on the
+   * map (or by "Use as selection" on a candidate row). Drives the Cluster Lab
+   * `/tours/clusters/explain` workflow.
+   */
+  const [selectedCacheIds, setSelectedCacheIds] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
+  /** Toggleable debug overlay — the actual OSRM walking edges the planner sees. */
+  const [showWalkingGraph, setShowWalkingGraph] = useState(false);
+  const [walkingGraphStats, setWalkingGraphStats] = useState<
+    WalkingGraphResponse["stats"] | null
+  >(null);
+  /** Last OSRM /route probe result, rendered as a bright-green polyline. */
+  const [testRoute, setTestRoute] = useState<TestRouteResponse | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
   // Clear the focused cluster whenever the real OSRM-routed result lands —
@@ -111,6 +132,13 @@ export default function App(): JSX.Element {
             result={planResult}
             onResultChange={setPlanResult}
             caches={cachesQuery.data?.caches}
+            selectedCacheIds={selectedCacheIds}
+            onSelectionChange={setSelectedCacheIds}
+            showWalkingGraph={showWalkingGraph}
+            onShowWalkingGraphChange={setShowWalkingGraph}
+            walkingGraphStats={walkingGraphStats}
+            testRoute={testRoute}
+            onTestRouteChange={setTestRoute}
           />
         </div>
         <main className="app-main">
@@ -124,7 +152,11 @@ export default function App(): JSX.Element {
           >
             <LanduseLayer params={params} />
             <RadiusLayer params={params} />
-            <CachesLayer params={params} />
+            <CachesLayer
+              params={params}
+              selectedCacheIds={selectedCacheIds}
+              onSelectionChange={setSelectedCacheIds}
+            />
             <ClustersPreviewLayer
               candidates={clusters}
               caches={cachesQuery.data?.caches}
@@ -132,6 +164,14 @@ export default function App(): JSX.Element {
               onCentroidClick={setFocusedClusterId}
             />
             <TourLayer result={planResult} />
+            <WalkingGraphLayer
+              enabled={showWalkingGraph}
+              params={params}
+              maxLinkMeters={planSettings.maxLinkMeters}
+              distanceBudgetMeters={planSettings.distanceBudgetMeters}
+              onStatsChange={setWalkingGraphStats}
+            />
+            <TestRouteLayer result={testRoute} />
           </MapView>
         </main>
       </div>

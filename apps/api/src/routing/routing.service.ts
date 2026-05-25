@@ -8,6 +8,7 @@ import {
   RoutingRepository,
 } from "./routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "./osrm.client.js";
+import { OsrmVersionService } from "./osrm-version.service.js";
 
 @Injectable()
 export class RoutingService {
@@ -16,6 +17,7 @@ export class RoutingService {
   constructor(
     private readonly repo: RoutingRepository,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
+    private readonly osrmVersion: OsrmVersionService,
   ) {}
 
   /**
@@ -55,9 +57,11 @@ export class RoutingService {
       };
     }
 
+    const version = this.osrmVersion.getVersion();
     const cached = await this.repo.findLegs(
       [{ fromCacheId, toCacheId }],
       profile,
+      version,
     );
     if (cached.length > 0) return cached[0]!;
 
@@ -75,16 +79,19 @@ export class RoutingService {
     // returned now matches what a subsequent cache-hit will return.
     const meters = round2(leg.meters);
     const seconds = round2(leg.seconds);
-    await this.repo.upsertLegs([
-      {
-        fromCacheId,
-        toCacheId,
-        profile,
-        meters,
-        seconds,
-        geometry: leg.geometry,
-      },
-    ]);
+    await this.repo.upsertLegs(
+      [
+        {
+          fromCacheId,
+          toCacheId,
+          profile,
+          meters,
+          seconds,
+          geometry: leg.geometry,
+        },
+      ],
+      version,
+    );
     return {
       fromCacheId,
       toCacheId,
@@ -96,13 +103,12 @@ export class RoutingService {
   }
 
   /**
-   * Resolve the full OD matrix for the supplied cache IDs in a single OSRM
-   * `/table` call. The `route_legs` table is intentionally NOT consulted here:
-   * `/table` is geometry-free, so matrix results were never persisted, so the
-   * cache hit rate for this path is zero. Reading from `route_legs` was dead
-   * work — and at N≈100 it built an N×(N-1)-clause SQL predicate large enough
-   * to overflow Kysely's recursive query compiler. `getLeg` (per-pair,
-   * geometry-bearing) still uses the cache.
+   * Resolve the full OD matrix for the supplied cache IDs.
+   *
+   * Cache-aware: reads cached cells from `route_legs` (for the live OSRM
+   * extract version), fills the gaps from OSRM `/table`, persists the new
+   * cells so subsequent replans hit the cache, and returns the merged
+   * matrix. Pass 2's TSP gets one DB query on the steady-state path.
    *
    * `legs[i][j]` is the leg from `cacheIds[i]` to `cacheIds[j]`; diagonals
    * are { meters: 0, seconds: 0 }. A `null` cell means OSRM couldn't route
@@ -118,17 +124,92 @@ export class RoutingService {
       return { profile, cacheIds: [], legs: [] };
     }
     const coords = await this.coordMapOrThrow(ownerId, ids);
+    const version = this.osrmVersion.getVersion();
 
-    const coordList = ids.map<[number, number]>((id) => {
-      const c = coords.get(id)!;
-      return [c.lng, c.lat];
-    });
-    const osrmTable = await this.osrm.table(coordList, profile);
+    // 1. Read whatever the DB already has for every off-diagonal pair.
+    const pairs: { fromCacheId: number; toCacheId: number }[] = [];
+    for (const from of ids) {
+      for (const to of ids) {
+        if (from !== to) pairs.push({ fromCacheId: from, toCacheId: to });
+      }
+    }
+    const cachedRows = await this.repo.findMatrixCells(pairs, profile, version);
+    const cellKey = (from: number, to: number) => `${from}:${to}`;
+    const cellMap = new Map<string, { meters: number; seconds: number }>();
+    for (const r of cachedRows) {
+      cellMap.set(cellKey(r.fromCacheId, r.toCacheId), {
+        meters: r.meters,
+        seconds: r.seconds,
+      });
+    }
 
-    const legs: (Routing.MatrixEntry | null)[][] = osrmTable.map((row, i) =>
-      row.map((cell, j) => {
-        if (i === j) return { meters: 0, seconds: 0 };
-        return cell;
+    // 2. Identify rows that are entirely cached vs need an OSRM /table call.
+    //    `osrm.table([origin, ...dests])` returns row 0 for the origin's
+    //    distances to every destination — same shape Pass 1's walking-graph
+    //    builder uses. One call per origin with missing cells keeps the
+    //    request size well below the 5000-coord --max-table-size cap.
+    const toPersist: Array<{
+      fromCacheId: number;
+      toCacheId: number;
+      profile: Routing.RoutingProfile;
+      meters: number;
+      seconds: number;
+    }> = [];
+
+    let osrmCalls = 0;
+    for (const from of ids) {
+      const missing = ids.filter(
+        (to) => to !== from && !cellMap.has(cellKey(from, to)),
+      );
+      if (missing.length === 0) continue;
+      osrmCalls += 1;
+      const fromC = coords.get(from)!;
+      const dests = missing.map<[number, number]>((to) => {
+        const c = coords.get(to)!;
+        return [c.lng, c.lat];
+      });
+      const matrix = await this.osrm.table(
+        [[fromC.lng, fromC.lat], ...dests],
+        profile,
+      );
+      const row0 = matrix[0];
+      if (!row0) continue;
+      for (let j = 0; j < missing.length; j += 1) {
+        const cell = row0[j + 1]; // skip diagonal (origin → origin)
+        const to = missing[j]!;
+        if (!cell) continue;
+        const meters = round2(cell.meters);
+        const seconds = round2(cell.seconds);
+        cellMap.set(cellKey(from, to), { meters, seconds });
+        toPersist.push({
+          fromCacheId: from,
+          toCacheId: to,
+          profile,
+          meters,
+          seconds,
+        });
+      }
+    }
+
+    if (toPersist.length > 0) {
+      this.logger.debug(
+        `getMatrix: ${osrmCalls} OSRM /table calls; persisting ${toPersist.length} new cells`,
+      );
+      await this.repo.upsertMatrixCells(toPersist, version);
+    } else if (osrmCalls === 0) {
+      this.logger.debug(
+        `getMatrix: full cache hit on ${ids.length}×${ids.length - 1} matrix`,
+      );
+    }
+
+    // 3. Assemble the matrix in the caller's order. A `null` cell happens
+    //    when OSRM couldn't route the pair (disconnected sub-graph).
+    const idx = new Map<number, number>();
+    ids.forEach((id, i) => idx.set(id, i));
+    const legs: (Routing.MatrixEntry | null)[][] = ids.map((from) =>
+      ids.map((to) => {
+        if (from === to) return { meters: 0, seconds: 0 };
+        return cellMap.get(cellKey(from, to)) ?? null;
       }),
     );
 

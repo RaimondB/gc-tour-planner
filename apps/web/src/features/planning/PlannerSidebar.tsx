@@ -7,10 +7,20 @@ import type { CacheDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
+  ClusteringStrategyName,
   PlanResult,
   StartPreference,
+  TestRouteResponse,
+  WalkingGraphResponse,
 } from "@gctp/shared/tours";
-import { discoverClusters, planLoop } from "../../lib/api.js";
+import {
+  discoverClusters,
+  explainSelection,
+  planLoop,
+  purgeBogusWalkingCells,
+  testOsrmRoute,
+} from "../../lib/api.js";
+import { useQueryClient } from "@tanstack/react-query";
 import type { SearchParams } from "../../lib/search-params.js";
 
 export interface PlanSettings {
@@ -29,6 +39,11 @@ export interface PlanSettings {
    * re-planning — purely a display concern, recomputed on the client.
    */
   avgWalkingKmh: number;
+  /**
+   * Pass-1 clustering algorithm. Swap to compare strategies on the same
+   * `PlanInput` — see `ClusteringStrategyName` for available options.
+   */
+  clusteringStrategy: ClusteringStrategyName;
 }
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
@@ -39,7 +54,15 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   startPreference: "parking-waypoint",
   timePerCacheMinutes: 5,
   avgWalkingKmh: 5,
+  clusteringStrategy: "louvain",
 };
+
+const STRATEGY_OPTIONS: ReadonlyArray<readonly [ClusteringStrategyName, string]> = [
+  ["louvain", "Louvain (default)"],
+  ["dbscan", "DBSCAN"],
+  ["hdbscan", "HDBSCAN (density)"],
+  ["components", "Components (baseline)"],
+];
 
 export interface PlannerSidebarProps {
   search: SearchParams;
@@ -61,6 +84,17 @@ export interface PlannerSidebarProps {
   onResultChange: (next: PlanResult | null) => void;
   /** Caches currently in the search radius — used for the JSON debug export. */
   caches: readonly CacheDTO[] | undefined;
+  /** Manually selected cache ids (shift-click on the map). Used by Cluster Lab. */
+  selectedCacheIds: ReadonlySet<number>;
+  onSelectionChange: (next: ReadonlySet<number>) => void;
+  /** Toggle the OSRM walking-graph debug overlay on the map. */
+  showWalkingGraph: boolean;
+  onShowWalkingGraphChange: (next: boolean) => void;
+  /** Stats from the most recent walking-graph fetch (null when overlay is off). */
+  walkingGraphStats: WalkingGraphResponse["stats"] | null;
+  /** Last live OSRM /route probe — rendered as a green polyline on the map. */
+  testRoute: TestRouteResponse | null;
+  onTestRouteChange: (next: TestRouteResponse | null) => void;
 }
 
 export function PlannerSidebar({
@@ -78,7 +112,33 @@ export function PlannerSidebar({
   result,
   onResultChange,
   caches,
+  selectedCacheIds,
+  onSelectionChange,
+  showWalkingGraph,
+  onShowWalkingGraphChange,
+  walkingGraphStats,
+  testRoute,
+  onTestRouteChange,
 }: PlannerSidebarProps) {
+  const queryClient = useQueryClient();
+  const purgeBogusMutation = useMutation({
+    mutationFn: async () => {
+      return purgeBogusWalkingCells({
+        center: search.center,
+        radiusM: search.radiusM,
+        hardFilters: {
+          types: search.types.length > 0 ? search.types : undefined,
+        },
+        maxLinkMeters: settings.maxLinkMeters,
+        distanceBudgetMeters: settings.distanceBudgetMeters,
+      });
+    },
+    onSuccess: () => {
+      // Force a fresh walking-graph fetch so the overlay reflects post-purge state.
+      void queryClient.invalidateQueries({ queryKey: ["walking-graph"] });
+    },
+  });
+
   const discoverMutation = useMutation({
     mutationFn: async () => {
       return discoverClusters({
@@ -96,6 +156,7 @@ export function PlannerSidebar({
           loopCompactnessWeight: 1,
         },
         startPreference: settings.startPreference,
+        clusteringStrategy: settings.clusteringStrategy,
         ...(settings.startPreference === "user-supplied-point"
           ? { userSuppliedStart: search.center }
           : {}),
@@ -290,6 +351,110 @@ export function PlannerSidebar({
       </div>
 
       <fieldset className="field">
+        <legend>Clustering algorithm</legend>
+        {STRATEGY_OPTIONS.map(([val, label]) => (
+          <label key={val} className="checkbox">
+            <input
+              type="radio"
+              name="clustering-strategy"
+              checked={settings.clusteringStrategy === val}
+              onChange={() =>
+                onSettingsChange({ ...settings, clusteringStrategy: val })
+              }
+            />
+            {label}
+          </label>
+        ))}
+      </fieldset>
+
+      <fieldset className="field">
+        <legend>Debug overlays</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={showWalkingGraph}
+            onChange={(e) => onShowWalkingGraphChange(e.target.checked)}
+          />
+          Show walking graph (blue lines = OSRM walking edges)
+        </label>
+        {showWalkingGraph && walkingGraphStats && (
+          <div className="cluster-lab-hint">
+            {walkingGraphStats.nodeCount} nodes · {walkingGraphStats.edgeCount} edges
+            {walkingGraphStats.isolatedCount > 0 && (
+              <> · {walkingGraphStats.isolatedCount} isolated</>
+            )}
+            {walkingGraphStats.suspiciousCount > 0 && (
+              <>
+                {" · "}
+                <strong style={{ color: "#d50000" }}>
+                  {walkingGraphStats.suspiciousCount} suspicious zero-distance
+                </strong>{" "}
+                (dashed red — likely stale <code>route_legs</code> rows)
+              </>
+            )}
+            <br />
+            median {walkingGraphStats.medianEdgeM.toFixed(0)} m · max {walkingGraphStats.maxEdgeM.toFixed(0)} m ·
+            detour ratio {walkingGraphStats.medianDetourRatio.toFixed(2)}×
+            {walkingGraphStats.highDetourCount > 0 && (
+              <> · {walkingGraphStats.highDetourCount} high-detour</>
+            )}
+            {walkingGraphStats.coverageWarning && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 8px",
+                  border: "1px solid #ff6f00",
+                  borderRadius: 4,
+                  background: "#fff8e1",
+                }}
+              >
+                <strong style={{ color: "#ff6f00" }}>OSRM coverage warning.</strong>{" "}
+                Many edges show large walking-vs-straight-line detours
+                (median {walkingGraphStats.medianDetourRatio.toFixed(2)}×).
+                Likely cause: <code>OSRM_REGION</code> doesn't fully cover
+                this area. For cross-border searches set{" "}
+                <code>OSRM_REGIONS</code> (plural) to a comma-separated list
+                of Geofabrik extracts — the bootstrap will <code>osmium merge</code>{" "}
+                them before extract.
+              </div>
+            )}
+            {walkingGraphStats.suspiciousCount > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Delete ${walkingGraphStats.suspiciousCount} suspicious zero-distance route_legs rows? ` +
+                          `The next planner pass will refetch from OSRM.`,
+                      )
+                    ) {
+                      purgeBogusMutation.mutate();
+                    }
+                  }}
+                  disabled={purgeBogusMutation.isPending}
+                >
+                  {purgeBogusMutation.isPending
+                    ? "Purging…"
+                    : `Purge ${walkingGraphStats.suspiciousCount} bogus edges`}
+                </button>
+                {purgeBogusMutation.data && (
+                  <span style={{ marginLeft: 8 }}>
+                    Deleted {purgeBogusMutation.data.deletedCount} rows.
+                  </span>
+                )}
+                {purgeBogusMutation.error && (
+                  <span style={{ marginLeft: 8, color: "#d50000" }}>
+                    {(purgeBogusMutation.error as Error).message}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </fieldset>
+
+      <fieldset className="field">
         <legend>Start preference</legend>
         {(
           [
@@ -390,20 +555,39 @@ export function PlannerSidebar({
                     </span>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => planMutation.mutate(c)}
-                  disabled={planMutation.isPending}
-                >
-                  {planMutation.isPending && c.clusterId === chosenClusterId
-                    ? "Planning…"
-                    : "Plan this loop"}
-                </button>
+                <div className="cluster-row-actions">
+                  <button
+                    type="button"
+                    onClick={() => planMutation.mutate(c)}
+                    disabled={planMutation.isPending}
+                  >
+                    {planMutation.isPending && c.clusterId === chosenClusterId
+                      ? "Planning…"
+                      : "Plan this loop"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectionChange(new Set(c.cacheIds))}
+                    title="Copy this cluster into the manual selection so you can shift-click caches off and re-explain"
+                  >
+                    Use as selection
+                  </button>
+                </div>
               </li>
             ))}
           </ol>
         </div>
       )}
+
+      <ClusterLabPanel
+        search={search}
+        settings={settings}
+        selectedCacheIds={selectedCacheIds}
+        onSelectionChange={onSelectionChange}
+        testRoute={testRoute}
+        onTestRouteChange={onTestRouteChange}
+      />
+
 
       {planMutation.error && (
         <div className="planner-error">
@@ -487,6 +671,174 @@ function minutes(m: number): string {
   const mm = Math.round(m - h * 60);
   if (h === 0) return `${mm} min`;
   return `${h} h ${mm.toString().padStart(2, "0")} min`;
+}
+
+interface ClusterLabPanelProps {
+  search: SearchParams;
+  settings: PlanSettings;
+  selectedCacheIds: ReadonlySet<number>;
+  onSelectionChange: (next: ReadonlySet<number>) => void;
+  testRoute: TestRouteResponse | null;
+  onTestRouteChange: (next: TestRouteResponse | null) => void;
+}
+
+/**
+ * Cluster Lab — diagnose a manual cache selection (shift-click on the map)
+ * via `POST /tours/clusters/explain`. Shows the JSON dump inline and lets
+ * the user download it for offline analysis.
+ *
+ * Workflow:
+ *   1. Shift-click 2+ cache markers (or "Use as selection" on a candidate row).
+ *   2. Hit Explain — see per-strategy partitions + refinement projection.
+ *   3. Shift-click selected markers to remove specific caches, hit Explain again.
+ */
+function ClusterLabPanel({
+  search,
+  settings,
+  selectedCacheIds,
+  onSelectionChange,
+  testRoute,
+  onTestRouteChange,
+}: ClusterLabPanelProps) {
+  const ids = Array.from(selectedCacheIds).sort((a, b) => a - b);
+  const testRouteMutation = useMutation({
+    mutationFn: async (pair: [number, number]) => {
+      return testOsrmRoute({ fromCacheId: pair[0], toCacheId: pair[1] });
+    },
+    onSuccess: (res) => onTestRouteChange(res),
+  });
+  const explainMutation = useMutation({
+    mutationFn: async () => {
+      return explainSelection({
+        center: search.center,
+        radiusM: search.radiusM,
+        hardFilters: {
+          types: search.types.length > 0 ? search.types : undefined,
+        },
+        maxLinkMeters: settings.maxLinkMeters,
+        minClusterSize: settings.minClusterSize,
+        distanceBudgetMeters: settings.distanceBudgetMeters,
+        clusteringStrategy: settings.clusteringStrategy,
+        cacheIds: ids,
+      });
+    },
+  });
+
+  const copyIds = () => {
+    void navigator.clipboard?.writeText(ids.join(","));
+  };
+  const clearSelection = () => {
+    onSelectionChange(new Set());
+    onTestRouteChange(null);
+  };
+  const downloadExplain = () => {
+    if (!explainMutation.data) return;
+    const blob = new Blob([JSON.stringify(explainMutation.data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.href = url;
+    a.download = `gctp-explain-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  if (ids.length === 0) {
+    return (
+      <div className="cluster-lab">
+        <h3>Cluster lab</h3>
+        <p className="cluster-lab-hint">
+          Hold Shift (or Ctrl / ⌘) and click cache markers on the map to
+          build a manual selection, then explain why the algorithm did or
+          didn't produce it. Watch the browser DevTools console for a
+          <code>[cluster-lab]</code> log line on each click — if you don't
+          see it, the marker isn't receiving the event.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cluster-lab">
+      <h3>Cluster lab ({ids.length} selected)</h3>
+      <div className="planner-actions">
+        <button
+          type="button"
+          onClick={() => explainMutation.mutate()}
+          disabled={ids.length < 2 || explainMutation.isPending}
+        >
+          {explainMutation.isPending ? "Explaining…" : "Explain selection"}
+        </button>
+        <button type="button" onClick={copyIds}>
+          Copy IDs
+        </button>
+        <button type="button" onClick={clearSelection}>
+          Clear selection
+        </button>
+        <button
+          type="button"
+          onClick={downloadExplain}
+          disabled={!explainMutation.data}
+        >
+          Download JSON
+        </button>
+        <button
+          type="button"
+          disabled={ids.length !== 2 || testRouteMutation.isPending}
+          title={
+            ids.length === 2
+              ? "Ask OSRM directly for the foot route between these two caches (bypasses route_legs cache)"
+              : "Select exactly 2 caches to test their OSRM route"
+          }
+          onClick={() => {
+            if (ids.length === 2)
+              testRouteMutation.mutate([ids[0]!, ids[1]!]);
+          }}
+        >
+          {testRouteMutation.isPending ? "Probing OSRM…" : "Test OSRM route"}
+        </button>
+        {testRoute && (
+          <button type="button" onClick={() => onTestRouteChange(null)}>
+            Hide OSRM route
+          </button>
+        )}
+      </div>
+      {testRoute && (
+        <div className="cluster-lab-hint">
+          <strong>{testRoute.fromCode} → {testRoute.toCode}</strong> ·
+          haversine {testRoute.haversineM.toFixed(0)} m ·{" "}
+          {testRoute.route ? (
+            <>
+              OSRM <strong style={{ color: "#00c853" }}>{testRoute.route.meters.toFixed(0)} m</strong>{" "}
+              ({(testRoute.route.seconds / 60).toFixed(1)} min) — see the green polyline.
+            </>
+          ) : (
+            <strong style={{ color: "#d50000" }}>OSRM says NoRoute — these caches aren't connected on foot.</strong>
+          )}
+        </div>
+      )}
+      {testRouteMutation.error && (
+        <div className="planner-error">
+          {(testRouteMutation.error as Error).message}
+        </div>
+      )}
+      {explainMutation.error && (
+        <div className="planner-error">
+          {(explainMutation.error as Error).message}
+        </div>
+      )}
+      {explainMutation.data && (
+        <details open className="cluster-lab-output">
+          <summary>Diagnostics ({(JSON.stringify(explainMutation.data).length / 1024).toFixed(1)} kB)</summary>
+          <pre>{JSON.stringify(explainMutation.data, null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  );
 }
 
 function labelForParking(t: PlanResult["parking"]["type"]): string {

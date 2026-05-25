@@ -35,6 +35,24 @@ export const StartPreference = z.enum([
 ]);
 export type StartPreference = z.infer<typeof StartPreference>;
 
+/**
+ * Pass-1 cluster-finding algorithm. Selectable per request so the UI can
+ * A/B compare the same `PlanInput` across strategies; defaults from the
+ * `PLANNER_CLUSTERING` env var (and falls back to `louvain`).
+ *
+ *  - `louvain`     — community detection on a sparse walking graph (default).
+ *  - `dbscan`      — density-based clustering using `maxLinkMeters` as ε.
+ *  - `hdbscan`     — density-reachable, mutual-NN; produces stability scores.
+ *  - `components`  — connected components on the capped walking graph (baseline).
+ */
+export const ClusteringStrategyName = z.enum([
+  "louvain",
+  "dbscan",
+  "hdbscan",
+  "components",
+]);
+export type ClusteringStrategyName = z.infer<typeof ClusteringStrategyName>;
+
 export const PlanInput = z.object({
   center: LngLat,
   radiusM: z.number().int().positive().max(50_000),
@@ -60,5 +78,11 @@ export const PlanInput = z.object({
   softPreferences: SoftPreferences,
   startPreference: StartPreference.default("parking-waypoint"),
   userSuppliedStart: LngLat.optional(),
+  /**
+   * Which Pass-1 clustering algorithm to use. When omitted, the server falls
+   * back to the `PLANNER_CLUSTERING` env default (and ultimately `louvain`).
+   * The chosen strategy is echoed back in `ClusterDiagnostics.strategyUsed`.
+   */
+  clusteringStrategy: ClusteringStrategyName.optional(),
 });
 export type PlanInput = z.infer<typeof PlanInput>;

@@ -4,8 +4,32 @@
 import { Logger } from "@nestjs/common";
 import type { Routing } from "@gctp/shared";
 import type { CachesRepository } from "../../../caches/caches.repository.js";
+import {
+  HIGH_DETOUR_REJECT,
+  isImpossibleDetour,
+  isImpossibleSpeed,
+} from "../../../routing/leg-sanity.js";
 import type { OsrmClient } from "../../../routing/osrm.client.js";
 import type { RoutingRepository } from "../../../routing/routing.repository.js";
+import { haversineMeters } from "./equirectangular.js";
+
+/**
+ * A cached cell is treated as bogus and dropped when its walking distance is
+ * effectively zero (≤ this threshold) AND the two cache coordinates are more
+ * than `SUSPICIOUS_HAVERSINE_M` apart — OSRM doesn't legitimately return 0
+ * for distinct, non-co-located coordinates. The threshold pair leaves room
+ * for genuinely co-located multi-stage caches (two stages at the same building
+ * entrance can really walk 0 m between them).
+ */
+const SUSPICIOUS_WALKING_M = 5;
+const SUSPICIOUS_HAVERSINE_M = 50;
+
+function haversineLngLat(
+  a: readonly [number, number],
+  b: readonly [number, number],
+): number {
+  return haversineMeters(a, b);
+}
 
 /**
  * One edge in the sparse walking graph.
@@ -45,6 +69,12 @@ export interface BuildWalkingGraphInput {
    */
   maxEdgeMeters: number;
   profile: Routing.RoutingProfile;
+  /**
+   * Identifier of the live OSRM extract — every cached row is tagged with
+   * this so reads from a previous extract are filtered out automatically.
+   * Forwarded from `OsrmVersionService.getVersion()`.
+   */
+  osrmVersion: string;
 }
 
 /**
@@ -82,7 +112,15 @@ export async function buildWalkingGraph(
   concurrency = 8,
 ): Promise<WalkingEdge[]> {
   const logger = new Logger(buildWalkingGraph.name);
-  const { caches, kTarget, radiusM, maxEdgeMeters, profile, ownerId } = input;
+  const {
+    caches,
+    kTarget,
+    radiusM,
+    maxEdgeMeters,
+    profile,
+    ownerId,
+    osrmVersion,
+  } = input;
   if (caches.length < 2 || kTarget <= 0) return [];
 
   const kCandidates = Math.max(kTarget * 3, kTarget + 5);
@@ -107,8 +145,14 @@ export async function buildWalkingGraph(
     else candidatesByOrigin.set(p.fromCacheId, [p.toCacheId]);
   }
 
-  // 2a. Pull cached cells first — anything missing goes to OSRM.
-  const cached = await deps.routing.findMatrixCells(candidatePairs, profile);
+  // 2a. Pull cached cells first — anything missing goes to OSRM. Scoped to
+  //     the live OSRM extract; cells from a previous extract are filtered
+  //     out at the SQL level so we re-fetch them into the live namespace.
+  const cached = await deps.routing.findMatrixCells(
+    candidatePairs,
+    profile,
+    osrmVersion,
+  );
   const cachedKey = (from: number, to: number) => `${from}:${to}`;
   const cachedMap = new Map<
     string,
@@ -159,16 +203,39 @@ export async function buildWalkingGraph(
         for (let j = 0; j < missing.length; j += 1) {
           const cell = row0[j + 1]; // skip diagonal (origin → origin)
           const toId = missing[j]!;
-          if (cell) {
-            cachedMap.set(cachedKey(originId, toId), cell);
-            toPersist.push({
-              fromCacheId: originId,
-              toCacheId: toId,
-              profile,
-              meters: cell.meters,
-              seconds: cell.seconds,
-            });
+          if (!cell) continue;
+          // Reject suspicious zero-distance cells at write time so they never
+          // pollute route_legs in the first place. Comes up when OSRM snaps
+          // two distinct cache coords to the same road node — the matrix cell
+          // is then 0/0 and indistinguishable from a real link.
+          const toCoord = coordsById.get(toId);
+          if (
+            cell.meters <= SUSPICIOUS_WALKING_M &&
+            toCoord &&
+            haversineLngLat(originCoord, toCoord) >= SUSPICIOUS_HAVERSINE_M
+          ) {
+            continue;
           }
+          // Hard-reject impossible walking speeds and outrageous detours
+          // before they hit the cache or the clustering input. The repo
+          // layer enforces the speed guard at the DB boundary too — this
+          // upstream check just keeps the rejected count visible in the
+          // walking-graph stats.
+          if (isImpossibleSpeed(cell.meters, cell.seconds)) continue;
+          if (
+            toCoord &&
+            isImpossibleDetour(cell.meters, haversineLngLat(originCoord, toCoord))
+          ) {
+            continue;
+          }
+          cachedMap.set(cachedKey(originId, toId), cell);
+          toPersist.push({
+            fromCacheId: originId,
+            toCacheId: toId,
+            profile,
+            meters: cell.meters,
+            seconds: cell.seconds,
+          });
         }
       }),
     );
@@ -178,19 +245,30 @@ export async function buildWalkingGraph(
     logger.debug(
       `walking-graph: persisting ${toPersist.length} new matrix cells to route_legs`,
     );
-    await deps.routing.upsertMatrixCells(toPersist);
+    await deps.routing.upsertMatrixCells(toPersist, osrmVersion);
   }
 
   // 3. Re-rank each origin's candidates by walking distance, drop anything
   //    over the hard maxEdgeMeters cap, keep top kTarget. Dropping detours
   //    that exceed the cap is what prevents Louvain from fusing communities
   //    via a single river-crossing edge.
+  //
+  //    Also drop **suspicious zero-distance cells**: a `route_legs` row of
+  //    meters≈0 for caches more than SUSPICIOUS_HAVERSINE_M apart is almost
+  //    certainly stale data from an earlier bad OSRM response (and INSERT …
+  //    DO NOTHING means it never gets corrected). These cells artificially
+  //    inflate node degree inside dense pockets and starve the long-range
+  //    connections that would normally bridge to neighbouring pockets.
   const kNN = new Map<
     number,
     Array<{ to: number; meters: number; seconds: number }>
   >();
   let droppedFar = 0;
+  let droppedBogusZero = 0;
+  let droppedImpossibleSpeed = 0;
+  let droppedHighDetour = 0;
   for (const [originId, cands] of candidatesByOrigin) {
+    const originCoord = coordsById.get(originId);
     const ranked: Array<{ to: number; meters: number; seconds: number }> = [];
     for (const toId of cands) {
       const cell = cachedMap.get(cachedKey(originId, toId));
@@ -198,6 +276,27 @@ export async function buildWalkingGraph(
       if (cell.meters > maxEdgeMeters) {
         droppedFar += 1;
         continue;
+      }
+      if (cell.meters <= SUSPICIOUS_WALKING_M && originCoord) {
+        const toCoord = coordsById.get(toId);
+        if (toCoord && haversineLngLat(originCoord, toCoord) >= SUSPICIOUS_HAVERSINE_M) {
+          droppedBogusZero += 1;
+          continue;
+        }
+      }
+      if (isImpossibleSpeed(cell.meters, cell.seconds)) {
+        droppedImpossibleSpeed += 1;
+        continue;
+      }
+      if (originCoord) {
+        const toCoord = coordsById.get(toId);
+        if (
+          toCoord &&
+          isImpossibleDetour(cell.meters, haversineLngLat(originCoord, toCoord))
+        ) {
+          droppedHighDetour += 1;
+          continue;
+        }
       }
       ranked.push({ to: toId, meters: cell.meters, seconds: cell.seconds });
     }
@@ -209,39 +308,58 @@ export async function buildWalkingGraph(
       `walking-graph: dropped ${droppedFar} candidate edges exceeding maxEdgeMeters=${maxEdgeMeters}`,
     );
   }
+  if (droppedBogusZero > 0) {
+    logger.warn(
+      `walking-graph: dropped ${droppedBogusZero} SUSPICIOUS zero-distance cells ` +
+        `(walkingM ≤ ${SUSPICIOUS_WALKING_M} m but haversine ≥ ${SUSPICIOUS_HAVERSINE_M} m). ` +
+        `These look like stale route_legs rows — purge them with ` +
+        `\`DELETE FROM route_legs WHERE meters <= ${SUSPICIOUS_WALKING_M}\` to force a refetch from OSRM.`,
+    );
+  }
+  if (droppedImpossibleSpeed > 0) {
+    logger.warn(
+      `walking-graph: dropped ${droppedImpossibleSpeed} cells with impossible walking speed`,
+    );
+  }
+  if (droppedHighDetour > 0) {
+    logger.warn(
+      `walking-graph: dropped ${droppedHighDetour} cells with walking/haversine ratio > ${HIGH_DETOUR_REJECT}`,
+    );
+  }
 
-  // 4. Symmetrise — require BOTH directions under the cap.
+  // 4. Symmetrise — MIN of the two directions.
   //
-  // OSRM walking distances are often heavily asymmetric (cache 93 in the
-  // user's exports: 79→93 = 851 m but 93→79 = 7713 m via the same path).
-  // The earlier asymmetric approach (keep edge if either direction is in
-  // top-k) let cheap-in/expensive-out caches sneak into clusters, then
-  // Pass 2's TSP got stuck with 7+ km tour legs. The conservative answer:
-  // an edge is trustworthy only when both directions survive the cap.
-  // Pair walking weight = MAX of the two so the graph honestly reflects
-  // the worst-case tour cost.
+  // Walking is structurally bidirectional: pedestrians ignore one-way road
+  // tags, stairs work in both directions, etc. Heavy OSRM asymmetries (e.g.
+  // 658 m one way vs 1864 m the other for a 594 m haversine pair, or
+  // 851 m vs 7713 m) almost always mean the larger value is an OSRM
+  // artefact — wrong snap, detour around a one-way restriction that doesn't
+  // apply to foot traffic, missing pedestrian crossing forcing a long
+  // bypass. The honest walking distance is the smaller of the two.
+  //
+  // Per-cell sanity (impossible speed, > 10× detour) already rejected the
+  // pathological cases at fetch time, so a MIN that survives those checks
+  // is a real walking distance.
+  //
+  // Admission rule: an edge enters the graph if its forward direction is
+  // in some origin's top-k (which already implies forward ≤ maxEdgeMeters
+  // and per-cell sanity). The reverse direction is consulted only to take
+  // MIN — we no longer let a bad reverse value gate admission. This is the
+  // explicit reversal of the earlier MAX policy (commit 51eac59).
   const orderedKey = (a: number, b: number) =>
     a < b ? `${a}:${b}` : `${b}:${a}`;
 
-  // Build forward-direction map: origin → Set(neighbours kept in top-k).
-  const kept = new Map<number, Set<number>>();
-  for (const [originId, kn] of kNN) {
-    kept.set(originId, new Set(kn.map((n) => n.to)));
-  }
-
   const edges = new Map<string, WalkingEdge>();
-  let droppedAsymmetric = 0;
+  let asymmetricMinSelected = 0;
   for (const [originId, kn] of kNN) {
     for (const { to, meters, seconds } of kn) {
-      // Skip if reverse direction wasn't in the other origin's top-k.
-      // The reverse cell is in cachedMap (we queried it from the other origin's
-      // /table call) — read it and require BOTH to be ≤ cap. If the reverse
-      // origin never had this cache as a candidate at all, treat as asymmetric.
       const reverse = cachedMap.get(cachedKey(to, originId));
-      const reverseKeptByOther = kept.get(to)?.has(originId) ?? false;
-      if (!reverse || reverse.meters > maxEdgeMeters || !reverseKeptByOther) {
-        droppedAsymmetric += 1;
-        continue;
+      const minMeters = reverse ? Math.min(meters, reverse.meters) : meters;
+      const minSeconds = reverse ? Math.min(seconds, reverse.seconds) : seconds;
+      // Track how often MIN picked the meaningfully-cheaper direction —
+      // pure diagnostic, doesn't change behaviour.
+      if (reverse && Math.abs(meters - reverse.meters) / minMeters > 0.5) {
+        asymmetricMinSelected += 1;
       }
       const key = orderedKey(originId, to);
       if (edges.has(key)) continue; // already inserted from the other direction
@@ -249,16 +367,15 @@ export async function buildWalkingGraph(
       edges.set(key, {
         fromCacheId: from,
         toCacheId: dest,
-        // MAX, not avg — Pass 2's TSP pays whichever direction is harder.
-        meters: Math.max(meters, reverse.meters),
-        seconds: Math.max(seconds, reverse.seconds),
+        meters: minMeters,
+        seconds: minSeconds,
       });
     }
   }
 
-  if (droppedAsymmetric > 0) {
+  if (asymmetricMinSelected > 0) {
     logger.debug(
-      `walking-graph: dropped ${droppedAsymmetric} asymmetric directional edges (reverse direction missing or over cap)`,
+      `walking-graph: ${asymmetricMinSelected} edges where MIN(forward, reverse) was > 50 % smaller than MAX — taking MIN as the walking-honest distance`,
     );
   }
 

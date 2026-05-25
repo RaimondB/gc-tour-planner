@@ -6,9 +6,17 @@ import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import {
   ClusterCandidatesResponse,
+  type ExplainClusterInput,
+  ExplainClusterResponse,
   type PlanInput,
   type PlanLoopInput,
   PlanResult,
+  type PurgeBogusInput,
+  PurgeBogusResponse,
+  type TestRouteInput,
+  TestRouteResponse,
+  type WalkingGraphInput,
+  WalkingGraphResponse,
 } from "@gctp/shared/tours";
 
 /**
@@ -131,4 +139,40 @@ export async function planLoop(input: PlanLoopInput) {
     body: JSON.stringify(input),
   });
   return PlanResult.parse(raw);
+}
+
+export async function explainSelection(input: ExplainClusterInput) {
+  const raw = await request<unknown>("/tours/clusters/explain", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return ExplainClusterResponse.parse(raw);
+}
+
+export async function fetchWalkingGraph(input: WalkingGraphInput) {
+  const raw = await request<unknown>("/tours/walking-graph", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return WalkingGraphResponse.parse(raw);
+}
+
+export async function testOsrmRoute(input: TestRouteInput) {
+  const raw = await request<unknown>("/tours/route/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return TestRouteResponse.parse(raw);
+}
+
+export async function purgeBogusWalkingCells(input: PurgeBogusInput) {
+  const raw = await request<unknown>("/tours/walking-graph/purge-bogus", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return PurgeBogusResponse.parse(raw);
 }

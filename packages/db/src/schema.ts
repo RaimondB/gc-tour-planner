@@ -111,6 +111,12 @@ export interface RouteLegsTable {
   source: string;
   /** NULL when `source = 'table'`. Required (DB CHECK) when `source = 'route'`. */
   geom: Geography | null;
+  /**
+   * Short hash of the OSRM extract that produced this row (see
+   * infra/osrm/bootstrap.sh). Rows from a previous extract are ignored on
+   * read — forces a re-fetch into the live extract's namespace.
+   */
+  osrm_version: ColumnType<string, string, string>;
   fetched_at: Generated<Date>;
 }
 

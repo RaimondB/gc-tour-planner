@@ -1,21 +1,63 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Tours } from "@gctp/shared";
+import { CachesService } from "../caches/caches.service.js";
+import { CachesRepository } from "../caches/caches.repository.js";
+import { CacheLanduseRepository } from "../caches/cache-landuse.repository.js";
+import { RoutingRepository } from "../routing/routing.repository.js";
+import { RoutingService } from "../routing/routing.service.js";
+import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
+import { OsrmVersionService } from "../routing/osrm-version.service.js";
+import { explainSelection } from "./strategies/greedy/clustering/explain.js";
+import {
+  buildWalkingGraphResponse,
+  purgeBogusWalkingCells,
+  testOsrmRoute,
+} from "./strategies/greedy/clustering/walking-graph-debug.js";
+
+const PREFETCH_PROFILE = "foot" as const;
+/** Top-N clusters whose intra-cluster pairs we warm after Pass 1. */
+const PREFETCH_TOP_N = 5;
 
 @Injectable()
 export class ToursService {
+  private readonly logger = new Logger(ToursService.name);
+
   constructor(
     @Inject(Tours.TOUR_PLANNER)
     private readonly planner: Tours.TourPlannerStrategy,
+    private readonly caches: CachesService,
+    private readonly cachesRepo: CachesRepository,
+    private readonly cacheLanduse: CacheLanduseRepository,
+    private readonly routing: RoutingService,
+    private readonly routingRepo: RoutingRepository,
+    @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
+    private readonly osrmVersion: OsrmVersionService,
   ) {}
 
-  discoverClusters(
+  async discoverClusters(
     ownerId: string,
     input: Tours.PlanInput,
   ): Promise<Tours.DiscoverClustersResult> {
-    return this.planner.discoverClusters(ownerId, input);
+    const result = await this.planner.discoverClusters(ownerId, input);
+    // Opportunistic warm-up: after Pass 1 returns, kick off /route fetches
+    // for the intra-cluster pairs of the top-N candidates. The cells are
+    // persisted to `route_legs` (source='route' + geometry), so Pass 2's
+    // `getLeg` calls and the per-cluster polyline rendering both come from
+    // cache. Fire-and-forget — failures must not poison the response.
+    //
+    // Deferred to a proper BullMQ `prefetch` queue when the M4 jobs runtime
+    // lands (see ARCHITECTURE.md §Background work). Inline is fine while we
+    // run single-tenant; the work is bounded (~10×9/2 = 45 pairs × 5 = 225
+    // OSRM /route calls at the absolute worst).
+    this.prefetchClusterLegs(ownerId, result.candidates).catch((err) => {
+      this.logger.warn(
+        `prefetch-cluster-legs failed: ${(err as Error).message}`,
+      );
+    });
+    return result;
   }
 
   planLoop(
@@ -23,5 +65,123 @@ export class ToursService {
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
     return this.planner.planLoop(ownerId, input);
+  }
+
+  /**
+   * Best-effort: ensure every intra-cluster cache pair in the top-N candidates
+   * has a cached /route leg. Uses RoutingService.getLeg which already
+   * deduplicates against the existing cache, so re-running this on the same
+   * input is cheap. Bounded concurrency keeps it from competing with the
+   * planner thread for OSRM bandwidth.
+   */
+  private async prefetchClusterLegs(
+    ownerId: string,
+    candidates: readonly Tours.ClusterCandidate[],
+  ): Promise<void> {
+    const top = candidates.slice(0, PREFETCH_TOP_N);
+    if (top.length === 0) return;
+    const pairs: { from: number; to: number }[] = [];
+    const seen = new Set<string>();
+    for (const c of top) {
+      const ids = c.cacheIds;
+      for (let i = 0; i < ids.length; i += 1) {
+        for (let j = 0; j < ids.length; j += 1) {
+          if (i === j) continue;
+          const from = ids[i]!;
+          const to = ids[j]!;
+          const key = `${from}:${to}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          pairs.push({ from, to });
+        }
+      }
+    }
+    if (pairs.length === 0) return;
+    const CONCURRENCY = 4;
+    let warmed = 0;
+    for (let i = 0; i < pairs.length; i += CONCURRENCY) {
+      const slice = pairs.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        slice.map(async (p) => {
+          try {
+            const leg = await this.routing.getLeg(
+              ownerId,
+              p.from,
+              p.to,
+              PREFETCH_PROFILE,
+            );
+            if (leg) warmed += 1;
+          } catch {
+            // Swallow per-pair failures — one bad pair shouldn't stop the
+            // rest of the warm-up. Errors are already logged inside the
+            // routing service / OSRM client.
+          }
+        }),
+      );
+    }
+    this.logger.debug(
+      `prefetch-cluster-legs: warmed ${warmed}/${pairs.length} pairs across ${top.length} clusters`,
+    );
+  }
+
+  /**
+   * Diagnose an arbitrary cache selection. Analytic and strategy-agnostic —
+   * doesn't go through the TourPlannerStrategy because it runs ALL strategies
+   * on the same context for comparison.
+   */
+  explainSelection(
+    ownerId: string,
+    input: Tours.ExplainClusterInput,
+  ): Promise<Tours.ExplainClusterResponse> {
+    return explainSelection(ownerId, input, {
+      caches: this.caches,
+      cachesRepo: this.cachesRepo,
+      cacheLanduse: this.cacheLanduse,
+      routingRepo: this.routingRepo,
+      osrm: this.osrm,
+      osrmVersion: this.osrmVersion,
+    });
+  }
+
+  /** Debug: full sparse walking graph for the area, ready for map rendering. */
+  walkingGraph(
+    ownerId: string,
+    input: Tours.WalkingGraphInput,
+  ): Promise<Tours.WalkingGraphResponse> {
+    return buildWalkingGraphResponse(ownerId, input, {
+      caches: this.caches,
+      cachesRepo: this.cachesRepo,
+      cacheLanduse: this.cacheLanduse,
+      routingRepo: this.routingRepo,
+      osrm: this.osrm,
+      osrmVersion: this.osrmVersion,
+    });
+  }
+
+  /**
+   * Destructive: drop stale `route_legs` rows whose stored walking distance
+   * is suspiciously zero for the caches in the search area. After this, the
+   * next planner pass refetches from OSRM.
+   */
+  purgeBogusWalkingCells(
+    ownerId: string,
+    input: Tours.PurgeBogusInput,
+  ): Promise<Tours.PurgeBogusResponse> {
+    return purgeBogusWalkingCells(ownerId, input, {
+      caches: this.caches,
+      routingRepo: this.routingRepo,
+      osrmVersion: this.osrmVersion,
+    });
+  }
+
+  /** Live OSRM /route for a single pair — bypasses route_legs cache entirely. */
+  testOsrmRoute(
+    ownerId: string,
+    input: Tours.TestRouteInput,
+  ): Promise<Tours.TestRouteResponse> {
+    return testOsrmRoute(ownerId, input, {
+      caches: this.caches,
+      osrm: this.osrm,
+    });
   }
 }
