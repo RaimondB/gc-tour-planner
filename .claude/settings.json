@@ -30,7 +30,16 @@
       "Bash(pnpm --filter @gctp/web lint)",
       "Bash(pnpm --filter @gctp/shared build)",
       "Bash(pnpm --filter @gctp/api typecheck)",
-      "Bash(pnpm --filter @gctp/api lint)"
+      "Bash(pnpm --filter @gctp/api lint)",
+      "Bash(pnpm --filter @gctp/api dev)",
+      "Bash(pnpm --filter @gctp/web dev)",
+      "Bash(curl -s \"http://localhost:3030/caches?lng=5.1214&lat=52.0907&radiusM=20000\")",
+      "Bash(pnpm --filter @gctp/api add graphology graphology-communities-leiden h3-js)",
+      "Bash(pnpm --filter @gctp/api add graphology graphology-communities-louvain h3-js)",
+      "Bash(DATABASE_URL=postgresql://gctp:gctp-dev@localhost:5432/gctp pnpm --filter @gctp/db migrate:up)",
+      "Bash(pnpm -r test --no-color)",
+      "Bash(FORCE_COLOR=0 pnpm -r test)",
+      "Bash(FORCE_COLOR=0 pnpm -r lint)"
     ],
     "additionalDirectories": [
       "/tmp"

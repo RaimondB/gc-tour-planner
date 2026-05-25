@@ -4,6 +4,7 @@
 import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../database/database.module.js";
 import { HttpOsrmClient, OSRM_CLIENT } from "./osrm.client.js";
+import { OsrmVersionService } from "./osrm-version.service.js";
 import { RoutingController } from "./routing.controller.js";
 import { RoutingRepository } from "./routing.repository.js";
 import { RoutingService } from "./routing.service.js";
@@ -14,8 +15,9 @@ import { RoutingService } from "./routing.service.js";
   providers: [
     RoutingService,
     RoutingRepository,
+    OsrmVersionService,
     { provide: OSRM_CLIENT, useClass: HttpOsrmClient },
   ],
-  exports: [RoutingService, RoutingRepository, OSRM_CLIENT],
+  exports: [RoutingService, RoutingRepository, OsrmVersionService, OSRM_CLIENT],
 })
 export class RoutingModule {}

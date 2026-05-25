@@ -1,11 +1,12 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Database } from "@gctp/db";
 import type { Geo, Routing } from "@gctp/shared";
 import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../database/database.tokens.js";
+import { isImpossibleSpeed } from "./leg-sanity.js";
 
 interface LegRow {
   from_cache_id: string;
@@ -42,6 +43,8 @@ export interface PersistLegInput {
 
 @Injectable()
 export class RoutingRepository {
+  private readonly logger = new Logger(RoutingRepository.name);
+
   constructor(@Inject(KYSELY) private readonly db: Kysely<Database>) {}
 
   /**
@@ -52,6 +55,7 @@ export class RoutingRepository {
   async findLegs(
     pairs: readonly { fromCacheId: number; toCacheId: number }[],
     profile: Routing.RoutingProfile,
+    osrmVersion: string,
   ): Promise<FoundLeg[]> {
     if (pairs.length === 0) return [];
 
@@ -79,6 +83,7 @@ export class RoutingRepository {
         sql<string>`ST_AsGeoJSON(geom::geometry)`.as("geojson"),
       ])
       .where("profile", "=", profile)
+      .where("osrm_version", "=", osrmVersion)
       .where("from_cache_id", "in", fromIds)
       .where("to_cache_id", "in", toIds)
       // findLegs returns geometry-bearing routes only. A matrix-only cache
@@ -104,19 +109,43 @@ export class RoutingRepository {
    * Cache-write for full /route legs (with geometry). Upserts on the PK
    * (from, to, profile). Always writes `source='route'`; if a 'table' row
    * existed it gets upgraded in place.
+   *
+   * Sanity guard: rows whose (meters, seconds) implies an impossible walking
+   * speed (< 1 km/h or > 28 km/h) are silently dropped — see leg-sanity.ts.
+   * Rejecting at the persistence boundary keeps the DB free of cells that
+   * the planner would have to filter on every read anyway.
    */
-  async upsertLegs(legs: readonly PersistLegInput[]): Promise<void> {
+  async upsertLegs(
+    legs: readonly PersistLegInput[],
+    osrmVersion: string,
+  ): Promise<void> {
     if (legs.length === 0) return;
+    const accepted: PersistLegInput[] = [];
+    let dropped = 0;
+    for (const l of legs) {
+      if (isImpossibleSpeed(l.meters, l.seconds)) {
+        dropped += 1;
+        continue;
+      }
+      accepted.push(l);
+    }
+    if (dropped > 0) {
+      this.logger.warn(
+        `upsertLegs: dropped ${dropped} cells with impossible walking speed`,
+      );
+    }
+    if (accepted.length === 0) return;
     await this.db
       .insertInto("route_legs")
       .values(
-        legs.map((l) => ({
+        accepted.map((l) => ({
           from_cache_id: l.fromCacheId,
           to_cache_id: l.toCacheId,
           profile: l.profile,
           meters: l.meters,
           seconds: l.seconds,
           source: "route",
+          osrm_version: osrmVersion,
           geom: sql<string>`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(l.geometry)}), 4326)::geography`,
         })),
       )
@@ -126,6 +155,7 @@ export class RoutingRepository {
           seconds: (eb) => eb.ref("excluded.seconds"),
           source: (eb) => eb.ref("excluded.source"),
           geom: (eb) => eb.ref("excluded.geom"),
+          osrm_version: (eb) => eb.ref("excluded.osrm_version"),
           fetched_at: sql<Date>`now()`,
         }),
       )
@@ -150,11 +180,30 @@ export class RoutingRepository {
       meters: number;
       seconds: number;
     }[],
+    osrmVersion: string,
   ): Promise<void> {
     if (cells.length === 0) return;
+    // Drop cells with impossible walking speed before they land in the DB.
+    // The detour-ratio guard needs the haversine context the walking-graph
+    // builder has but the repo doesn't, so it stays upstream.
+    const accepted: typeof cells = cells.filter(
+      (c) => !isImpossibleSpeed(c.meters, c.seconds),
+    );
+    const dropped = cells.length - accepted.length;
+    if (dropped > 0) {
+      this.logger.warn(
+        `upsertMatrixCells: dropped ${dropped} cells with impossible walking speed`,
+      );
+    }
+    if (accepted.length === 0) return;
     const CHUNK = 5_000;
-    for (let i = 0; i < cells.length; i += CHUNK) {
-      const slice = cells.slice(i, i + CHUNK);
+    // DO UPDATE only when the incoming row carries a newer extract version
+    // than the existing one — never downgrade a `source='route'` row (with
+    // geometry) to a `source='table'` row for the same version (see commit
+    // b688587). Crossing extracts is the one case where we *do* want to
+    // overwrite, because the geometry is bound to a specific extract.
+    for (let i = 0; i < accepted.length; i += CHUNK) {
+      const slice = accepted.slice(i, i + CHUNK);
       await this.db
         .insertInto("route_legs")
         .values(
@@ -165,11 +214,22 @@ export class RoutingRepository {
             meters: c.meters,
             seconds: c.seconds,
             source: "table",
+            osrm_version: osrmVersion,
             geom: null,
           })),
         )
         .onConflict((oc) =>
-          oc.columns(["from_cache_id", "to_cache_id", "profile"]).doNothing(),
+          oc
+            .columns(["from_cache_id", "to_cache_id", "profile"])
+            .doUpdateSet({
+              meters: (eb) => eb.ref("excluded.meters"),
+              seconds: (eb) => eb.ref("excluded.seconds"),
+              source: (eb) => eb.ref("excluded.source"),
+              geom: (eb) => eb.ref("excluded.geom"),
+              osrm_version: (eb) => eb.ref("excluded.osrm_version"),
+              fetched_at: sql<Date>`now()`,
+            })
+            .where(sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`),
         )
         .execute();
     }
@@ -183,6 +243,7 @@ export class RoutingRepository {
   async findMatrixCells(
     pairs: readonly { fromCacheId: number; toCacheId: number }[],
     profile: Routing.RoutingProfile,
+    osrmVersion: string,
   ): Promise<
     Array<{
       fromCacheId: number;
@@ -201,6 +262,7 @@ export class RoutingRepository {
       .selectFrom("route_legs")
       .select(["from_cache_id", "to_cache_id", "meters", "seconds"])
       .where("profile", "=", profile)
+      .where("osrm_version", "=", osrmVersion)
       .where("from_cache_id", "in", fromIds)
       .where("to_cache_id", "in", toIds)
       .execute()) as unknown as Array<{
@@ -217,6 +279,126 @@ export class RoutingRepository {
         meters: Number(r.meters),
         seconds: Number(r.seconds),
       }));
+  }
+
+  /**
+   * Owner-scoped read of suspicious `route_legs` rows (mirror of
+   * `deleteSuspiciousLegs` selection). Used by the walking-graph debug
+   * endpoint to surface bogus cells in the UI even after the planner-side
+   * read-time filter has stripped them from clustering input — without
+   * this, the user can't see (or purge) what's still in the database.
+   */
+  async findSuspiciousLegs(
+    ownerId: string,
+    cacheIds: readonly number[],
+    profile: Routing.RoutingProfile,
+    walkingMaxMeters: number,
+    haversineMinMeters: number,
+    osrmVersion: string,
+  ): Promise<
+    Array<{
+      fromCacheId: number;
+      toCacheId: number;
+      meters: number;
+      seconds: number;
+      haversineM: number;
+    }>
+  > {
+    if (cacheIds.length === 0) return [];
+    const ids = cacheIds.join(",");
+    const rows = (await sql<{
+      from_cache_id: string;
+      to_cache_id: string;
+      meters: string;
+      seconds: string;
+      haversine_m: number;
+    }>`
+      WITH owner_caches AS (
+        SELECT id, location
+          FROM caches
+         WHERE owner_id = ${ownerId}
+           AND id IN (${sql.raw(ids)})
+      )
+      SELECT rl.from_cache_id,
+             rl.to_cache_id,
+             rl.meters,
+             rl.seconds,
+             ST_Distance(a.location, b.location) AS haversine_m
+        FROM route_legs rl
+        JOIN owner_caches a ON a.id = rl.from_cache_id
+        JOIN owner_caches b ON b.id = rl.to_cache_id
+       WHERE rl.profile = ${profile}
+         AND rl.osrm_version = ${osrmVersion}
+         AND rl.meters  <= ${walkingMaxMeters}
+         AND ST_Distance(a.location, b.location) >= ${haversineMinMeters}
+    `.execute(this.db)).rows;
+    return rows.map((r) => ({
+      fromCacheId: Number(r.from_cache_id),
+      toCacheId: Number(r.to_cache_id),
+      meters: Number(r.meters),
+      seconds: Number(r.seconds),
+      haversineM: Number(r.haversine_m),
+    }));
+  }
+
+  /**
+   * Delete `route_legs` rows whose stored walking distance is below
+   * `walkingMaxMeters` for cache pairs whose haversine distance is above
+   * `haversineMinMeters`. These are stale/bogus cells (OSRM doesn't return 0
+   * for distinct, non-co-located coords) and ON CONFLICT DO NOTHING means
+   * they never get refreshed on their own.
+   *
+   * Returns the number of rows deleted. Only touches the owner's caches —
+   * `route_legs` has FKs to `caches`, which are owner-scoped, so the
+   * `from_cache_id IN (caches.id WHERE owner_id = ?)` join filters by owner
+   * implicitly.
+   */
+  async deleteSuspiciousLegs(
+    ownerId: string,
+    cacheIds: readonly number[],
+    profile: Routing.RoutingProfile,
+    walkingMaxMeters: number,
+    haversineMinMeters: number,
+    osrmVersion: string,
+  ): Promise<number> {
+    if (cacheIds.length === 0) return 0;
+    // Use raw SQL so we can join route_legs to a self-join on caches to
+    // compute haversine via ST_Distance in one statement. Kysely's DELETE …
+    // USING form is awkward to express portably; raw is clearer here.
+    //
+    // Version-scoped: purge the live extract's cells only. Rows from a
+    // previous extract are already invisible to the planner read path, so
+    // deleting them gives no functional benefit and could surprise the
+    // operator who wanted "purge what the planner sees right now".
+    const ids = cacheIds.join(",");
+    const result = await sql<{ deleted: number }>`
+      WITH owner_caches AS (
+        SELECT id, location
+          FROM caches
+         WHERE owner_id = ${ownerId}
+           AND id IN (${sql.raw(ids)})
+      ),
+      bogus AS (
+        SELECT rl.from_cache_id, rl.to_cache_id, rl.profile
+          FROM route_legs rl
+          JOIN owner_caches a ON a.id = rl.from_cache_id
+          JOIN owner_caches b ON b.id = rl.to_cache_id
+         WHERE rl.profile = ${profile}
+           AND rl.osrm_version = ${osrmVersion}
+           AND rl.meters  <= ${walkingMaxMeters}
+           AND ST_Distance(a.location, b.location) >= ${haversineMinMeters}
+      ),
+      del AS (
+        DELETE FROM route_legs rl
+         USING bogus
+         WHERE rl.from_cache_id = bogus.from_cache_id
+           AND rl.to_cache_id   = bogus.to_cache_id
+           AND rl.profile       = bogus.profile
+        RETURNING 1
+      )
+      SELECT COUNT(*)::int AS deleted FROM del
+    `.execute(this.db);
+    return result.rows[0]?.deleted ?? 0;
   }
 
   /**

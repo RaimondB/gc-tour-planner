@@ -10,32 +10,20 @@ import { CacheLanduseRepository } from "../../../caches/cache-landuse.repository
 import { RoutingService } from "../../../routing/routing.service.js";
 import { RoutingRepository } from "../../../routing/routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
+import { OsrmVersionService } from "../../../routing/osrm-version.service.js";
+import {
+  CLUSTERING_STRATEGIES,
+  prepareClusteringContext,
+  refineClusters,
+  resolveClusteringStrategy,
+} from "./clustering/index.js";
 import { scoreCluster } from "./cluster-scoring.js";
 import { haversineMeters } from "./equirectangular.js";
-import {
-  discoverClustersInSubgraphs,
-  splitByMstCut,
-} from "./louvain-clusters.js";
-import { extractSeedSubgraphs, selectSeeds } from "./seeds.js";
-import { buildWalkingGraph, type WalkingEdge } from "./walking-graph.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const TOP_N_CLUSTERS = 5;
 /** Hard cap so a misconfigured request doesn't make the planner OOM. */
 const MAX_LOOP_CACHES = 50;
-/**
- * Hard cap on candidate-pool size for Pass 1. Lifted from 300 → 2000 with the
- * sparse k-NN matrix redesign — N² OSRM cost no longer applies; cost scales
- * with N × k_target (~24k cells for N=2000, k=12). Whole-region scans (10k+)
- * are still bounded by the per-bbox PostGIS query the caller chooses.
- */
-const MAX_DISCOVERY_POOL = 2000;
-/**
- * Target k-nearest neighbours per cache in the sparse walking graph.
- * Caller over-fetches 3× and re-ranks by OSRM walking distance.
- * Tunable via env so we can measure on real PQ data without redeploys.
- */
-const KNN_TARGET = Number.parseInt(process.env.PLANNER_KNN_K ?? "12", 10);
 
 @Injectable()
 export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
@@ -48,43 +36,55 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     private readonly routing: RoutingService,
     private readonly routingRepo: RoutingRepository,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
+    private readonly osrmVersion: OsrmVersionService,
   ) {}
 
-  // ─── Pass 1: cluster discovery (Louvain-on-sparse-graph) ──────────────────
+  // ─── Pass 1: cluster discovery ────────────────────────────────────────────
   //
-  // See docs/adr/0002 + the redesign plan in
-  // ~/.claude/plans/i-am-not-happy-functional-lobster.md. Flow:
-  //   1. Load candidate pool (capped at MAX_DISCOVERY_POOL).
-  //   2. Lazy-populate cache_landuse for the pool's bbox.
-  //   3. Build sparse walking graph (PostGIS k-NN over-fetch + OSRM re-rank).
-  //   4. Pick H3 density seeds + extract per-seed isochrone subgraphs.
-  //   5. Louvain across a resolution sweep + Jaccard dedup.
-  //   6. Safety-net MST-cut for any community exceeding budget/size.
-  //   7. Score, sort, top-N.
+  // See docs/adr/0002. Pipeline:
+  //   1. prepareClusteringContext: pool + landuse + sparse walking graph + seeds.
+  //   2. Run the selected ClusteringStrategy (default louvain; configurable
+  //      per-request via PlanInput.clusteringStrategy or globally via
+  //      `PLANNER_CLUSTERING` env).
+  //   3. refineClusters: shared MST-cut → walking-trim → geo-trim → Jaccard dedup.
+  //   4. Score, sort, top-N.
 
   async discoverClusters(
     ownerId: string,
     input: Tours.PlanInput,
   ): Promise<Tours.DiscoverClustersResult> {
-    const { caches } = await this.caches.list(ownerId, {
-      center: input.center,
-      radiusM: input.radiusM,
-      types: input.hardFilters.types,
-      attributes: input.hardFilters.attributes,
-      excludeFound: true,
+    const strategy = resolveClusteringStrategy(
+      input.clusteringStrategy,
+      process.env.PLANNER_CLUSTERING,
+    );
+
+    const ctx = await prepareClusteringContext(ownerId, input, {
+      caches: this.caches,
+      cachesRepo: this.cachesRepo,
+      cacheLanduse: this.cacheLanduse,
+      routingRepo: this.routingRepo,
+      osrm: this.osrm,
+      osrmVersion: this.osrmVersion,
+      logger: this.logger,
     });
 
-    if (caches.length < 2) {
-      this.logger.debug(
-        `discoverClusters: only ${caches.length} candidate caches — returning no clusters`,
-      );
+    if (!ctx) {
+      // Sub-2-cache pool — degenerate. Return an empty result that still
+      // carries enough diagnostic context for the UI.
+      const pool = (await this.caches.list(ownerId, {
+        center: input.center,
+        radiusM: input.radiusM,
+        types: input.hardFilters.types,
+        attributes: input.hardFilters.attributes,
+        excludeFound: true,
+      })).caches;
       return {
         candidates: [],
         diagnostics: {
           epsilonMeters: 0,
-          poolSize: caches.length,
+          poolSize: pool.length,
           components: [],
-          cacheConnectivity: caches.map((c) => ({
+          cacheConnectivity: pool.map((c) => ({
             cacheId: c.id,
             nearestWalkableMeters: null,
           })),
@@ -92,81 +92,13 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           edgeCount: 0,
           landuseCoverageFraction: 0,
           resolutionsUsed: [],
+          strategyUsed: strategy.name,
+          strategyParams: {},
         },
       };
     }
 
-    const pool = caches.slice(0, MAX_DISCOVERY_POOL);
-    if (caches.length > MAX_DISCOVERY_POOL) {
-      this.logger.warn(
-        `discoverClusters: ${caches.length} candidates exceeds MAX_DISCOVERY_POOL=${MAX_DISCOVERY_POOL}; trimming.`,
-      );
-    }
-    const poolById = new Map(pool.map((c) => [c.id, c]));
-    const coordinated = pool.map((c) => ({
-      id: c.id,
-      lng: c.location.coordinates[0]!,
-      lat: c.location.coordinates[1]!,
-    }));
-
-    // 1. Lazy-populate cache_landuse for the pool's bbox (cheap if warm; the
-    //    SQL fn is idempotent). Compute a tight bbox from the pool itself
-    //    rather than the search radius so we don't pay for empty corners.
-    const bbox = bboxOf(coordinated);
-    await this.cacheLanduse
-      .populateForBbox(bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat)
-      .catch((err) =>
-        this.logger.warn(
-          `cache_landuse populate failed (degrading gracefully): ${(err as Error).message}`,
-        ),
-      );
-    const landuseKindsByCacheId = await this.cacheLanduse.kindsByCacheId(
-      pool.map((c) => c.id),
-    );
-
-    // 2. Sparse walking graph. `maxEdgeMeters = maxLinkMeters` hard-caps
-    //    any single edge — without it, river-crossing detours sneak into
-    //    the top-k and Louvain fuses communities across them.
-    const edges: WalkingEdge[] = await buildWalkingGraph(
-      {
-        ownerId,
-        caches: coordinated,
-        kTarget: KNN_TARGET,
-        radiusM: Math.min(input.maxLinkMeters * 2, 4000),
-        maxEdgeMeters: input.maxLinkMeters,
-        profile: PROFILE,
-      },
-      { caches: this.cachesRepo, routing: this.routingRepo, osrm: this.osrm },
-    );
-
-    // 3. H3-density seeds + per-seed subgraphs.
-    const seedIds = selectSeeds(coordinated, edges);
-    const subgraphs = extractSeedSubgraphs(
-      seedIds,
-      edges,
-      input.distanceBudgetMeters,
-    );
-
-    // 4. Louvain across resolutions on each subgraph.
-    //
-    // σ controls how aggressively distance decays in the edge weight
-    // `exp(-d/σ)`. Earlier we used budget/4 (= 2 km for the 8 km default),
-    // which gave a 1500 m bridge edge between two river-separated pods a
-    // weight of 0.47 — enough for Louvain to fuse them into one community.
-    // Pegging σ to `maxLinkMeters / 3` (≈ 500 m by default) drops that same
-    // bridge edge to weight 0.05, an 11× ratio against intra-pod 300 m edges
-    // (weight 0.55). Modularity now keeps the pods apart.
-    const sigmaMeters = input.maxLinkMeters / 3;
-    const rawCandidates = discoverClustersInSubgraphs(subgraphs, {
-      sigmaMeters,
-    });
-
-    // Cluster-spread metric for scoring + safety-net split. Use Haversine
-    // (not the sparse walking graph): the sparse graph drops most pairs as
-    // +Infinity, so summing only the few finite edges yields a meaningless
-    // MST of a few hundred metres for a 10-cache cluster spanning kilometres.
-    // Haversine is a robust geographic spread proxy; walking-detour cost is
-    // handled in Pass 2 where the real OSRM matrix is computed.
+    const poolById = new Map(ctx.pool.map((c) => [c.id, c]));
     const clusterDistanceMeters = (a: number, b: number): number => {
       if (a === b) return 0;
       const ca = poolById.get(a);
@@ -178,150 +110,26 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       );
     };
 
-    // Adjacency on the (already capped-by-maxEdgeMeters) walking graph for
-    // outlier trimming: a cluster member with no walking-graph edge to any
-    // other cluster member is geographically attached but not walk-connected
-    // — Louvain put it there by global modularity, but it's not part of the
-    // user's loop. Drop those before scoring.
-    const adj = new Map<number, Set<number>>();
-    for (const e of edges) {
-      let a = adj.get(e.fromCacheId);
-      if (!a) {
-        a = new Set();
-        adj.set(e.fromCacheId, a);
-      }
-      a.add(e.toCacheId);
-      let b = adj.get(e.toCacheId);
-      if (!b) {
-        b = new Set();
-        adj.set(e.toCacheId, b);
-      }
-      b.add(e.fromCacheId);
-    }
-    const trimOutliers = (cacheIds: readonly number[]): number[] => {
-      const set = new Set(cacheIds);
-      // Iterate until no more outliers — dropping one outlier might make a
-      // previously-adjacent cache an outlier too if its only in-cluster
-      // neighbour was the just-dropped node.
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const id of set) {
-          const neighbours = adj.get(id);
-          if (!neighbours) {
-            set.delete(id);
-            changed = true;
-            continue;
-          }
-          let hasInCluster = false;
-          for (const n of neighbours) {
-            if (set.has(n)) {
-              hasInCluster = true;
-              break;
-            }
-          }
-          if (!hasInCluster) {
-            set.delete(id);
-            changed = true;
-          }
-        }
-      }
-      return Array.from(set).sort((a, b) => a - b);
-    };
+    // 2. Run the chosen strategy.
+    const raw = strategy.cluster(ctx);
 
-    /**
-     * Geographic outlier trim. A cache walking-connected via a long bridge
-     * may legitimately satisfy `trimOutliers` (it has in-cluster walking-graph
-     * edges) yet still sit visually far from the cluster's centre.
-     *
-     * Drop any cache whose distance to the cluster centroid exceeds
-     * `min(2 × median, distanceBudget / 4)`. The absolute cap matters because
-     * an over-stretched cluster (median 1500 m for an 8 km budget) would
-     * otherwise tolerate 3 km outliers — sloppy for a walking loop. The
-     * budget/4 cap is the same σ the Louvain weighting uses to define
-     * "cluster scale", so the trim and the modularity agree on what's tight.
-     *
-     * Iterate until stable: dropping a far cache shifts the centroid, which
-     * can newly-qualify another fringe cache as an outlier.
-     *
-     * Not every cache HAS to land in a cluster — sub-clusters that fall
-     * below minClusterSize after this pass are discarded entirely (caller).
-     */
-    const absoluteCapMeters = input.distanceBudgetMeters / 4;
-    const trimGeographicOutliers = (cacheIds: readonly number[]): number[] => {
-      let ids = cacheIds.slice();
-      let changed = true;
-      while (changed && ids.length >= input.minClusterSize) {
-        changed = false;
-        const coords = ids
-          .map((id) => poolById.get(id))
-          .filter((c): c is Caches.CacheDTO => c !== undefined)
-          .map((c) => [
-            c.location.coordinates[0]!,
-            c.location.coordinates[1]!,
-          ] as [number, number]);
-        const centroid: [number, number] = [
-          mean(coords.map((c) => c[0])),
-          mean(coords.map((c) => c[1])),
-        ];
-        const distances = coords.map((c) => haversineMeters(c, centroid));
-        const sorted = distances.slice().sort((a, b) => a - b);
-        const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-        const threshold = Math.min(median * 2, absoluteCapMeters);
-        const kept: number[] = [];
-        for (let i = 0; i < ids.length; i += 1) {
-          if (distances[i]! <= threshold) kept.push(ids[i]!);
-          else changed = true;
-        }
-        ids = kept;
-      }
-      return ids;
-    };
+    // 3. Shared refinement pipeline.
+    const splitClusters = refineClusters(raw, ctx, strategy.skipRefinement);
 
-    // 5. Safety-net split + two-stage trim + Jaccard dedup of trimmed cores.
-    //
-    // splitByMstCut keeps each surviving community within budget+size.
-    // trimOutliers drops caches with no in-cluster walking-graph edge.
-    // trimGeographicOutliers drops caches > min(2× median, budget/4)
-    // from the centroid. Both iterate to a fixed point.
-    //
-    // Different raw Louvain candidates often converge to near-overlapping
-    // trimmed cores (the resolution sweep gives several seeds rooted in
-    // the same dense pocket). Jaccard dedup at 0.8 drops the "almost same"
-    // duplicates the strict-equality dedup missed.
-    const POST_TRIM_JACCARD = 0.8;
-    const splitClusters: number[][] = [];
-    const keptSets: Set<number>[] = [];
-    for (const cand of rawCandidates) {
-      const parts = splitByMstCut(
-        cand.cacheIds,
-        clusterDistanceMeters,
-        input.distanceBudgetMeters,
-        input.minClusterSize,
-        input.maxCaches,
-      );
-      for (const part of parts) {
-        const connTrimmed = trimOutliers(part);
-        const geoTrimmed = trimGeographicOutliers(connTrimmed);
-        if (geoTrimmed.length < input.minClusterSize) continue;
-        const set = new Set(geoTrimmed);
-        const dup = keptSets.some((k) => jaccard(k, set) >= POST_TRIM_JACCARD);
-        if (dup) continue;
-        keptSets.push(set);
-        splitClusters.push(geoTrimmed);
-      }
-    }
-
-    // 6. Score + sort.
+    // 4. Score + sort.
     const preferredLanduseKinds = await this.kindsForLanduseProfile(
       input.softPreferences.landuseProfileId,
     );
-
     const scored = splitClusters.map((cacheIds) => {
       const cluster = cacheIds.map((id) => poolById.get(id)!).filter(Boolean);
-      // MST over the cluster using Haversine — geographic spread, always
-      // finite, robust against sparse-graph gaps that would otherwise make
-      // a 10-cache cluster spanning kilometres report MST ≈ 20 m.
+      if (cluster.length !== cacheIds.length) {
+        // Refinement returns pool-only ids, so a hydration miss here means
+        // an invariant got violated upstream. Worth a warning so the leak
+        // can be tracked down rather than silently truncating clusters.
+        this.logger.warn(
+          `scored: ${cacheIds.length - cluster.length}/${cacheIds.length} cluster ids missing from poolById (refine→pool invariant broken)`,
+        );
+      }
       const mst = mstLengthByDistance(cluster.length, (i, j) =>
         clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
       );
@@ -330,14 +138,12 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         mstLengthMeters: mst,
         distanceBudgetMeters: input.distanceBudgetMeters,
         softPrefs: input.softPreferences,
-        landuseKindsByCacheId,
+        landuseKindsByCacheId: ctx.landuseKindsByCacheId,
         preferredLanduseKinds,
         landuseWeight: 1,
       });
-
       const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
       const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
-
       return {
         clusterId: stableClusterId(cluster.map((c) => c.id)),
         cacheIds: cluster.map((c) => c.id),
@@ -358,22 +164,48 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       return a.clusterId < b.clusterId ? -1 : a.clusterId > b.clusterId ? 1 : 0;
     });
 
-    // 7. Diagnostics — one component entry per seed subgraph (so the web UI
-    //    can still show "we found N seed-anchored neighbourhoods of these
-    //    sizes"). MST uses Haversine for the same reason as cluster scoring.
-    const components: Tours.ClusterComponent[] = subgraphs.map((sub) => ({
-      cacheIds: sub.cacheIds.slice().sort((a, b) => a - b),
-      mstLengthMeters: round2(
-        mstLengthByDistance(sub.cacheIds.length, (i, j) =>
-          clusterDistanceMeters(sub.cacheIds[i]!, sub.cacheIds[j]!),
-        ),
-      ),
-      accepted: scored.some((c) =>
-        c.cacheIds.some((id) => sub.cacheIds.includes(id)),
-      ),
-    }));
+    // Boundary guard: `ClusterCandidate.cacheIds` is `.min(2)` on the wire,
+    // and refinement is also supposed to enforce minClusterSize. A leak past
+    // both — observed in the field as a stray 1-cluster at the bottom of
+    // the top-5 — would crash the UI's response parser. Filter and warn so
+    // the response stays valid while we root-cause the leak.
+    const validCandidates = scored.filter((c) => c.cacheIds.length >= 2);
+    if (validCandidates.length !== scored.length) {
+      this.logger.warn(
+        `scored: dropped ${scored.length - validCandidates.length} sub-minimum candidate(s) before response — refine should have caught these`,
+      );
+    }
+
+    // Diagnostics — components are still one-per-seed-subgraph for the
+    // Louvain pipeline; for other strategies we report the raw clusters that
+    // entered refinement so the user can see what the strategy actually found.
+    const components: Tours.ClusterComponent[] =
+      strategy.name === "louvain"
+        ? ctx.subgraphs.map((sub) => ({
+            cacheIds: sub.cacheIds.slice().sort((a, b) => a - b),
+            mstLengthMeters: round2(
+              mstLengthByDistance(sub.cacheIds.length, (i, j) =>
+                clusterDistanceMeters(sub.cacheIds[i]!, sub.cacheIds[j]!),
+              ),
+            ),
+            accepted: scored.some((c) =>
+              c.cacheIds.some((id) => sub.cacheIds.includes(id)),
+            ),
+          }))
+        : raw.map((r) => ({
+            cacheIds: r.cacheIds.slice().sort((a, b) => a - b),
+            mstLengthMeters: round2(
+              mstLengthByDistance(r.cacheIds.length, (i, j) =>
+                clusterDistanceMeters(r.cacheIds[i]!, r.cacheIds[j]!),
+              ),
+            ),
+            accepted: scored.some((c) =>
+              setsOverlap(new Set(c.cacheIds), r.cacheIds),
+            ),
+          }));
+
     const nearestById = new Map<number, number>();
-    for (const e of edges) {
+    for (const e of ctx.edges) {
       const cur = nearestById.get(e.fromCacheId);
       if (cur === undefined || e.meters < cur)
         nearestById.set(e.fromCacheId, e.meters);
@@ -381,39 +213,42 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       if (curRev === undefined || e.meters < curRev)
         nearestById.set(e.toCacheId, e.meters);
     }
-    const cacheConnectivity: Tours.CacheConnectivity[] = pool.map((c) => ({
+    const cacheConnectivity: Tours.CacheConnectivity[] = ctx.pool.map((c) => ({
       cacheId: c.id,
       nearestWalkableMeters: nearestById.has(c.id)
         ? round2(nearestById.get(c.id)!)
         : null,
     }));
-    const landuseHits = pool.filter((c) =>
-      (landuseKindsByCacheId.get(c.id) ?? []).length > 0,
+    const landuseHits = ctx.pool.filter((c) =>
+      (ctx.landuseKindsByCacheId.get(c.id) ?? []).length > 0,
     ).length;
 
     return {
-      candidates: scored.slice(0, TOP_N_CLUSTERS),
+      candidates: validCandidates.slice(0, TOP_N_CLUSTERS),
       diagnostics: {
-        epsilonMeters: 0,
-        poolSize: pool.length,
+        epsilonMeters: strategy.epsilonMetersForDiagnostics(ctx),
+        poolSize: ctx.pool.length,
         components,
         cacheConnectivity,
-        seedCount: seedIds.length,
-        edgeCount: edges.length,
+        seedCount: ctx.subgraphs.length,
+        edgeCount: ctx.edges.length,
         landuseCoverageFraction:
-          pool.length > 0 ? landuseHits / pool.length : 0,
-        resolutionsUsed: Array.from(
-          new Set(rawCandidates.map((c) => c.resolution)),
-        ).sort((a, b) => a - b),
+          ctx.pool.length > 0 ? landuseHits / ctx.pool.length : 0,
+        resolutionsUsed: louvainResolutionsFrom(raw),
+        strategyUsed: strategy.name,
+        strategyParams: strategy.paramsForDiagnostics(ctx),
       },
     };
   }
+
+  /** Read the resolution metadata Louvain attaches to raw candidates. Empty for other strategies. */
+  // (Kept as a static helper so cluster diagnostics don't need to know which
+  //  strategy ran — it just looks for the field.)
 
   /**
    * Map a landuse profile id → kinds the profile considers "preferred".
    * Placeholder until a landuse_profiles table lands: for now the id IS the
    * kind (e.g. `landuseProfileId='forest'`). Empty when no profile selected.
-   * Wired this way so the scoring code can stay generic.
    */
   private async kindsForLanduseProfile(
     profileId: string | undefined,
@@ -442,9 +277,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     }
     const byId = new Map(cacheRows.map((c) => [c.id, c]));
 
-    // Walking OD matrix for the picked set. Cells are null when OSRM can't
-    // connect a pair — we drop nodes whose connectivity is too poor before
-    // running TSP.
     const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
     const { connectedIds, distances } = filterConnected(ids, matrix);
     if (connectedIds.length < 2) {
@@ -453,8 +285,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       );
     }
 
-    // Pick parking BEFORE TSP so we can anchor the tour to the cache nearest
-    // parking and avoid an awkward parking-far-from-start configuration.
     const parking = await this.pickParking(
       input,
       connectedIds.map((id) => byId.get(id)!),
@@ -468,9 +298,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const { order: tspOrder } = Tsp.solveTwoOpt(distances, startIndex);
     const orderedIds = tspOrder.map((i) => connectedIds[i]!);
 
-    // Pull leg geometry for every adjacent cache pair in the open path. The
-    // closed loop's closing leg (orderedIds[last] → orderedIds[0]) is
-    // replaced by the two parking legs below.
     const interCacheLegs: Routing.Leg[] = [];
     for (let i = 0; i < orderedIds.length - 1; i += 1) {
       const leg = await this.routing.getLeg(
@@ -556,12 +383,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         };
       }
       case "osrm-nearest-road": {
-        // Snap the cluster centroid to the nearest routable point in the
-        // OSRM foot graph. Without snapping, a centroid sitting in a river /
-        // lake / field becomes the OSRM /route start, OSRM snaps internally
-        // to the nearest road kilometres away, and the parking-to-first leg
-        // ends up as a huge detour. /nearest puts us back on a real
-        // footpath/road at most a few hundred metres from the geometric centre.
         const snapped = await this.osrm.nearest(centroid, PROFILE);
         if (snapped) {
           return {
@@ -600,6 +421,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
 // ─── Pure utilities ─────────────────────────────────────────────────────────
 
+void CLUSTERING_STRATEGIES; // imported for side-effect-free type access; kept
+                            // to surface a future "register a strategy" hook
+                            // if we ever load strategies dynamically.
+
 function sum(xs: readonly number[]): number {
   let s = 0;
   for (const x of xs) s += x;
@@ -619,29 +444,20 @@ function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
 
-/** Set Jaccard — |A ∩ B| / |A ∪ B|. Used for post-trim dedup. */
-function jaccard(a: ReadonlySet<number>, b: ReadonlySet<number>): number {
-  if (a.size === 0 && b.size === 0) return 1;
-  let intersection = 0;
-  for (const x of a) if (b.has(x)) intersection += 1;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
+function setsOverlap(a: ReadonlySet<number>, b: readonly number[]): boolean {
+  for (const x of b) if (a.has(x)) return true;
+  return false;
 }
 
-function bboxOf(
-  coords: readonly { lng: number; lat: number }[],
-): { minLng: number; minLat: number; maxLng: number; maxLat: number } {
-  let minLng = coords[0]?.lng ?? 0;
-  let minLat = coords[0]?.lat ?? 0;
-  let maxLng = minLng;
-  let maxLat = minLat;
-  for (const c of coords) {
-    if (c.lng < minLng) minLng = c.lng;
-    if (c.lng > maxLng) maxLng = c.lng;
-    if (c.lat < minLat) minLat = c.lat;
-    if (c.lat > maxLat) maxLat = c.lat;
+function louvainResolutionsFrom(
+  raw: ReadonlyArray<{ meta?: Record<string, number | string> }>,
+): number[] {
+  const seen = new Set<number>();
+  for (const r of raw) {
+    const v = r.meta?.resolution;
+    if (typeof v === "number") seen.add(v);
   }
-  return { minLng, minLat, maxLng, maxLat };
+  return Array.from(seen).sort((a, b) => a - b);
 }
 
 /**
@@ -649,9 +465,7 @@ function bboxOf(
  * the caller can supply either Euclidean or walking-distance metrics.
  *
  * Quadratic in N, fine here — N is capped at MAX_LOOP_CACHES = 50 for tours
- * and at the cluster size for scoring (caches are pre-filtered by the
- * Louvain pipeline). Used as the closed-tour lower bound: any TSP tour is
- * ≤ 2 × MST.
+ * and at the cluster size for scoring.
  */
 function mstLengthByDistance(
   n: number,
@@ -684,8 +498,6 @@ function mstLengthByDistance(
 }
 
 function stableClusterId(cacheIds: readonly number[]): string {
-  // Sorted-id hash so the same cluster keeps the same id across runs. Plain
-  // FNV-1a — we only need a short stable string, not crypto.
   let h = 0x811c9dc5;
   for (const id of cacheIds) {
     let v = id;
@@ -704,8 +516,6 @@ function pickBestPqParking(
 ): [number, number] | null {
   let best: [number, number] | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
-  // Deterministic order: iterate caches by ascending id, parking points in
-  // their original (insertion) order.
   const sorted = cluster.slice().sort((a, b) => a.id - b.id);
   for (const c of sorted) {
     for (const p of c.parkingPoints) {
@@ -743,8 +553,6 @@ function filterConnected(
   ids: readonly number[],
   matrix: Routing.Matrix,
 ): { connectedIds: number[]; distances: (number | null)[][] } {
-  // Drop any cache that has zero reachable peers — it would force +Infinity
-  // into the tour and produce a meaningless result.
   const keep: number[] = [];
   for (let i = 0; i < ids.length; i += 1) {
     let reachable = 0;
@@ -769,14 +577,11 @@ function concatLineStrings(
     for (let i = 0; i < line.coordinates.length; i += 1) {
       const c = line.coordinates[i]!;
       const last = coords[coords.length - 1];
-      // Drop the joining duplicate where one leg's end equals the next leg's start.
       if (last && last[0] === c[0] && last[1] === c[1]) continue;
       coords.push([c[0], c[1]]);
     }
   }
   if (coords.length < 2) {
-    // GeoJSON LineString needs ≥ 2 points; duplicate the lone point so the
-    // schema validates rather than throwing on edge-case zero-length tours.
     const p = coords[0] ?? [0, 0];
     coords.push([p[0], p[1]]);
   }

@@ -39,9 +39,24 @@ interface CacheProps {
   terrain: number | null;
   color: string;
   foundByMe: number; // 0/1 — MapLibre filter expressions don't accept booleans
+  selected: number; // 0/1 — same MapLibre-filter caveat
 }
 
-export function CachesLayer({ params }: { params: SearchParams }): null {
+const SELECTED_LAYER = "gctp-caches-selected";
+
+export interface CachesLayerProps {
+  params: SearchParams;
+  /** Manual selection from the Cluster Lab — drives the highlight ring. */
+  selectedCacheIds?: ReadonlySet<number>;
+  /** Shift-click toggles a cache in/out of the selection. */
+  onSelectionChange?: (next: ReadonlySet<number>) => void;
+}
+
+export function CachesLayer({
+  params,
+  selectedCacheIds,
+  onSelectionChange,
+}: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -76,6 +91,7 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
         terrain: c.terrain,
         color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
         foundByMe: c.foundByMe ? 1 : 0,
+        selected: selectedCacheIds?.has(c.id) ? 1 : 0,
       },
     }));
 
@@ -130,9 +146,33 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
         },
       });
     }
+    // Halo ring rendered above the regular caches layer for any cache the
+    // user has shift-clicked into the Cluster Lab selection.
+    if (!map.getLayer(SELECTED_LAYER)) {
+      map.addLayer({
+        id: SELECTED_LAYER,
+        type: "circle",
+        source: CACHES_SOURCE,
+        filter: ["==", ["get", "selected"], 1],
+        paint: {
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            8,
+            14,
+            14,
+          ],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-color": "#ff1744",
+          "circle-stroke-width": 3,
+        },
+      });
+    }
 
     return undefined;
-  }, [map, ready, query.data]);
+  }, [map, ready, query.data, selectedCacheIds]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.
@@ -147,6 +187,35 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
       if (!f) return;
       const props = f.properties as unknown as CacheProps;
       const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
+
+      // Modifier-click → toggle into the Cluster Lab selection set instead
+      // of opening the popup. Shift on Linux/Windows; ⌘ or Ctrl on macOS
+      // (browsers sometimes hijack plain shift-click for text selection).
+      const me = e.originalEvent;
+      if (
+        onSelectionChange &&
+        (me.shiftKey || me.ctrlKey || me.metaKey || me.altKey)
+      ) {
+        // Stop other layer handlers (and MapView's pick-center) from also
+        // running on this click.
+        me.preventDefault();
+        // Feature properties survive a JSON round-trip through MapLibre, so
+        // coerce id to number defensively in case the source-data hop ever
+        // changes that.
+        const id = Number(props.id);
+        const next = new Set(selectedCacheIds ?? []);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        // eslint-disable-next-line no-console
+        console.debug(
+          "[cluster-lab] toggle",
+          id,
+          "→ selection size",
+          next.size,
+        );
+        onSelectionChange(next);
+        return;
+      }
 
       const container = document.createElement("div");
       const root = createRoot(container);
@@ -225,7 +294,7 @@ export function CachesLayer({ params }: { params: SearchParams }): null {
       map.off("mouseenter", PARKING_LAYER, enter);
       map.off("mouseleave", PARKING_LAYER, leave);
     };
-  }, [map, ready, queryClient]);
+  }, [map, ready, queryClient, selectedCacheIds, onSelectionChange]);
 
   return null;
 }

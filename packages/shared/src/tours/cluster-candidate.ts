@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { GeoJsonPoint } from "../geo/index.js";
+import { ClusteringStrategyName } from "./plan-input.js";
 
 /**
  * One candidate cluster returned by Pass 1 of the planner. Caller picks one
@@ -51,8 +52,9 @@ export type CacheConnectivity = z.infer<typeof CacheConnectivity>;
 
 export const ClusterDiagnostics = z.object({
   /**
-   * ε used by DBSCAN this run — populated only by the legacy DBSCAN path.
-   * The new Louvain-on-sparse-graph pipeline leaves this 0 (it doesn't use ε).
+   * ε used by DBSCAN this run — populated only by the `dbscan` strategy.
+   * Other strategies leave this 0 (their meaningful knobs land in
+   * `strategyParams`).
    */
   epsilonMeters: z.number().nonnegative(),
   /** Caches considered (pool size); ≤ MAX_DISCOVERY_POOL. */
@@ -72,6 +74,17 @@ export const ClusterDiagnostics = z.object({
   landuseCoverageFraction: z.number().min(0).max(1).optional(),
   /** Resolution values the Louvain sweep used. */
   resolutionsUsed: z.array(z.number()).optional(),
+  /**
+   * Clustering strategy that produced this result. Always populated so the UI
+   * and offline-analysis scripts can compare runs across strategies.
+   */
+  strategyUsed: ClusteringStrategyName,
+  /**
+   * Strategy-specific knobs the run was executed with (σ, ε, minPts, …).
+   * Echoed back verbatim so a JSON dump fully describes the configuration
+   * without consulting environment defaults.
+   */
+  strategyParams: z.record(z.string(), z.union([z.number(), z.string()])),
 });
 export type ClusterDiagnostics = z.infer<typeof ClusterDiagnostics>;
 

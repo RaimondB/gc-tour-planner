@@ -12,6 +12,7 @@ import { RoutingModule } from "../routing/routing.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
+import { OsrmVersionService } from "../routing/osrm-version.service.js";
 import { GreedyTspPlanner } from "./strategies/greedy/greedy-tsp-planner.js";
 import { SolverTourPlanner } from "./strategies/solver/solver-tour-planner.js";
 import {
@@ -45,6 +46,7 @@ const tourPlannerProvider: Provider = {
     routing: RoutingService,
     routingRepo: RoutingRepository,
     osrm: OsrmClient,
+    osrmVersion: OsrmVersionService,
     solver: SolverClient,
   ) => {
     const greedy = new GreedyTspPlanner(
@@ -54,6 +56,7 @@ const tourPlannerProvider: Provider = {
       routing,
       routingRepo,
       osrm,
+      osrmVersion,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
@@ -72,6 +75,7 @@ const tourPlannerProvider: Provider = {
     RoutingService,
     RoutingRepository,
     OSRM_CLIENT,
+    OsrmVersionService,
     SOLVER_CLIENT,
   ],
 };

@@ -16,6 +16,12 @@ services:
   postgres:
     image: postgis/postgis:16-3.4
     restart: unless-stopped
+    # Host is a shared 16 GiB NUC; every gctp service is capped so a runaway
+    # cannot trigger a global OOM and take down the SSH/VSCode session or
+    # neighbour stacks (homeassistant, photoprism, …). memswap_limit == mem_limit
+    # disables swap for the container — predictable kill instead of swap thrash.
+    mem_limit: 2g
+    memswap_limit: 2g
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -33,6 +39,8 @@ services:
   valkey:
     image: valkey/valkey:8
     restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
     command: ["valkey-server", "--appendonly", "yes"]
     volumes:
       - valkey-data:/data
@@ -44,6 +52,28 @@ services:
       timeout: 3s
       retries: 10
 
+  # One-shot OSM PBF prep: downloads each region's extract from Geofabrik
+  # and (for multi-region setups) merges them with `osmium merge` so the
+  # foot graph is contiguous across borders. Lives in a Debian-based image
+  # because osmium-tool isn't packaged in alpine.
+  #
+  # On second + subsequent boots the prep script sees the target PBF
+  # already present on the shared volume and exits in well under a second.
+  osm-prep:
+    image: debian:bookworm-slim
+    restart: "no"
+    # `osmium merge` can spike a couple of GiB on multi-region setups; 2 GiB
+    # is plenty for single-region (the common case) and bounds the worst case.
+    mem_limit: 2g
+    memswap_limit: 2g
+    entrypoint: ["/bin/sh", "/srv/prep.sh"]
+    environment:
+      OSRM_REGION: ${OSRM_REGION:-}
+      OSRM_REGIONS: ${OSRM_REGIONS:-}
+    volumes:
+      - ./osrm/prep.sh:/srv/prep.sh:ro
+      - osrm-data:/data
+
   osrm:
     # ghcr.io/project-osrm/osrm-backend is the actively-maintained image
     # (Alpine 3.21 base, has wget). The old osrm/osrm-backend on Docker Hub
@@ -51,15 +81,31 @@ services:
     # apt mirrors return 404. Don't switch back without a very good reason.
     image: ghcr.io/project-osrm/osrm-backend:latest
     restart: unless-stopped
+    # NL-foot extract peaks at ~5-6 GiB regardless of algorithm (extract is
+    # algorithm-agnostic; MLD vs CH only changes the post-extract step). 8
+    # GiB covers extract with headroom; partition/customize and routed
+    # themselves sit well under that. The cap is the safety net that keeps a
+    # runaway from wrecking the host — not the design target.
+    mem_limit: 8g
+    memswap_limit: 8g
     entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
     environment:
-      OSRM_REGION: ${OSRM_REGION}
+      # Pass both — bootstrap picks OSRM_REGIONS when set, else OSRM_REGION.
+      # Empty-string default keeps compose happy if only one is defined.
+      OSRM_REGION: ${OSRM_REGION:-}
+      OSRM_REGIONS: ${OSRM_REGIONS:-}
       OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE:-5000}
     volumes:
       - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
       - osrm-data:/data
     ports:
       - "${OSRM_PORT}:5000"
+    depends_on:
+      # Block startup until osm-prep has the (merged) PBF on the volume.
+      # `service_completed_successfully` is exactly what we want: the prep
+      # container exits 0, and OSRM proceeds.
+      osm-prep:
+        condition: service_completed_successfully
 
   # Timefold sidecar (ADR-0005). Always boots so the dependency below stays
   # unconditional — compose v2 has no syntax for "depends_on only when
@@ -70,6 +116,8 @@ services:
       context: ./solver
       dockerfile: Dockerfile
     restart: unless-stopped
+    mem_limit: 2g
+    memswap_limit: 2g
     environment:
       SOLVER_SPENT_LIMIT: ${SOLVER_SPENT_LIMIT:-5s}
     ports:
@@ -88,6 +136,8 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.api
     restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,14 +156,26 @@ services:
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
+      # Path the API reads to discover the live OSRM extract version. Kept
+      # configurable so a dev box without the osrm-data volume mounted can
+      # point at any file (or leave it pointing at a missing path and let
+      # the service fall back to 'unknown').
+      OSRM_VERSION_FILE: /osrm-meta/osrm-version.txt
     ports:
       - "${API_PORT}:3030"
+    volumes:
+      # Read-only mount of the OSRM data volume so the API can read
+      # /osrm-meta/osrm-version.txt without an extra IPC channel to the
+      # OSRM container (osrm-routed has no /info endpoint).
+      - osrm-data:/osrm-meta:ro
 
   jobs:
     build:
       context: ..
       dockerfile: infra/Dockerfile.jobs
     restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +195,8 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
     depends_on:
       - api
     ports:
