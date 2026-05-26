@@ -57,6 +57,6 @@ Return the file list, the new ADR, and instructions for the user to enable the s
 
 - [docs/adr/0002-planner-strategy-interface.md](../../docs/adr/0002-planner-strategy-interface.md)
 - [docs/adr/0005-timefold-solver-sidecar.md](../../docs/adr/0005-timefold-solver-sidecar.md)
-- [docs/DESIGN.md §Tour planning](../../docs/DESIGN.md#3-tour-planning-algorithm--greedytspplanner)
+- [docs/design/tour-planning.md](../../docs/design/tour-planning.md)
 - Greedy implementation under `apps/api/src/tours/strategies/greedy/`
 - Timefold docs: https://docs.timefold.ai/timefold-solver/latest/

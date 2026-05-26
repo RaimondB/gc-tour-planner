@@ -12,12 +12,13 @@ This file is loaded into Claude Code's context for every session in this repo. K
 
 When picking up a session in this repo, read in this order:
 
-1. [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) — _what_.
-2. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — _how systems fit_.
-3. [docs/DESIGN.md](docs/DESIGN.md) — concrete schemas, APIs, algorithms.
-4. [docs/adr/](docs/adr/) — _why_ for non-obvious choices.
+1. [docs/requirements/](docs/requirements/index.md) — _what_.
+2. [docs/architecture/](docs/architecture/index.md) — _how systems fit_.
+3. [docs/design/](docs/design/index.md) — concrete schemas, APIs, algorithms.
+4. [docs/sdlc/](docs/sdlc/index.md) — how we develop, test, ship, document.
+5. [docs/adr/](docs/adr/) — _why_ for non-obvious choices.
 
-The roadmap lives in [REQUIREMENTS.md §Roadmap](docs/REQUIREMENTS.md#roadmap). Don't skip ahead: M1 → M2 → M3 …
+The roadmap lives in [docs/requirements/roadmap.md](docs/requirements/roadmap.md). Don't skip ahead: M1 → M2 → M3 …
 
 ## Hard rules
 
@@ -30,6 +31,7 @@ These reflect deliberate decisions. Do not "improve" without an ADR.
 - **No third-party API creds in the DB.** Auth holds project identity only. The GC.com partner key (M8) lives in env, injected into a single adapter.
 - **Layering:** controller → service → repository → Kysely. Controllers never touch SQL.
 - **No source code outside `apps/`, `packages/`, `infra/`.** Don't drop helpers at the repo root.
+- **Docs stay in sync with code.** Any PR that adds or changes a functional requirement, an external API surface, an env knob, or a user-visible behaviour MUST update the matching file under [docs/requirements/](docs/requirements/index.md), [docs/design/](docs/design/index.md), or [docs/architecture/](docs/architecture/index.md) in the same PR. The [PR template](.github/PULL_REQUEST_TEMPLATE.md) checklist enforces it; skipping requires an explicit "no docs change needed" justification. Full policy: [docs/sdlc/docs-policy.md](docs/sdlc/docs-policy.md).
 
 ## Coding conventions
 
@@ -83,9 +85,10 @@ See [.claude/agents/](.claude/agents/) for repo-local subagent definitions:
 
 ## See also
 
-- [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/DESIGN.md](docs/DESIGN.md)
+- [docs/requirements/](docs/requirements/index.md)
+- [docs/architecture/](docs/architecture/index.md)
+- [docs/design/](docs/design/index.md)
+- [docs/sdlc/](docs/sdlc/index.md) — branching, testing, migrations, deploy, docs policy
 - [docs/PLANNER_TUNING.md](docs/PLANNER_TUNING.md) — every `PLANNER_*` env knob + symptom→knob guide
 - [docs/LICENSING.md](docs/LICENSING.md)
 - [docs/adr/](docs/adr/)

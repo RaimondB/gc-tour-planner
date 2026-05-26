@@ -14,7 +14,19 @@ Brief description of how. Call out anything non-obvious. If this touches an ADR-
 
 ## Roadmap
 
-Which milestone (M1–M8 in [docs/REQUIREMENTS.md](../docs/REQUIREMENTS.md#roadmap)) does this contribute to?
+Which milestone (M1–M8 in [docs/requirements/roadmap.md](../docs/requirements/roadmap.md)) does this contribute to?
+
+## Docs checklist
+
+Docs and code change together — see [docs/sdlc/docs-policy.md](../docs/sdlc/docs-policy.md). Tick everything that applies, or pick the last option and explain.
+
+- [ ] Updated `docs/requirements/<area>.md` for any user-visible change
+- [ ] Updated `docs/design/` or `docs/architecture/` for any structural change
+- [ ] Updated [docs/requirements/roadmap.md](../docs/requirements/roadmap.md) if milestone scope or status changed
+- [ ] Updated [docs/PLANNER_TUNING.md](../docs/PLANNER_TUNING.md) for any new / changed `PLANNER_*` env knob
+- [ ] Added or updated an ADR (`docs/adr/NNNN-...md`) if a design decision changed
+- [ ] Updated [CLAUDE.md](../CLAUDE.md) if agent guidance changed
+- [ ] No docs change needed (explain): <why>
 
 ## Verification
 
@@ -23,8 +35,6 @@ Which milestone (M1–M8 in [docs/REQUIREMENTS.md](../docs/REQUIREMENTS.md#roadm
 - [ ] `pnpm test` passes
 - [ ] `pnpm test:e2e` passes (when touching the API ↔ web boundary)
 - [ ] `pnpm licenses:check` passes
-- [ ] Updated docs (`docs/`, `README.md`, or in-tree READMEs) if behavior changed
-- [ ] Added or updated an ADR if an architectural decision changed
 - [ ] No Groundspeak icons added; OSM attribution preserved on any map view changed
 
 ## Notes for reviewer

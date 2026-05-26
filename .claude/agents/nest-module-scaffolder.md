@@ -37,7 +37,7 @@ packages/shared/src/foo/
 
 ## Workflow
 
-1. **Read [docs/ARCHITECTURE.md §Backend modules](../../docs/ARCHITECTURE.md#3-backend-modules-nestjs)** to confirm the module belongs and what its responsibility is.
+1. **Read [docs/architecture/backend.md](../../docs/architecture/backend.md)** to confirm the module belongs and what its responsibility is.
 2. **Read an existing module** (e.g. `caches/`) as a structural reference.
 3. **Write the zod schemas first** in `packages/shared/src/foo/foo.schema.ts`.
 4. **Write the controller skeleton** with OpenAPI decorators, importing the schemas.
@@ -52,6 +52,6 @@ Return the file list with new contents. Do not run `pnpm install` or `pnpm build
 
 ## Reference
 
-- [docs/ARCHITECTURE.md §Backend modules](../../docs/ARCHITECTURE.md#3-backend-modules-nestjs)
-- [docs/DESIGN.md §API surface](../../docs/DESIGN.md#2-api-surface-selected-endpoints)
+- [docs/architecture/backend.md](../../docs/architecture/backend.md)
+- [docs/design/api-surface.md](../../docs/design/api-surface.md)
 - Existing modules under `apps/api/src/`

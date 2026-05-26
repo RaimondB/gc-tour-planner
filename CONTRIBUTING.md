@@ -24,10 +24,11 @@ See [docs/LICENSING.md](docs/LICENSING.md) for full third-party license rules â€
 
 ## Before you start a non-trivial change
 
-1. Read [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/DESIGN.md](docs/DESIGN.md).
-2. Skim [docs/adr/](docs/adr/) for the _why_ behind non-obvious choices.
-3. **Open an issue first** if your change spans multiple modules, alters a documented decision, or adds a new dependency. We can save you a rewrite.
-4. If you're changing a documented architectural decision, **write a new ADR** in the same PR.
+1. Read [docs/requirements/](docs/requirements/index.md), [docs/architecture/](docs/architecture/index.md), and [docs/design/](docs/design/index.md).
+2. Read [docs/sdlc/](docs/sdlc/index.md) for branching, testing, migrations, and the docs-sync policy.
+3. Skim [docs/adr/](docs/adr/) for the _why_ behind non-obvious choices.
+4. **Open an issue first** if your change spans multiple modules, alters a documented decision, or adds a new dependency. We can save you a rewrite.
+5. If you're changing a documented architectural decision, **write a new ADR** in the same PR.
 
 ## Development setup
 
@@ -84,7 +85,7 @@ Open a GitHub issue using the **Bug report** template. Include reproducible step
 
 ## Feature requests
 
-Use the **Feature request** template. Tie it to the roadmap milestone it belongs to ([REQUIREMENTS.md Â§Roadmap](docs/REQUIREMENTS.md#roadmap)).
+Use the **Feature request** template. Tie it to the roadmap milestone it belongs to ([docs/requirements/roadmap.md](docs/requirements/roadmap.md)).
 
 ## Security
 
