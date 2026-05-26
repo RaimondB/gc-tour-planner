@@ -38,6 +38,10 @@
     "./tsp": {
       "types": "./dist/tsp/index.d.ts",
       "import": "./dist/tsp/index.js"
+    },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "import": "./dist/admin/index.js"
     }
   },
   "files": [
