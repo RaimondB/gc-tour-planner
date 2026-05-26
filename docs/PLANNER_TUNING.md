@@ -153,6 +153,7 @@ retrigger-stale) and bull-board at `/admin/queues` (queue-level ops).
 | `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `state='fresh'` `cache_precompute_state` row is considered stale and eligible for retrigger-stale. |
 | `PRECOMPUTE_RETRIGGER_CHUNK`     | `50`    | Caches per retrigger-stale job. Bounds individual job runtime so the dashboard updates promptly during a sweep. |
 | `OVERPASS_BBOX_BUFFER_M`         | `500`   | Convex-hull buffer around newly-uploaded caches that defines the overpass-refresh bbox. |
+| `OVERPASS_MAX_PARALLEL`          | `2`     | Max concurrent Overpass HTTP requests across a single bbox refresh. Public mirrors enforce a per-IP slot quota (~2); exceeding it manifests as silent `ETIMEDOUT` on connect mid-batch. Raise only when pointed at a self-hosted Overpass. |
 
 Symptom → knob:
 

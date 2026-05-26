@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Geo, Landuse } from "@gctp/shared";
 import { cellsCovering, type Cell } from "./cells.js";
 import { OsmRepository } from "./osm.repository.js";
@@ -19,11 +20,17 @@ const MAX_DELTA_DEG = 0.6;
 export class OsmService {
   private readonly logger = new Logger(OsmService.name);
   private inFlight = new Map<string, Promise<void>>();
+  private readonly maxParallel: number;
 
   constructor(
     private readonly repo: OsmRepository,
     @Inject(OVERPASS_CLIENT) private readonly overpass: OverpassClient,
-  ) {}
+    @Inject(ConfigService) config: ConfigService,
+  ) {
+    const raw = config.get<string>("OVERPASS_MAX_PARALLEL");
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    this.maxParallel = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  }
 
   async listLanduse(
     query: Landuse.LanduseQuery,
@@ -42,7 +49,7 @@ export class OsmService {
     const stale = await this.repo.stalenessCheck(cells);
     if (stale.length > 0) {
       const staleCells = cells.filter((c) => stale.includes(c.areaHash));
-      await Promise.all(staleCells.map((c) => this.refreshCell(c)));
+      await this.refreshCellsBounded(staleCells);
     }
 
     const features = await this.repo.findFeatures(bbox, query.kinds);
@@ -66,12 +73,33 @@ export class OsmService {
     const stale = await this.repo.stalenessCheck(cells);
     const staleCells = cells.filter((c) => stale.includes(c.areaHash));
     if (staleCells.length > 0) {
-      await Promise.all(staleCells.map((c) => this.refreshCell(c)));
+      await this.refreshCellsBounded(staleCells);
     }
     return {
       cellsRefreshed: staleCells.length,
       cellsAlreadyFresh: cells.length - staleCells.length,
     };
+  }
+
+  /**
+   * Public Overpass mirrors enforce a per-IP concurrent slot quota
+   * (typically 2). Firing all stale cells with Promise.all trips that
+   * cap and the LB silently drops new connects → undici raises
+   * ETIMEDOUT mid-batch and the whole job fails. Cap to `maxParallel`
+   * (default 2) workers consuming the queue. Per-cell in-flight dedup
+   * still applies inside refreshCell.
+   */
+  private async refreshCellsBounded(cells: Cell[]): Promise<void> {
+    const queue = cells.slice();
+    const worker = async (): Promise<void> => {
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (!next) return;
+        await this.refreshCell(next);
+      }
+    };
+    const workerCount = Math.min(this.maxParallel, cells.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
   /**

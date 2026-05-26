@@ -120,6 +120,67 @@ services:
       osm-prep:
         condition: service_completed_successfully
 
+  # Self-hosted Overpass sidecar (ADR-0008). Public mirrors are unreachable
+  # / rate-limited / whitelist-only from this network, so we run our own.
+  # `wiktorn/overpass-api` is the maintained Docker wrapper around the
+  # canonical drolbr/Overpass-API server (AGPL-3.0 — boundary is HTTP, so
+  # GPLv3-compatible per LICENSING.md §3.9).
+  #
+  # First boot: downloads OVERPASS_PLANET_URL (NL extract = ~1 GB bz2),
+  # imports it into the Overpass DB (~30 min on the host, ~12 GB in the
+  # overpass-db volume), then starts the dispatcher. Subsequent boots
+  # detect the existing DB and skip straight to the dispatcher (~10s).
+  #
+  # Continuous diffs: the image's built-in `fetch_osc.sh` polls
+  # OVERPASS_DIFF_URL every OVERPASS_UPDATE_SLEEP seconds (default 86400 =
+  # daily) and applies minutely diffs. ~5 MB/day for NL — negligible.
+  #
+  # Dev shares this instance via the host-published port (see
+  # scripts/dev.env.example). Running a second one would OOM the host and
+  # waste 30 min of bootstrap on every dev rebuild for zero benefit.
+  overpass:
+    image: wiktorn/overpass-api:latest
+    restart: unless-stopped
+    # NL working set is ~3 GiB; 4 GiB cap leaves headroom for dispatcher
+    # spikes during diff application. Same swap-off pattern as the rest
+    # of the stack — predictable kill instead of swap thrash.
+    mem_limit: 4g
+    memswap_limit: 4g
+    environment:
+      # Geofabrik NL extract by default. Override via .env for other
+      # regions; keep .bz2 (the image's import path expects bzipped PBF).
+      OVERPASS_PLANET_URL: ${OVERPASS_PLANET_URL:-https://download.geofabrik.de/europe/netherlands-latest.osm.bz2}
+      # Daily diffs for the same extract. Geofabrik publishes
+      # minutely-replicated diffs under <region>-updates/.
+      OVERPASS_DIFF_URL: ${OVERPASS_DIFF_URL:-https://download.geofabrik.de/europe/netherlands-updates/}
+      # `init` triggers the first-boot import. The image's entrypoint
+      # short-circuits when the DB is already populated, so this is safe
+      # to leave as `init` across restarts.
+      OVERPASS_MODE: init
+      # Include OSM meta (uid/version/timestamp) in stored elements so
+      # queries can request `out meta;` if we ever need it. Marginal disk
+      # cost; switching this on later requires a full re-import.
+      OVERPASS_META: "yes"
+      # Number of `rules_load` requests to pipeline during initial import.
+      # 10 keeps the import inside the 4 GiB cap on the host.
+      OVERPASS_RULES_LOAD: "10"
+      # Diff-fetch interval in seconds. Daily is plenty for landuse;
+      # geocaches don't move and forests don't get rezoned hourly.
+      OVERPASS_UPDATE_SLEEP: "86400"
+    volumes:
+      - overpass-db:/db
+    ports:
+      - "${OVERPASS_PORT:-5001}:80"
+    healthcheck:
+      # /api/status returns plain text with slot availability when the
+      # dispatcher is up. During the multi-tens-of-minutes initial
+      # import the endpoint 503s — start_period covers that.
+      test: ["CMD-SHELL", "wget -qO- http://localhost/api/status | grep -q 'Slot available' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45m
+
   # Timefold sidecar (ADR-0005). Always boots so the dependency below stays
   # unconditional — compose v2 has no syntax for "depends_on only when
   # TOUR_PLANNER=solver". Spring Boot startup is a few seconds; the api still
@@ -158,6 +219,12 @@ services:
         condition: service_healthy
       solver:
         condition: service_healthy
+      # Overpass is required for landuse precompute. service_started (not
+      # service_healthy) so the api can boot during the 30-min initial
+      # import — overpass-refresh jobs retry naturally once the dispatcher
+      # comes up.
+      overpass:
+        condition: service_started
     networks:
       - default
       - shared proxy network
@@ -189,7 +256,12 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
-      OVERPASS_URL: ${OVERPASS_URL}
+      # Internal compose DNS — api talks to the overpass sidecar over the
+      # default network. Override in .env if pointing at a remote instance.
+      OVERPASS_URL: ${OVERPASS_URL:-http://overpass:80/api/interpreter}
+      # Self-hosted Overpass trivially handles 8 concurrent slots; raise
+      # from the public-mirror politeness floor of 2 (see ADR-0008).
+      OVERPASS_MAX_PARALLEL: ${OVERPASS_MAX_PARALLEL:-8}
       JWT_SECRET: ${JWT_SECRET}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
@@ -275,7 +347,8 @@ services:
       NODE_ENV: uat
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
-      OVERPASS_URL: ${OVERPASS_URL}
+      OVERPASS_URL: ${OVERPASS_URL:-http://overpass:80/api/interpreter}
+      OVERPASS_MAX_PARALLEL: ${OVERPASS_MAX_PARALLEL:-8}
       LOG_LEVEL: ${LOG_LEVEL}
 
   web:
@@ -308,3 +381,4 @@ volumes:
   pgdata: {}
   valkey-data: {}
   osrm-data: {}
+  overpass-db: {}
