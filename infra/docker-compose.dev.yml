@@ -1,0 +1,99 @@
+# Copyright (C) 2026 Raimond Brookman and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Dev infra for gc-tour-planner. Sister file to docker-compose.yml (UAT).
+# DO NOT just `docker compose up` — use scripts/dev.sh, which sets the
+# right project name (`-p gctp-dev`) and host port mappings (shifted by
+# +10000 vs UAT so they never clash with a running UAT stack on the
+# same machine).
+#
+# What's here vs UAT:
+#   * Project name : gctp-dev (not gctp)
+#   * Services     : postgres, valkey, osrm + osm-prep ONLY. api/web/jobs/
+#                    solver are NOT started — scripts/dev.sh runs api+web
+#                    on the host for hot reload.
+#   * Host ports   : shifted via the *_PORT_DEV env vars (defaults
+#                    15432 / 16379 / 15000). Container-internal ports
+#                    unchanged.
+#   * Volumes      : pgdata-dev, valkey-data-dev, osrm-data-dev — fully
+#                    separate from the UAT pgdata / valkey-data / osrm-data
+#                    so wiping dev state can never touch UAT.
+#   * No traefik   : labels removed; dev never goes through the public
+#                    Traefik on brookman.live.
+
+name: gctp-dev
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER_DEV:-gctp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DEV:-gctp-dev}
+      POSTGRES_DB: ${POSTGRES_DB_DEV:-gctp_dev}
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT_DEV:-15432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER_DEV:-gctp} -d ${POSTGRES_DB_DEV:-gctp_dev}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    command: ["valkey-server", "--appendonly", "yes"]
+    volumes:
+      - valkey-data-dev:/data
+    ports:
+      - "${VALKEY_PORT_DEV:-16379}:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # One-shot OSM PBF prep (mirrors the UAT compose definition). On second
+  # boot the prep script sees the PBF on disk and exits in under a second.
+  osm-prep:
+    image: debian:bookworm-slim
+    restart: "no"
+    mem_limit: 2g
+    memswap_limit: 2g
+    entrypoint: ["/bin/sh", "/srv/prep.sh"]
+    environment:
+      OSRM_REGION: ${OSRM_REGION_DEV:-europe/netherlands}
+      OSRM_REGIONS: ${OSRM_REGIONS_DEV:-}
+    volumes:
+      - ./osrm/prep.sh:/srv/prep.sh:ro
+      - osrm-data-dev:/data
+
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    restart: unless-stopped
+    mem_limit: 4g
+    memswap_limit: 4g
+    entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
+    environment:
+      OSRM_REGION: ${OSRM_REGION_DEV:-europe/netherlands}
+      OSRM_REGIONS: ${OSRM_REGIONS_DEV:-}
+      OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE_DEV:-5000}
+    volumes:
+      - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
+      - osrm-data-dev:/data
+    ports:
+      - "${OSRM_PORT_DEV:-15000}:5000"
+    depends_on:
+      osm-prep:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata-dev: {}
+  valkey-data-dev: {}
+  osrm-data-dev: {}
