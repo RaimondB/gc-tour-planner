@@ -1,6 +1,14 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import {
+  type PrecomputeKind,
+  PrecomputeSummary,
+  type RetriggerOneRequest,
+  type RetriggerStaleRequest,
+  RetriggerStaleResponse,
+  StaleCacheListResponse,
+} from "@gctp/shared/admin";
 import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
@@ -175,4 +183,41 @@ export async function purgeBogusWalkingCells(input: PurgeBogusInput) {
     body: JSON.stringify(input),
   });
   return PurgeBogusResponse.parse(raw);
+}
+
+// ─── Admin: precompute dashboard ──────────────────────────────────────────
+
+export async function fetchPrecomputeSummary() {
+  const raw = await request<unknown>("/admin/precompute/summary");
+  return PrecomputeSummary.parse(raw);
+}
+
+export async function fetchStaleCaches(
+  kind: PrecomputeKind,
+  opts: { limit?: number; offset?: number } = {},
+) {
+  const qs = new URLSearchParams({ kind });
+  if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+  if (opts.offset !== undefined) qs.set("offset", String(opts.offset));
+  const raw = await request<unknown>(
+    `/admin/precompute/stale?${qs.toString()}`,
+  );
+  return StaleCacheListResponse.parse(raw);
+}
+
+export async function retriggerStale(input: RetriggerStaleRequest) {
+  const raw = await request<unknown>("/admin/precompute/retrigger-stale", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return RetriggerStaleResponse.parse(raw);
+}
+
+export async function retriggerOne(input: RetriggerOneRequest) {
+  return request<{ jobId: string }>("/admin/precompute/retrigger-one", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
