@@ -2,12 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import "reflect-metadata";
+import { createBullBoard } from "@bull-board/api";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter.js";
+import { ExpressAdapter } from "@bull-board/express";
+import { getQueueToken } from "@nestjs/bullmq";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import type { Queue } from "bullmq";
 import { AppModule } from "./app.module.js";
+import {
+  QUEUE_OVERPASS_REFRESH,
+  QUEUE_WALKING_PRECOMPUTE,
+} from "./queues/queue.tokens.js";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
 
   // CORS: opt-in via env. The dev setup proxies the API through Vite (same
   // origin), so CORS is unnecessary there. Production deploys that put the
@@ -35,9 +47,29 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("docs/api", app, document);
 
+  // Bull-Board: operator queue dashboard at /admin/queues. Mounted on the
+  // underlying Express instance so it shares the same HTTP server (no
+  // separate port, no second TLS terminator). Reads the queues by their
+  // Nest DI tokens so we get the live BullMQ Queue instances configured
+  // with the production Valkey connection — not a second connection.
+  const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
+  const overpassQueue = app.get<Queue>(getQueueToken(QUEUE_OVERPASS_REFRESH));
+  const bullBoardAdapter = new ExpressAdapter();
+  bullBoardAdapter.setBasePath("/admin/queues");
+  createBullBoard({
+    queues: [
+      new BullMQAdapter(walkingQueue),
+      new BullMQAdapter(overpassQueue),
+    ],
+    serverAdapter: bullBoardAdapter,
+  });
+  app.use("/admin/queues", bullBoardAdapter.getRouter());
+
   const port = Number(process.env.API_PORT ?? 3000);
   await app.listen(port);
-  console.warn(`[api] listening on :${port} (OpenAPI at /docs/api)`);
+  console.warn(
+    `[api] listening on :${port} (OpenAPI at /docs/api, queues at /admin/queues)`,
+  );
 }
 
 void bootstrap();

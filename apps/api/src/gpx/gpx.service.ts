@@ -1,8 +1,16 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { parseGpx, type ParsedGpx } from "@gctp/shared/gpx";
+import type { Queue } from "bullmq";
+import type { OverpassRefreshJobData } from "../jobs/overpass-refresh/overpass-refresh.types.js";
+import type { WalkingPrecomputeJobData } from "../jobs/walking-precompute/walking-precompute.types.js";
+import {
+  QUEUE_OVERPASS_REFRESH,
+  QUEUE_WALKING_PRECOMPUTE,
+} from "../queues/queue.tokens.js";
 import { GpxRepository } from "./gpx.repository.js";
 
 export interface GpxUploadResult {
@@ -24,7 +32,15 @@ export interface IngestOptions {
 
 @Injectable()
 export class GpxService {
-  constructor(private readonly repo: GpxRepository) {}
+  private readonly logger = new Logger(GpxService.name);
+
+  constructor(
+    private readonly repo: GpxRepository,
+    @InjectQueue(QUEUE_WALKING_PRECOMPUTE)
+    private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
+    @InjectQueue(QUEUE_OVERPASS_REFRESH)
+    private readonly overpassQueue: Queue<OverpassRefreshJobData>,
+  ) {}
 
   async ingest(
     ownerId: string,
@@ -61,6 +77,17 @@ export class GpxService {
       null,
     );
 
+    // Fire-and-forget enqueue. The job IDs are not surfaced to the upload
+    // response because the user shouldn't wait for them — the bull-board
+    // dashboard is the operator's view, and `/admin/jobs` summary tile
+    // shows aggregate progress. We log enqueue failures (e.g. Valkey down)
+    // but don't fail the upload: the caches are saved, the precompute can
+    // be re-triggered manually from /admin/jobs.
+    if (cacheIdByCode.size > 0) {
+      const newCacheIds = Array.from(cacheIdByCode.values());
+      void this.enqueuePrecompute(ownerId, newCacheIds);
+    }
+
     return {
       uploadId,
       cachesUpserted: insertedOrUpdated,
@@ -68,5 +95,31 @@ export class GpxService {
       findsRecorded,
       warnings: parsed.warnings,
     };
+  }
+
+  private async enqueuePrecompute(
+    ownerId: string,
+    newCacheIds: number[],
+  ): Promise<void> {
+    try {
+      await Promise.all([
+        this.walkingQueue.add("precompute", {
+          ownerId,
+          newCacheIds,
+          reason: "upload",
+        }),
+        this.overpassQueue.add("refresh", {
+          ownerId,
+          newCacheIds,
+          reason: "upload",
+        }),
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `precompute enqueue failed for owner=${ownerId} (${newCacheIds.length} caches): ${message}. ` +
+          `Caches are saved; retry from /admin/jobs.`,
+      );
+    }
   }
 }
