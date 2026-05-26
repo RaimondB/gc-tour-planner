@@ -65,32 +65,52 @@ export function MapView({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const style =
-      (import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ??
-      FALLBACK_STYLE;
+    const container = containerRef.current;
+    // Use `||`-style emptiness check, not `??`. Vite stamps unset Docker
+    // build args into the bundle as empty strings rather than `undefined`,
+    // so nullish-coalescing would let an empty URL through and MapLibre
+    // would try to fetch it as a style.json (silent fail, no `load`).
+    const styleEnv = import.meta.env.VITE_MAP_STYLE_URL as
+      | string
+      | undefined;
+    const styleSource =
+      typeof styleEnv === "string" && styleEnv.length > 0
+        ? styleEnv
+        : FALLBACK_STYLE;
     const map = new maplibregl.Map({
-      container: containerRef.current,
-      style,
+      container,
+      style: styleSource,
       center: initialCenter,
       zoom: initialZoom,
     });
-    map.on("load", () => {
-      setApi({ map, ready: true });
-    });
-    setApi({ map, ready: false });
-    onReadyRef.current?.(map);
-
     const clickHandler = (e: maplibregl.MapMouseEvent) => {
-      // Skip if the click hit a feature layer (those have their own handlers).
+      // Skip if the click hit a feature layer (those have their own
+      // handlers). `map.getLayer` requires `map.style` to be loaded —
+      // bound only after the `"load"` event below so this is safe.
       const hits = map.queryRenderedFeatures(e.point, {
         layers: ["gctp-caches-circle"].filter((id) => map.getLayer(id)),
       });
       if (hits.length > 0) return;
       onPickRef.current?.([e.lngLat.lng, e.lngLat.lat]);
     };
-    map.on("click", clickHandler);
+
+    map.on("load", () => {
+      map.on("click", clickHandler);
+      setApi({ map, ready: true });
+    });
+    setApi({ map, ready: false });
+    onReadyRef.current?.(map);
+
+    // MapLibre measures its container ONCE at construction time. Grid
+    // layouts often settle on a later tick, so a ResizeObserver pokes
+    // MapLibre to re-measure whenever the parent's real size changes —
+    // otherwise the map can end up thinking it has zero pixels and
+    // never fire any tile or glyph requests.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(container);
 
     return () => {
+      ro.disconnect();
       map.off("click", clickHandler);
       onReadyRef.current?.(null);
       map.remove();
