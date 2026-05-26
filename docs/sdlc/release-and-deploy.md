@@ -12,38 +12,39 @@ pnpm dev:down       # stop dev infra (volumes preserved)
 `pnpm dev` is a thin wrapper around [scripts/dev.sh](../../scripts/dev.sh) that:
 
 1. Sources `scripts/dev.env` if present (defaults used otherwise — see [scripts/dev.env.example](../../scripts/dev.env.example)).
-2. Brings up dev infra (`postgres`, `valkey`, `osrm`) via [infra/docker-compose.dev.yml](../../infra/docker-compose.dev.yml) under compose project name **`gctp-dev`** with host ports shifted **+10000** from UAT defaults:
+2. Brings up dev infra (`postgres`, `valkey`) via [infra/docker-compose.dev.yml](../../infra/docker-compose.dev.yml) under compose project name **`gctp-dev`** with host ports shifted **+10000** from UAT defaults:
    - postgres `localhost:15432`
    - valkey `localhost:16379`
-   - osrm `localhost:15000`
-3. Refuses to start if `API_PORT_DEV=3000` (another service on the host owns 3000).
-4. Waits for postgres health (~5 s).
-5. Runs any pending migrations via `pnpm --filter @gctp/db migrate:up`.
-6. Launches api on `localhost:3030` and web on `localhost:5173` in parallel with interleaved `[api]`/`[web]` logs.
-7. `Ctrl-C` cleans up api+web. Infra stays up.
+3. **OSRM is shared with UAT** (`http://localhost:5000`, UAT's host-published port). Running a second OSRM instance OOMs the host — the NL-foot extract peaks at ~5-6 GiB during preprocessing and UAT already holds 8 GiB of the 16 GiB host. Dev only makes read-only HTTP calls; no risk to UAT data. Override via `OSRM_URL_DEV` if your UAT runs OSRM elsewhere.
+4. Refuses to start if `API_PORT_DEV=3000` (another service on the host owns 3000).
+5. Probes the OSRM URL (non-fatal): warns if unreachable. Planner endpoints 500 until UAT's OSRM is up; everything else (uploads, filtering, map markers, admin) works regardless.
+6. Waits for postgres health (~5 s).
+7. Runs any pending migrations via `pnpm --filter @gctp/db migrate:up`.
+8. Launches api on `localhost:3030` and web on `localhost:5173` in parallel with interleaved `[api]`/`[web]` logs.
+9. `Ctrl-C` cleans up api+web. Infra stays up.
 
-### Clean separation from UAT
+### Separation from UAT
 
-The dev stack is **fully isolated** from any UAT compose stack on the same machine:
+The dev stack runs in its own compose project with its own state. The one deliberate exception is OSRM, which is shared read-only.
 
-| Concern | UAT | Dev |
-|---|---|---|
-| Compose project | `gctp` | `gctp-dev` |
-| Compose file | `infra/docker-compose.yml` | `infra/docker-compose.dev.yml` |
-| Postgres host port | 5432 | 15432 |
-| Valkey host port | 6379 | 16379 |
-| OSRM host port | 5000 | 15000 |
-| API host port | 3000 (internal) / behind shared reverse proxy | 3030 |
-| Web host port | behind shared reverse proxy | 5173 |
-| Postgres database | `gctp` | `gctp_dev` |
-| Volumes | `pgdata`, `valkey-data`, `osrm-data` | `pgdata-dev`, `valkey-data-dev`, `osrm-data-dev` |
-| shared reverse proxy labels | yes | no |
+| Concern | UAT | Dev | Shared? |
+|---|---|---|---|
+| Compose project | `gctp` | `gctp-dev` | no |
+| Compose file | `infra/docker-compose.yml` | `infra/docker-compose.dev.yml` | no |
+| Postgres host port | 5432 | 15432 | no |
+| Valkey host port | 6379 | 16379 | no |
+| OSRM | container, port 5000 | **same container** via host:5000 | **YES (read-only)** |
+| API host port | 3000 (internal) / behind shared reverse proxy | 3030 | no |
+| Web host port | behind shared reverse proxy | 5173 | no |
+| Postgres database | `gctp` | `gctp_dev` | no |
+| Volumes | `pgdata`, `valkey-data`, `osrm-data` | `pgdata-dev`, `valkey-data-dev` | no |
+| shared reverse proxy labels | yes | no | n/a |
 
-Wiping dev state (`docker compose -p gctp-dev -f infra/docker-compose.dev.yml down -v`) can never touch UAT data.
+Wiping dev state (`docker compose -p gctp-dev -f infra/docker-compose.dev.yml down -v`) can never touch UAT postgres or UAT valkey. OSRM is shared but stateless from the consumer's perspective — dev cache cells in `route_legs` are stamped `osrm_version='unknown'` (the dev api can't read UAT's `/osrm-meta/osrm-version.txt` from the host) and stay cleanly namespaced from UAT's version-stamped cells.
 
-### OSRM first-boot caveat
+### When UAT's OSRM is offline
 
-OSRM first boot takes ~10 min while it preprocesses the chosen Geofabrik extract into the `osrm-data-dev` volume. The script starts it but doesn't block — uploads, filtering, and map markers all work immediately. The planner endpoints (`/tours/clusters`, `/tours/plan`) start working once OSRM logs `running`. Tail with `docker compose -p gctp-dev -f infra/docker-compose.dev.yml logs -f osrm`.
+Dev iteration on UI, schema, uploads, and the admin surface doesn't depend on OSRM — the script probes the URL and warns but continues. Planner endpoints (`/tours/clusters`, `/tours/plan`) return 500 until OSRM is back. Re-start UAT's OSRM with `cd infra && docker compose up -d osrm`.
 
 For the full container-shape stack (api + web also in compose), use the production-like recipe below — handy for validating Dockerfile changes or simulating a UAT-shape deploy.
 
