@@ -138,6 +138,28 @@ re-clustering or knob tweaks:
   legs** — that's structural in OSRM-MLD. The via-waypoint nudge
   compensates but won't find a parallel street that doesn't exist.
 
+## Upload-triggered precompute (M4-β)
+
+Background jobs that warm `route_legs` and `osm_landuse` so the next
+Pass-1 cluster discovery reads from cache rather than waiting on OSRM.
+Full algorithm: [design/precompute.md](design/precompute.md). Operator
+dashboards: the `/admin/jobs` panel in the web app (per-cache freshness,
+retrigger-stale) and bull-board at `/admin/queues` (queue-level ops).
+
+| Env                              | Default | What it does |
+|---|---|---|
+| `PLANNER_PRECOMPUTE_RADIUS_M`    | `3000`  | Haversine cap for the affected-set scan + per-cache k-NN over-fetch. MUST match the runtime walking-graph default `min(maxLinkMeters*2, 4000)` so precompute and runtime agree on which pairs exist. |
+| `PRECOMPUTE_OSRM_CHUNK_ORIGINS`  | `100`   | Max OSRM `/table` origins per HTTP call. Higher = fewer round-trips, larger response payloads. Lower if OSRM CPU spikes. |
+| `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `state='fresh'` `cache_precompute_state` row is considered stale and eligible for retrigger-stale. |
+| `PRECOMPUTE_RETRIGGER_CHUNK`     | `50`    | Caches per retrigger-stale job. Bounds individual job runtime so the dashboard updates promptly during a sweep. |
+| `OVERPASS_BBOX_BUFFER_M`         | `500`   | Convex-hull buffer around newly-uploaded caches that defines the overpass-refresh bbox. |
+
+Symptom → knob:
+
+- **First post-upload `/tours/clusters` is still slow.** Check the queue depth at `/admin/queues`; the precompute may still be running. If it consistently lags, raise `PRECOMPUTE_OSRM_CHUNK_ORIGINS` so each job does more per HTTP round-trip.
+- **Landuse missing from cluster scoring.** Check the `landuse` summary tile at `/admin/jobs`; if there's drift, click "Retrigger stale".
+- **OSRM extract bumped; clusters look wrong.** All `walking` rows are now stale (osrm_version mismatch). Click "Retrigger stale" for the walking kind — the whole DB re-warms in the background while the planner stays responsive.
+
 ## Default applied to UAT
 
 The shipping `infra/.env` sets `TOUR_PLANNER=greedy`. The solver

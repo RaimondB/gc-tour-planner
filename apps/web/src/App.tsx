@@ -29,6 +29,7 @@ import {
   PlannerSidebar,
   type PlanSettings,
 } from "./features/planning/PlannerSidebar.js";
+import { AdminPrecomputePanel } from "./features/admin/AdminPrecomputePanel.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 
 export default function App(): JSX.Element {
@@ -111,6 +112,7 @@ export default function App(): JSX.Element {
       <div className="app-body">
         <div className="left-pane">
           <UploadDropzone />
+          <AdminPrecomputePanel />
           <FilterSidebar
             value={params}
             onChange={handleParamsChange}

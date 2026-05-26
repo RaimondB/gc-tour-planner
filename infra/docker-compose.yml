@@ -231,6 +231,26 @@ services:
       # have ratio × median > 20 km, and no cache would ever exceed
       # that — trim becomes a no-op. 3 km is the empirical default.
       PLANNER_MARGINAL_DROP_HARD_MAX_M: ${PLANNER_MARGINAL_DROP_HARD_MAX_M:-3000}
+
+      # ─── Upload-triggered precompute (M4-β) ─────────────────────────────
+      # See docs/design/precompute.md and ADR-0007. These knobs tune the
+      # walking-precompute / overpass-refresh jobs and the admin endpoints.
+      # The 3 km radius MUST match the runtime walking-graph over-fetch
+      # default (min(maxLinkMeters*2, 4000) with maxLinkMeters=1500) so
+      # precompute covers exactly what cluster discovery reads.
+      PLANNER_PRECOMPUTE_RADIUS_M: ${PLANNER_PRECOMPUTE_RADIUS_M:-3000}
+      # Max OSRM /table origins per HTTP call. Higher = fewer round-trips,
+      # larger response payloads. 100 origins × ~36 destinations = ~3.6k
+      # cells per call — well under OSRM's default response size cap.
+      PRECOMPUTE_OSRM_CHUNK_ORIGINS: ${PRECOMPUTE_OSRM_CHUNK_ORIGINS:-100}
+      # Beyond this, a 'fresh' cache_precompute_state row is considered
+      # stale and eligible for retrigger-stale.
+      PRECOMPUTE_STALE_TTL_DAYS: ${PRECOMPUTE_STALE_TTL_DAYS:-30}
+      # Caches per retrigger-stale chunked job. Bounds individual job
+      # runtime so the operator dashboard updates promptly during a sweep.
+      PRECOMPUTE_RETRIGGER_CHUNK: ${PRECOMPUTE_RETRIGGER_CHUNK:-50}
+      # Convex-hull buffer around new caches for overpass-refresh bbox.
+      OVERPASS_BBOX_BUFFER_M: ${OVERPASS_BBOX_BUFFER_M:-500}
     volumes:
       # Read-only mount of the OSRM data volume so the API can read
       # /osrm-meta/osrm-version.txt without an extra IPC channel to the
