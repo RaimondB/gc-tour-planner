@@ -55,7 +55,8 @@ These reflect deliberate decisions. Do not "improve" without an ADR.
 ## Development workflow
 
 - **Bootstrap:** `pnpm install` from repo root.
-- **Local stack:** `cd infra && cp .env.example .env && docker compose up --build`. First boot preprocesses OSRM (~10 min for a country extract); subsequent boots are fast.
+- **Dev (default):** `pnpm dev` — brings up infra in compose (postgres, valkey, osrm), runs migrations, launches api + web locally with hot reload + interleaved `[api]`/`[web]` logs. `pnpm dev:down` stops infra (volumes preserved).
+- **Full container stack:** `cd infra && cp .env.example .env && docker compose up --build` — everything in compose (api/web too). First boot preprocesses OSRM (~10 min for a country extract); subsequent boots are fast. Use when validating prod-shape behaviour.
 - **Per-package scripts:** `pnpm --filter @gctp/api dev`, `pnpm --filter @gctp/web dev`, etc.
 - **Lint / typecheck / test:** `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`.
 - **License check:** `pnpm licenses:check` (also runs in CI).
