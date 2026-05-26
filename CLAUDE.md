@@ -55,8 +55,8 @@ These reflect deliberate decisions. Do not "improve" without an ADR.
 ## Development workflow
 
 - **Bootstrap:** `pnpm install` from repo root.
-- **Dev (default):** `pnpm dev` — brings up infra in compose (postgres, valkey, osrm), runs migrations, launches api + web locally with hot reload + interleaved `[api]`/`[web]` logs. `pnpm dev:down` stops infra (volumes preserved).
-- **Full container stack:** `cd infra && cp .env.example .env && docker compose up --build` — everything in compose (api/web too). First boot preprocesses OSRM (~10 min for a country extract); subsequent boots are fast. Use when validating prod-shape behaviour.
+- **Dev (default):** `pnpm dev` — brings up dev infra in a separate compose project (`gctp-dev`, via [infra/docker-compose.dev.yml](infra/docker-compose.dev.yml)) with host ports shifted +10000 from UAT (postgres 15432, valkey 16379, osrm 15000), runs migrations, launches api on :3030 and web on :5173 with hot reload + interleaved logs. **Never uses port 3000** (another service on the host owns it). Per-machine overrides go in `scripts/dev.env` (gitignored; see `scripts/dev.env.example`). `pnpm dev:down` stops dev infra (volumes preserved).
+- **Full UAT-shape stack:** `cd infra && cp .env.example .env && docker compose up --build` — everything in compose (api/web/jobs/solver) under the `gctp` compose project on standard ports. First boot preprocesses OSRM (~10 min); subsequent boots are fast. Use when validating prod-shape behaviour. **Does not share volumes with the dev stack.**
 - **Per-package scripts:** `pnpm --filter @gctp/api dev`, `pnpm --filter @gctp/web dev`, etc.
 - **Lint / typecheck / test:** `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`.
 - **License check:** `pnpm licenses:check` (also runs in CI).
