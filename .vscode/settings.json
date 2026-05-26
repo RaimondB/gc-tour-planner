@@ -1,16 +1,36 @@
 {
   "remote.autoForwardPorts": true,
   "remote.autoForwardPortsSource": "process",
+  // Allowlist model: only the ports listed below in `portsAttributes`
+  // get forwarded. Anything else a process happens to bind (test
+  // harnesses, debuggers, ad-hoc servers, neighbour stacks) is ignored
+  // entirely — no Ports-panel entry, no toast, no preview.
+  "remote.otherPortsAttributes": { "onAutoForward": "ignore" },
   "remote.portsAttributes": {
+    // ── User-facing surfaces ─────────────────────────────────────────────
     "3030": {
-      "label": "API (Nest) — Swagger UI at /docs/api",
-      "onAutoForward": "openPreview",
-      "requireLocalPort": true
+      "label": "dev API (Nest) — Swagger at /docs/api, bull-board at /admin/queues",
+      // silent = no preview pane, no toast, no browser. Open the URL by
+      // Ctrl-clicking the link in the terminal banner when needed.
+      "onAutoForward": "silent"
     },
     "5173": {
-      "label": "Web (Vite dev server)",
-      "onAutoForward": "openBrowser",
-      "requireLocalPort": true
-    }
+      "label": "dev Web (Vite)",
+      // openBrowser is intentional here — the dev loop is "edit code,
+      // see it in the browser tab", and Vite already focuses the tab.
+      "onAutoForward": "openBrowser"
+    },
+    // ── Dev infra (compose project gctp-dev) ─────────────────────────────
+    "15432": { "label": "dev postgres (gctp_dev)", "onAutoForward": "silent" },
+    "16379": { "label": "dev valkey", "onAutoForward": "silent" },
+    // ── UAT compose stack (project gctp) — NOT a dev surface ─────────────
+    // postgres + valkey are ignored entirely so VS Code never offers them.
+    // OSRM is shared (read-only HTTP) so dev still reaches it via :5000.
+    "5432": { "label": "UAT postgres (do not use from dev)", "onAutoForward": "ignore" },
+    "6379": { "label": "UAT valkey (do not use from dev)", "onAutoForward": "ignore" },
+    "5000": { "label": "UAT OSRM (shared with dev, read-only)", "onAutoForward": "silent" },
+    // ── Reserved / forbidden ─────────────────────────────────────────────
+    // Grafana on the nuc-deploy stack owns 3000 — dev never binds it.
+    "3000": { "label": "Grafana (nuc-deploy) — DO NOT USE", "onAutoForward": "ignore" }
   }
 }

@@ -9,15 +9,17 @@
 #
 # What's here vs UAT:
 #   * Project name : gctp-dev (not gctp)
-#   * Services     : postgres, valkey, osrm + osm-prep ONLY. api/web/jobs/
-#                    solver are NOT started — scripts/dev.sh runs api+web
-#                    on the host for hot reload.
+#   * Services     : postgres, valkey ONLY. api/web/jobs/solver are NOT
+#                    started — scripts/dev.sh runs api+web on the host
+#                    for hot reload. OSRM is also NOT started: dev shares
+#                    UAT's already-running OSRM at host:5000 (read-only
+#                    HTTP calls, no data risk) — running a second OSRM
+#                    OOMs the NUC (NL-foot extract peaks at ~5-6 GiB).
 #   * Host ports   : shifted via the *_PORT_DEV env vars (defaults
-#                    15432 / 16379 / 15000). Container-internal ports
-#                    unchanged.
-#   * Volumes      : pgdata-dev, valkey-data-dev, osrm-data-dev — fully
-#                    separate from the UAT pgdata / valkey-data / osrm-data
-#                    so wiping dev state can never touch UAT.
+#                    15432 / 16379). Container-internal ports unchanged.
+#   * Volumes      : pgdata-dev, valkey-data-dev — fully separate from
+#                    the UAT pgdata / valkey-data so wiping dev state
+#                    can never touch UAT.
 #   * No traefik   : labels removed; dev never goes through the public
 #                    Traefik on brookman.live.
 
@@ -59,41 +61,14 @@ services:
       timeout: 3s
       retries: 10
 
-  # One-shot OSM PBF prep (mirrors the UAT compose definition). On second
-  # boot the prep script sees the PBF on disk and exits in under a second.
-  osm-prep:
-    image: debian:bookworm-slim
-    restart: "no"
-    mem_limit: 2g
-    memswap_limit: 2g
-    entrypoint: ["/bin/sh", "/srv/prep.sh"]
-    environment:
-      OSRM_REGION: ${OSRM_REGION_DEV:-europe/netherlands}
-      OSRM_REGIONS: ${OSRM_REGIONS_DEV:-}
-    volumes:
-      - ./osrm/prep.sh:/srv/prep.sh:ro
-      - osrm-data-dev:/data
-
-  osrm:
-    image: ghcr.io/project-osrm/osrm-backend:latest
-    restart: unless-stopped
-    mem_limit: 4g
-    memswap_limit: 4g
-    entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
-    environment:
-      OSRM_REGION: ${OSRM_REGION_DEV:-europe/netherlands}
-      OSRM_REGIONS: ${OSRM_REGIONS_DEV:-}
-      OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE_DEV:-5000}
-    volumes:
-      - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
-      - osrm-data-dev:/data
-    ports:
-      - "${OSRM_PORT_DEV:-15000}:5000"
-    depends_on:
-      osm-prep:
-        condition: service_completed_successfully
+  # NOTE: no osrm / osm-prep here. Dev points OSRM_URL at UAT's
+  # already-running osrm on host:5000 — see scripts/dev.sh. Running a
+  # second OSRM instance OOMs the host (NL-foot extract peaks at
+  # ~5-6 GiB during partition/customize and the UAT one already holds
+  # 8 GiB of the NUC's 16 GiB). The dev api stamps route_legs rows with
+  # osrm_version='unknown' (it can't read UAT's /osrm-meta file from the
+  # host), which keeps the dev cache cleanly namespaced from UAT's.
 
 volumes:
   pgdata-dev: {}
   valkey-data-dev: {}
-  osrm-data-dev: {}

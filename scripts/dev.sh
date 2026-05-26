@@ -58,9 +58,12 @@ POSTGRES_PASSWORD_DEV="${POSTGRES_PASSWORD_DEV:-gctp-dev}"
 POSTGRES_DB_DEV="${POSTGRES_DB_DEV:-gctp_dev}"
 POSTGRES_PORT_DEV="${POSTGRES_PORT_DEV:-15432}"
 VALKEY_PORT_DEV="${VALKEY_PORT_DEV:-16379}"
-OSRM_PORT_DEV="${OSRM_PORT_DEV:-15000}"
 API_PORT_DEV="${API_PORT_DEV:-3030}"
 WEB_PORT_DEV="${WEB_PORT_DEV:-5173}"
+# Dev shares UAT's OSRM (read-only HTTP, no data risk; second instance
+# OOMs the NUC). Override if your UAT runs OSRM on a non-default port,
+# or if you've manually started a dev-only OSRM somewhere else.
+OSRM_URL_DEV="${OSRM_URL_DEV:-http://localhost:5000}"
 
 # Hard guard: 3000 belongs to Grafana on the nuc-deploy stack. Refuse to
 # bind it even if dev.env tries — the conflict is silent until a request
@@ -71,17 +74,15 @@ if [ "$API_PORT_DEV" = "3000" ]; then
 fi
 
 # Host-side URLs. Dev api/web run on the host, not in the compose network,
-# so they need localhost + the shifted host-published port.
+# so they need localhost + the shifted host-published port. OSRM is the
+# odd one out — it shares UAT's instance to avoid OOM.
 HOST_DB_URL="postgresql://${POSTGRES_USER_DEV}:${POSTGRES_PASSWORD_DEV}@localhost:${POSTGRES_PORT_DEV}/${POSTGRES_DB_DEV}"
 HOST_VALKEY_URL="redis://localhost:${VALKEY_PORT_DEV}"
-HOST_OSRM_URL="http://localhost:${OSRM_PORT_DEV}"
+HOST_OSRM_URL="$OSRM_URL_DEV"
 
 # Export dev-only vars so compose interpolation picks them up.
 export POSTGRES_USER_DEV POSTGRES_PASSWORD_DEV POSTGRES_DB_DEV
-export POSTGRES_PORT_DEV VALKEY_PORT_DEV OSRM_PORT_DEV
-export OSRM_REGION_DEV="${OSRM_REGION_DEV:-europe/netherlands}"
-export OSRM_REGIONS_DEV="${OSRM_REGIONS_DEV:-}"
-export OSRM_MAX_TABLE_SIZE_DEV="${OSRM_MAX_TABLE_SIZE_DEV:-5000}"
+export POSTGRES_PORT_DEV VALKEY_PORT_DEV
 
 compose() {
   docker compose -p "$DEV_PROJECT" -f "$DEV_COMPOSE" "$@"
@@ -90,18 +91,18 @@ compose() {
 echo "→ Starting dev infra (project=$DEV_PROJECT)"
 echo "  postgres   localhost:$POSTGRES_PORT_DEV  ($POSTGRES_DB_DEV)"
 echo "  valkey     localhost:$VALKEY_PORT_DEV"
-echo "  osrm       localhost:$OSRM_PORT_DEV  (started in background — see osm-prep + osrm logs)"
+echo "  osrm       $OSRM_URL_DEV  (shared with UAT — read-only)"
 
 # Bring up postgres + valkey synchronously — api needs them at boot.
+# OSRM is not a dev container; we point at UAT's already-running instance.
 compose up -d postgres valkey
 
-# OSRM (and its osm-prep dependency) takes ~10 min on first run to
-# download + preprocess the Geofabrik extract. We start it in a detached
-# fire-and-forget invocation so dev iteration on UI, schema, uploads, and
-# the admin surface isn't gated on it. Planner endpoints will 500 until
-# osrm logs `running`; tail with:
-#   docker compose -p $DEV_PROJECT -f $DEV_COMPOSE logs -f osrm
-( compose up -d osrm >/dev/null 2>&1 ) &
+# Quick reachability probe on UAT's OSRM. Not fatal — dev iteration on
+# UI / uploads / admin doesn't need OSRM. Planner endpoints 500 until
+# OSRM is up.
+if ! curl -sf -o /dev/null --max-time 2 "$OSRM_URL_DEV/nearest/v1/foot/0,0"; then
+  echo "  ! $OSRM_URL_DEV not reachable — planner endpoints will fail until UAT's OSRM is up."
+fi
 
 echo "→ Waiting for postgres"
 for _ in $(seq 1 30); do
