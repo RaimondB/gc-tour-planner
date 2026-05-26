@@ -50,6 +50,31 @@ export class OsmService {
   }
 
   /**
+   * Refresh every stale cell that intersects `bbox`. Public entry point for
+   * the upload-triggered `overpass-refresh` job — it computes the bbox
+   * around new caches' convex hull and asks for a warm-up. Skipped cells
+   * (already fresh) cost a single staleness query and nothing else.
+   *
+   * Reuses the same per-cell in-flight dedup as listLanduse, so a user
+   * navigating to the area while the job runs won't double-fetch.
+   */
+  async refreshBbox(bbox: Geo.BoundingBox): Promise<{
+    cellsRefreshed: number;
+    cellsAlreadyFresh: number;
+  }> {
+    const cells = cellsCovering(bbox);
+    const stale = await this.repo.stalenessCheck(cells);
+    const staleCells = cells.filter((c) => stale.includes(c.areaHash));
+    if (staleCells.length > 0) {
+      await Promise.all(staleCells.map((c) => this.refreshCell(c)));
+    }
+    return {
+      cellsRefreshed: staleCells.length,
+      cellsAlreadyFresh: cells.length - staleCells.length,
+    };
+  }
+
+  /**
    * Synchronous refresh on miss/stale. Process-local in-flight map dedupes
    * concurrent requests for the same cell within this Node process. The
    * cross-process Valkey lock arrives with the BullMQ worker in M4.
