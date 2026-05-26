@@ -24,6 +24,10 @@ import {
   pickAndAccumulate,
   readLoopOptionsFromEnv,
 } from "./loop-aware-legs.js";
+import {
+  resolveMarginalTrimThreshold,
+  trimMarginalCaches,
+} from "./marginal-trim.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const TOP_N_CLUSTERS = 5;
@@ -301,7 +305,57 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     );
 
     const { order: tspOrder } = Tsp.solveTwoOpt(distances, startIndex);
-    const orderedIds = tspOrder.map((i) => connectedIds[i]!);
+    const initialOrderedIds = tspOrder.map((i) => connectedIds[i]!);
+
+    // Parking distances to every cache — feeds the marginal-cost trim so
+    // it can also consider trimming the FIRST and LAST cache in the
+    // tour. Without this the worst case (cache stuck behind a barrier
+    // lands at position N-1) is silently kept. One extra OSRM /table
+    // call with [parking, ...caches] as origins.
+    const parkingCoordForTable = parking.point.coordinates as [number, number];
+    const cacheCoordsForTable = connectedIds.map<[number, number]>((id) => {
+      const c = byId.get(id)!;
+      return [
+        c.location.coordinates[0]!,
+        c.location.coordinates[1]!,
+      ];
+    });
+    const parkingTable = await this.osrm.table(
+      [parkingCoordForTable, ...cacheCoordsForTable],
+      PROFILE,
+    );
+    // Row 0 = parking → each cache; column 0 = each cache → parking.
+    const parkingToCacheM: number[] = connectedIds.map((_, i) => {
+      const cell = parkingTable[0]?.[i + 1];
+      return cell?.meters ?? Number.POSITIVE_INFINITY;
+    });
+    const cacheToParkingM: number[] = connectedIds.map((_, i) => {
+      const cell = parkingTable[i + 1]?.[0];
+      return cell?.meters ?? Number.POSITIVE_INFINITY;
+    });
+
+    // Marginal-cost trim: drop caches whose presence adds more walking
+    // than they're worth — typically a cache stuck behind a single-bridge
+    // barrier whose haversine distance looks reasonable but whose OSRM
+    // walking route doubles back. See ./marginal-trim.ts for the why.
+    // No-op when no cache exceeds the threshold (the common case).
+    const trimThreshold = resolveMarginalTrimThreshold(distances);
+    const trim = trimMarginalCaches({
+      orderedIds: initialOrderedIds,
+      originalIds: connectedIds,
+      distances,
+      parkingToCacheM,
+      cacheToParkingM,
+      thresholdMeters: trimThreshold,
+      minRemaining: 2,
+    });
+    const orderedIds = trim.orderedIds;
+    const droppedCacheIds = trim.droppedIds;
+    if (droppedCacheIds.length > 0) {
+      this.logger.debug(
+        `marginal trim: dropped ${droppedCacheIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
+      );
+    }
 
     // Loop-aware polyline assembly: TSP fixes the order, but each leg gets
     // a chance to pick a non-overlapping alternative against the polyline
@@ -405,6 +459,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     return {
       orderedCacheIds: orderedIds,
+      droppedCacheIds,
       polyline,
       totals: {
         meters: round2(meters),
@@ -418,6 +473,8 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           parkingToFirst.meters + lastToParking.meters,
         ),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
+        marginalTrimDroppedCount: droppedCacheIds.length,
+        marginalTrimSavedMeters: round2(trim.savedMeters),
       },
     };
   }

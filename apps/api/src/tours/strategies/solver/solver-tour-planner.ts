@@ -13,6 +13,10 @@ import {
   readLoopOptionsFromEnv,
 } from "../greedy/loop-aware-legs.js";
 import {
+  resolveMarginalTrimThreshold,
+  trimMarginalCaches,
+} from "../greedy/marginal-trim.js";
+import {
   SOLVER_CLIENT,
   type SolverClient,
   type SolverPlanRequest,
@@ -169,10 +173,40 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     };
 
     const response = await this.solver.plan(req);
-    const orderedIds = response.orderedCacheIds;
-    if (orderedIds.length === 0) {
+    const solverOrderedIds = response.orderedCacheIds;
+    if (solverOrderedIds.length === 0) {
       throw new NotFoundException(
         "Solver returned an empty tour — try a larger distance budget or a different cluster.",
+      );
+    }
+
+    // Marginal-cost trim — same rationale as in GreedyTspPlanner. The
+    // solver doesn't currently weight tour length (its only soft is
+    // visitedCount), so it's especially likely to leave behind-barrier
+    // caches in the tour. We use the matrix the solver was scored on
+    // (built from primary-path /table distances) and re-TSP locally on
+    // the surviving set.
+    const trimDistances = matrix.legs.map((row) =>
+      row.map((cell) => (cell ? cell.meters : null)),
+    );
+    const trimThreshold = resolveMarginalTrimThreshold(trimDistances);
+    const trim = trimMarginalCaches({
+      orderedIds: solverOrderedIds,
+      originalIds: ids,
+      distances: trimDistances,
+      // Parking distances are already fetched per-cache (parkingLegs +
+      // closingLegs), so endpoint trim is on — catches the
+      // last-cache-stuck-behind-a-barrier case.
+      parkingToCacheM: parkingToCacheMeters,
+      cacheToParkingM: cacheToParkingMeters,
+      thresholdMeters: trimThreshold,
+      minRemaining: 2,
+    });
+    const orderedIds = trim.orderedIds;
+    const droppedCacheIds = trim.droppedIds;
+    if (droppedCacheIds.length > 0) {
+      this.logger.debug(
+        `marginal trim: dropped ${droppedCacheIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
       );
     }
 
@@ -271,6 +305,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
 
     return {
       orderedCacheIds: orderedIds,
+      droppedCacheIds,
       polyline,
       totals: {
         meters: round2(meters),
@@ -287,6 +322,8 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         ),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         visitedCount: response.visitedCount,
+        marginalTrimDroppedCount: droppedCacheIds.length,
+        marginalTrimSavedMeters: round2(trim.savedMeters),
       },
     };
   }
