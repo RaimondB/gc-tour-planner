@@ -15,7 +15,9 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "scripts/dev.sh",
+    "dev:down": "scripts/dev-down.sh",
+    "dev:turbo": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
