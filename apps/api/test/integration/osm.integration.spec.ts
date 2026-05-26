@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Geo, Landuse } from "@gctp/shared";
 import { GpxRepository } from "../../src/gpx/gpx.repository.js";
@@ -83,7 +84,11 @@ describe("M3 OSM landuse integration (PostGIS via Testcontainers)", () => {
     ownerId = user.id;
 
     overpass = new FakeOverpass([[FAKE_FOREST]]);
-    osmService = new OsmService(new OsmRepository(pg.db), overpass);
+    osmService = new OsmService(
+      new OsmRepository(pg.db),
+      overpass,
+      new ConfigService(),
+    );
     cachesService = new CachesService(new CachesRepository(pg.db));
     gpxService = new GpxService(new GpxRepository(pg.db));
 

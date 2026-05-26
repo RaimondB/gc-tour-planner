@@ -64,6 +64,11 @@ WEB_PORT_DEV="${WEB_PORT_DEV:-5173}"
 # OOMs the NUC). Override if your UAT runs OSRM on a non-default port,
 # or if you've manually started a dev-only OSRM somewhere else.
 OSRM_URL_DEV="${OSRM_URL_DEV:-http://localhost:5000}"
+# Same share-with-UAT pattern for Overpass (ADR-0008). UAT publishes the
+# overpass sidecar on host:5001 (OVERPASS_PORT in infra/.env). Running a
+# second instance costs ~3 GiB RAM + ~30 min to re-import the same NL
+# extract.
+OVERPASS_URL_DEV="${OVERPASS_URL_DEV:-http://localhost:5001/api/interpreter}"
 
 # Hard guard: 3000 belongs to Grafana on the nuc-deploy stack. Refuse to
 # bind it even if dev.env tries — the conflict is silent until a request
@@ -74,11 +79,12 @@ if [ "$API_PORT_DEV" = "3000" ]; then
 fi
 
 # Host-side URLs. Dev api/web run on the host, not in the compose network,
-# so they need localhost + the shifted host-published port. OSRM is the
-# odd one out — it shares UAT's instance to avoid OOM.
+# so they need localhost + the shifted host-published port. OSRM and
+# Overpass are the odd ones out — they share UAT's instances to avoid OOM.
 HOST_DB_URL="postgresql://${POSTGRES_USER_DEV}:${POSTGRES_PASSWORD_DEV}@localhost:${POSTGRES_PORT_DEV}/${POSTGRES_DB_DEV}"
 HOST_VALKEY_URL="redis://localhost:${VALKEY_PORT_DEV}"
 HOST_OSRM_URL="$OSRM_URL_DEV"
+HOST_OVERPASS_URL="$OVERPASS_URL_DEV"
 
 # Export dev-only vars so compose interpolation picks them up.
 export POSTGRES_USER_DEV POSTGRES_PASSWORD_DEV POSTGRES_DB_DEV
@@ -92,6 +98,7 @@ echo "→ Starting dev infra (project=$DEV_PROJECT)"
 echo "  postgres   localhost:$POSTGRES_PORT_DEV  ($POSTGRES_DB_DEV)"
 echo "  valkey     localhost:$VALKEY_PORT_DEV"
 echo "  osrm       $OSRM_URL_DEV  (shared with UAT — read-only)"
+echo "  overpass   $OVERPASS_URL_DEV  (shared with UAT — read-only)"
 
 # Bring up postgres + valkey synchronously — api needs them at boot.
 # OSRM is not a dev container; we point at UAT's already-running instance.
@@ -102,6 +109,13 @@ compose up -d postgres valkey
 # OSRM is up.
 if ! curl -sf -o /dev/null --max-time 2 "$OSRM_URL_DEV/nearest/v1/foot/0,0"; then
   echo "  ! $OSRM_URL_DEV not reachable — planner endpoints will fail until UAT's OSRM is up."
+fi
+# Same probe for Overpass. Not fatal either — landuse precompute jobs
+# retry, and most dev flows don't depend on it. During UAT's first-boot
+# import (~30 min) /api/status returns 503; the probe will say "not
+# reachable" until the dispatcher comes up.
+if ! curl -sf -o /dev/null --max-time 2 "${OVERPASS_URL_DEV%/api/interpreter}/api/status"; then
+  echo "  ! $OVERPASS_URL_DEV not reachable — landuse precompute will fail until UAT's overpass is up."
 fi
 
 echo "→ Waiting for postgres"
@@ -160,7 +174,8 @@ run_prefixed() {
 DATABASE_URL="$HOST_DB_URL" \
 VALKEY_URL="$HOST_VALKEY_URL" \
 OSRM_URL="$HOST_OSRM_URL" \
-OVERPASS_URL="${OVERPASS_URL:-https://overpass-api.de/api/interpreter}" \
+OVERPASS_URL="${OVERPASS_URL:-$HOST_OVERPASS_URL}" \
+OVERPASS_MAX_PARALLEL="${OVERPASS_MAX_PARALLEL:-8}" \
 API_PORT="$API_PORT_DEV" \
 JWT_SECRET="${JWT_SECRET:-dev-secret-change-me}" \
 TOUR_PLANNER="${TOUR_PLANNER:-greedy}" \

@@ -73,6 +73,16 @@ Per-node license metadata is documented in the OKAPI source adapter README (to b
 
 OSRM is **BSD-2-Clause** — compatible. The OSM extract OSRM is preprocessed from is ODbL — see §3.3 above.
 
+### 3.9 Self-hosted Overpass sidecar (AGPL-3.0)
+
+We run the canonical [drolbr/Overpass-API](https://github.com/drolbr/Overpass-API) server (AGPL-3.0) via the `wiktorn/overpass-api` Docker image (see [ADR-0008](adr/0008-self-host-overpass.md)). The AGPL is GPLv3-compatible for our use because:
+
+- The Overpass server runs as a **separate process** in its own container, accessed over HTTP. It is not statically or dynamically linked into our binary — the boundary between our GPLv3 code and the AGPL-3.0 server is the HTTP interpreter API.
+- We publish our compose configuration and any wrapper scripts (e.g. [infra/docker-compose.yml](../infra/docker-compose.yml)) under GPLv3 in this repository, so AGPL §13's network-service obligation (offer corresponding source to users interacting over a network) is satisfied transitively — anyone interacting with our Overpass instance can obtain its source from the upstream repo we point them at.
+- We do not modify the Overpass server. If we ever fork the image to patch the server itself, those patches MUST be published under AGPL-3.0.
+
+The license-checker (`pnpm licenses:check`) only scans the Node.js dependency graph, so the AGPL sidecar isn't flagged there. The audit trail lives in this file and in ADR-0008.
+
 ### 3.7 Tile sources
 
 The default tile source is **TBD** and will be documented here once chosen. Constraints:
@@ -116,6 +126,7 @@ When this fails, **don't skip the check**. Either replace the offending dep, or 
 | This project      | GPL-3.0-or-later              | LICENSE at repo root, header on every source file |
 | OSM data          | ODbL 1.0                      | Map attribution + `/attribution` page             |
 | OSRM              | BSD-2-Clause                  | Listed on `/attribution`                          |
+| Overpass server   | AGPL-3.0                      | Self-hosted sidecar; HTTP boundary keeps it compatible (§3.9, ADR-0008) |
 | MapLibre GL JS    | BSD-3-Clause                  | Listed on `/attribution`                          |
 | Valkey            | BSD-3-Clause                  | Use instead of Redis                              |
 | PostGIS           | GPL-2.0+                      | Compatible                                        |

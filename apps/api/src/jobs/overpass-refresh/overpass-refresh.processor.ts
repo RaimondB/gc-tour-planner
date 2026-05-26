@@ -96,12 +96,17 @@ export class OverpassRefreshProcessor extends WorkerHost {
       );
       return result;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // undici surfaces network failures as `TypeError: fetch failed` and
+      // hides the real reason (ENETUNREACH, ECONNREFUSED, certificate
+      // errors, …) on `err.cause`. Happy-eyeballs (parallel v4/v6 connect)
+      // wraps the per-address errors in an AggregateError whose .errors[]
+      // holds the real diagnostics — flatten those too.
+      const fullMessage = formatErrorWithCause(err);
       this.logger.error(
-        `overpass-refresh failed for owner=${ownerId}: ${message}`,
+        `overpass-refresh failed for owner=${ownerId}: ${fullMessage}`,
       );
       await this.state.markBulk(newCacheIds, "landuse", "failed", {
-        errorText: message.slice(0, 500),
+        errorText: fullMessage.slice(0, 500),
       });
       throw err;
     }
@@ -113,4 +118,26 @@ export class OverpassRefreshProcessor extends WorkerHost {
     const n = Number.parseInt(raw, 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
   }
+}
+
+function formatErrorWithCause(err: unknown): string {
+  const head = err instanceof Error ? err.message : String(err);
+  const parts: string[] = [];
+  let cause: unknown = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
+  while (cause !== undefined && cause !== null && parts.length < 4) {
+    if (cause instanceof AggregateError) {
+      const inner = (cause.errors ?? [])
+        .map((e) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e)))
+        .join("; ");
+      parts.push(`AggregateError[${inner}]`);
+      cause = undefined;
+    } else if (cause instanceof Error) {
+      parts.push(`${cause.name}: ${cause.message}`);
+      cause = (cause as { cause?: unknown }).cause;
+    } else {
+      parts.push(String(cause));
+      cause = undefined;
+    }
+  }
+  return parts.length > 0 ? `${head} (cause: ${parts.join(" → ")})` : head;
 }
