@@ -128,6 +128,49 @@ export interface CacheLanduseTable {
   computed_at: Generated<Date>;
 }
 
+/** Postgres enum `precompute_kind`. */
+export type PrecomputeKind = "walking" | "landuse";
+
+/** Postgres enum `precompute_state`. */
+export type PrecomputeState =
+  | "pending"
+  | "in_progress"
+  | "fresh"
+  | "failed";
+
+/**
+ * Tracks freshness of precompute jobs per (cache, kind). Written by the
+ * walking-precompute and overpass-refresh processors, read by the admin
+ * `/admin/precompute/*` endpoints. See docs/design/precompute.md.
+ */
+export interface CachePrecomputeStateTable {
+  cache_id: number;
+  kind: PrecomputeKind;
+  state: PrecomputeState;
+  /** NULL for kind='landuse' and for rows that have never reached 'fresh'. */
+  osrm_version: string | null;
+  /** NULL until the first successful run. */
+  fetched_at: ColumnType<Date | null, Date | null, Date | null>;
+  error_text: string | null;
+  updated_at: ColumnType<Date, Date | undefined, Date>;
+}
+
+/**
+ * Cartesian product of (caches × {walking, landuse}) LEFT JOIN
+ * cache_precompute_state. `missing=true` marks (cache, kind) pairs that
+ * have no row yet. Used by the admin summary + retrigger-stale endpoints.
+ */
+export interface CachePrecomputeStateView {
+  cache_id: number;
+  kind: PrecomputeKind;
+  state: PrecomputeState | null;
+  osrm_version: string | null;
+  fetched_at: Date | null;
+  error_text: string | null;
+  updated_at: Date | null;
+  missing: boolean;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
@@ -138,4 +181,6 @@ export interface Database {
   osm_landuse: OsmLanduseTable;
   route_legs: RouteLegsTable;
   cache_landuse: CacheLanduseTable;
+  cache_precompute_state: CachePrecomputeStateTable;
+  v_cache_precompute_state: CachePrecomputeStateView;
 }

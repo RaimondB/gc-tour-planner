@@ -16,3 +16,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0004](0004-valkey-over-redis.md)          | Use Valkey instead of Redis                        | Accepted |
 | [0005](0005-timefold-solver-sidecar.md)    | Timefold as the solver-backed `TourPlannerStrategy` | Accepted |
 | [0006](0006-docs-restructure-and-sync-policy.md) | Docs restructure into per-area subdirectories + sync policy | Accepted |
+| [0007](0007-precompute-walking-paths-on-upload.md) | Precompute walking paths + landuse on GPX upload | Accepted |
