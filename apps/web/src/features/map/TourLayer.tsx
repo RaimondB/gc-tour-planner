@@ -17,6 +17,9 @@ const PARKING_LABEL_LAYER = "gctp-tour-parking-label";
 const STOP_SOURCE = "gctp-tour-stops";
 const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
 const STOP_LABEL_LAYER = "gctp-tour-stops-label";
+const DROPPED_SOURCE = "gctp-tour-dropped";
+const DROPPED_CIRCLE_LAYER = "gctp-tour-dropped-circle";
+const DROPPED_LABEL_LAYER = "gctp-tour-dropped-label";
 
 // Single font, not a stack. MapLibre encodes `text-font: [a, b, c]` as a
 // comma-joined `{glyphs}/a,b,c/0-255.pbf` request, and demotiles (the
@@ -115,9 +118,34 @@ export function TourLayer({
         }
       : { type: "FeatureCollection", features: [] };
 
+    // Dropped-by-trim caches. The planner's marginal-cost trim
+    // intentionally skips caches whose inclusion would force a long
+    // detour. Without a dedicated marker the user can't tell whether
+    // an unvisited cache was "trimmed by the planner" or just "not in
+    // the cluster" — both look identical to CachesLayer.
+    const droppedFc: GeoJSON.FeatureCollection = result
+      ? {
+          type: "FeatureCollection",
+          features: result.droppedCacheIds
+            .map<GeoJSON.Feature | null>((id) => {
+              const cache = cacheById.get(id);
+              if (!cache) return null;
+              return {
+                type: "Feature",
+                geometry: cache.location,
+                properties: {
+                  code: cache.code,
+                },
+              };
+            })
+            .filter((f): f is GeoJSON.Feature => f !== null),
+        }
+      : { type: "FeatureCollection", features: [] };
+
     upsertGeoJsonSource(map, TOUR_SOURCE, tourFc);
     upsertGeoJsonSource(map, PARKING_SOURCE, parkingFc);
     upsertGeoJsonSource(map, STOP_SOURCE, stopsFc);
+    upsertGeoJsonSource(map, DROPPED_SOURCE, droppedFc);
 
     // Each layer is wrapped so a single MapLibre throw (font/glyph not
     // available, expression invalid) doesn't take out the rest of the
@@ -257,6 +285,38 @@ export function TourLayer({
         "text-field": ["to-string", ["get", "order"]],
         "text-font": SYMBOL_FONT,
         "text-size": 13,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+      },
+    });
+    // Trimmed-by-planner caches. Gray fill with a bright stroke
+    // (visually muted vs. the red numbered stops, but stands out vs.
+    // the small caches-layer markers — "we deliberately skipped this").
+    // Label is a single 'x' to read as "not visited"; size matches
+    // the stops so users can pick it out at any zoom level.
+    addLayerSafe(DROPPED_CIRCLE_LAYER, {
+      id: DROPPED_CIRCLE_LAYER,
+      type: "circle",
+      source: DROPPED_SOURCE,
+      paint: {
+        "circle-radius": 12,
+        "circle-color": "#9e9e9e",
+        "circle-stroke-color": "#d84315",
+        "circle-stroke-width": 2,
+        "circle-opacity": 0.85,
+      },
+    });
+    addLayerSafe(DROPPED_LABEL_LAYER, {
+      id: DROPPED_LABEL_LAYER,
+      type: "symbol",
+      source: DROPPED_SOURCE,
+      layout: {
+        "text-field": "x",
+        "text-font": SYMBOL_FONT,
+        "text-size": 14,
         "text-allow-overlap": true,
         "text-ignore-placement": true,
       },
