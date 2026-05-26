@@ -5,7 +5,7 @@ var read at request time, so changes apply on the next plan call without
 a rebuild. Defaults are listed alongside; values in `infra/docker-compose.yml`
 override `apps/api/.env` overrides built-in defaults.
 
-> Cross-references: [docs/DESIGN.md](DESIGN.md) §"Tour planning algorithm"
+> Cross-references: [docs/design/tour-planning.md](design/tour-planning.md)
 > for the full Pass 1 / Pass 2 algorithm; the per-feature source files
 > linked under each section for the actual implementations.
 

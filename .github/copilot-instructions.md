@@ -33,5 +33,5 @@ A web app to plan closed-loop geocaching tours. pnpm + Turborepo monorepo, TypeS
 ## Read for context
 
 - `CLAUDE.md`
-- `docs/REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/LICENSING.md`
+- `docs/requirements/`, `docs/architecture/`, `docs/design/`, `docs/sdlc/`, `docs/LICENSING.md`
 - `docs/adr/`

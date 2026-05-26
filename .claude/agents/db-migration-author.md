@@ -25,7 +25,7 @@ You author database migrations for gc-tour-planner. The DB is Postgres 16 + Post
 
 ## Workflow
 
-1. **Read [docs/DESIGN.md §Data model](../../docs/DESIGN.md#1-data-model-postgres--postgis)** to understand the existing schema.
+1. **Read [docs/design/data-model.md](../../docs/design/data-model.md)** and [docs/sdlc/migrations.md](../../docs/sdlc/migrations.md) to understand the existing schema and migration rules.
 2. **Find the next migration number** by listing `packages/db/migrations/` and incrementing.
 3. **Write the SQL.** Plain idempotent statements when possible (`IF NOT EXISTS` for indexes, `CREATE EXTENSION IF NOT EXISTS`). The deploy framework runs each migration once, but local re-runs during dev are common.
 4. **Regenerate Kysely types**: `pnpm --filter @gctp/db generate-types`. Commit the generated file alongside the migration.
@@ -37,6 +37,7 @@ Return: the new migration file path, the SQL contents, the Kysely-types diff, an
 
 ## Reference
 
-- [docs/DESIGN.md](../../docs/DESIGN.md)
-- [docs/ARCHITECTURE.md §Backend modules](../../docs/ARCHITECTURE.md#3-backend-modules-nestjs)
+- [docs/design/](../../docs/design/index.md)
+- [docs/architecture/backend.md](../../docs/architecture/backend.md)
+- [docs/sdlc/migrations.md](../../docs/sdlc/migrations.md)
 - Existing migrations under `packages/db/migrations/`

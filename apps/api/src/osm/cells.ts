@@ -10,7 +10,7 @@ import type { Geo } from "@gctp/shared";
  */
 export const CELL_SIZE_DEG = 0.1;
 
-/** Stale after 30 days — see DESIGN.md §5. */
+/** Stale after 30 days — see docs/design/osm-overpass.md. */
 export const STALENESS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface Cell {

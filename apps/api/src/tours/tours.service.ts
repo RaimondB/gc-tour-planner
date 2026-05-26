@@ -49,7 +49,7 @@ export class ToursService {
     // cache. Fire-and-forget — failures must not poison the response.
     //
     // Deferred to a proper BullMQ `prefetch` queue when the M4 jobs runtime
-    // lands (see ARCHITECTURE.md §Background work). Inline is fine while we
+    // lands (see docs/architecture/background-and-deploy.md). Inline is fine while we
     // run single-tenant; the work is bounded (~10×9/2 = 45 pairs × 5 = 225
     // OSRM /route calls at the absolute worst).
     this.prefetchClusterLegs(ownerId, result.candidates).catch((err) => {

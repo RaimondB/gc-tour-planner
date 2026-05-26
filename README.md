@@ -29,20 +29,22 @@ apps/api    — NestJS service
 apps/web    — React + Vite frontend (MapLibre GL JS)
 packages/   — shared types, db migrations, lint/tsconfig presets
 infra/      — docker-compose, OSRM bootstrap, Dockerfiles
-docs/       — REQUIREMENTS, ARCHITECTURE, DESIGN, LICENSING, ADRs
+docs/       — requirements/, architecture/, design/, sdlc/, adr/, LICENSING, PLANNER_TUNING
 ```
 
-Full layout and module-by-module breakdown: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Full layout and module-by-module breakdown: [docs/architecture/repo-layout.md](docs/architecture/repo-layout.md).
 
 ## Documentation
 
-| Document                                     | What it covers                            |
-| -------------------------------------------- | ----------------------------------------- |
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Functional + non-functional requirements  |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, repo layout, modules |
-| [docs/DESIGN.md](docs/DESIGN.md)             | Data model, algorithms, API surface       |
-| [docs/LICENSING.md](docs/LICENSING.md)       | GPLv3 compliance, third-party data terms  |
-| [docs/adr/](docs/adr/)                       | Architecture Decision Records             |
+| Document                                                      | What it covers                                  |
+| ------------------------------------------------------------- | ----------------------------------------------- |
+| [docs/requirements/](docs/requirements/index.md)              | Functional + non-functional requirements        |
+| [docs/architecture/](docs/architecture/index.md)              | System architecture, repo layout, modules       |
+| [docs/design/](docs/design/index.md)                          | Data model, algorithms, API surface             |
+| [docs/sdlc/](docs/sdlc/index.md)                              | Branching, testing, migrations, deploy, docs    |
+| [docs/PLANNER_TUNING.md](docs/PLANNER_TUNING.md)              | Every `PLANNER_*` env knob + symptom→knob guide |
+| [docs/LICENSING.md](docs/LICENSING.md)                        | GPLv3 compliance, third-party data terms        |
+| [docs/adr/](docs/adr/)                                        | Architecture Decision Records                   |
 
 ## Tech stack (locked)
 
@@ -56,4 +58,4 @@ Geocache data sourced from Groundspeak (geocaching.com) is **not** redistributed
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The roadmap is split into milestones M1–M8 in [docs/REQUIREMENTS.md §Roadmap](docs/REQUIREMENTS.md#roadmap).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The roadmap is split into milestones M1–M8 in [docs/requirements/roadmap.md](docs/requirements/roadmap.md).

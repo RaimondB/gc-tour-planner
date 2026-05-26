@@ -60,7 +60,7 @@ interface OverpassResponse {
 
 /**
  * Real Overpass client. Synchronous fetch on every cache miss — async
- * refresh via BullMQ lands in M4 (see docs/REQUIREMENTS.md §Roadmap). The
+ * refresh via BullMQ lands in M4 (see docs/requirements/roadmap.md). The
  * 30-day cache window plus a 60s request timeout is enough to stay
  * comfortably within public Overpass fair-use limits.
  */

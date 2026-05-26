@@ -15,7 +15,7 @@ What would the experience look like? Sketch the happy path.
 
 ## Roadmap fit
 
-Which milestone in [docs/REQUIREMENTS.md](../docs/REQUIREMENTS.md#roadmap) does this belong to (M1–M8)? If it doesn't fit cleanly, say so — that's useful signal.
+Which milestone in [docs/requirements/roadmap.md](../../docs/requirements/roadmap.md) does this belong to (M1–M8)? If it doesn't fit cleanly, say so — that's useful signal.
 
 ## Alternatives considered
 
