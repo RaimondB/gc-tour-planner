@@ -86,5 +86,6 @@ See [.claude/agents/](.claude/agents/) for repo-local subagent definitions:
 - [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/DESIGN.md](docs/DESIGN.md)
+- [docs/PLANNER_TUNING.md](docs/PLANNER_TUNING.md) — every `PLANNER_*` env knob + symptom→knob guide
 - [docs/LICENSING.md](docs/LICENSING.md)
 - [docs/adr/](docs/adr/)
