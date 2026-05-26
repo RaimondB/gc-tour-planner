@@ -12,6 +12,19 @@
 
 name: gctp
 
+# Shared networks:
+#   - `default` (compose-generated `gctp_default`): internal-only; postgres,
+#     valkey, osrm, solver, jobs talk to api/web here.
+#   - `shared proxy network` (`the shared proxy network`, external): shared reverse proxy's docker-provider
+#     network. api/web join it ONLY to be discoverable by shared reverse proxy; their
+#     ports are NOT published to the host. Hostnames terminate on
+#     `<service>.example.com` with letsencrypt-provisioned TLS.
+networks:
+  default:
+  shared proxy network:
+    name: the shared proxy network
+    external: true
+
 services:
   postgres:
     image: postgis/postgis:16-3.4
@@ -145,9 +158,34 @@ services:
         condition: service_healthy
       solver:
         condition: service_healthy
+    networks:
+      - default
+      - shared proxy network
+    # shared reverse proxy routing. Same-origin as the web: requests hit
+    # `app.example.com/api/*`, get the `/api` prefix stripped, and land
+    # on the api container at port 3000. Same origin = no CORS dance.
+    # No `ports:` block: only shared reverse proxy reaches this container.
+    labels:
+      shared reverse proxy.enable: "true"
+      shared reverse proxy.docker.network: the shared proxy network
+      # Host+PathPrefix is more specific than the web's bare Host rule,
+      # so shared reverse proxy routes /api/* here before falling through to the web.
+      shared reverse proxy.http.routers.gctp-api.rule: Host(`app.example.com`) && PathPrefix(`/api`)
+      shared reverse proxy.http.routers.gctp-api.entrypoints: websecure
+      shared reverse proxy.http.routers.gctp-api.tls: "true"
+      shared reverse proxy.http.routers.gctp-api.tls.certresolver: letsencrypt
+      shared reverse proxy.http.routers.gctp-api.middlewares: gctp-api-strip@docker
+      shared reverse proxy.http.middlewares.gctp-api-strip.stripprefix.prefixes: /api
+      shared reverse proxy.http.services.gctp-api.loadbalancer.server.port: "3000"
     environment:
-      NODE_ENV: production
-      API_PORT: 3030
+      # `uat` (not `production`) — until the M6 JWT auth module lands, the
+      # dev-user middleware is the only auth source, and AuthModule throws
+      # on NODE_ENV=production as a safety guard. UAT is intentionally
+      # pre-auth, internal, single-tester.
+      NODE_ENV: uat
+      # Container-internal port. Matches `EXPOSE 3000` in Dockerfile.api and
+      # the shared reverse proxy loadbalancer.server.port label.
+      API_PORT: 3000
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
@@ -156,13 +194,43 @@ services:
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
-      # Path the API reads to discover the live OSRM extract version. Kept
-      # configurable so a dev box without the osrm-data volume mounted can
-      # point at any file (or leave it pointing at a missing path and let
-      # the service fall back to 'unknown').
+      # CORS: web bundle is served from app.example.com; api requests
+      # cross the origin boundary, so the allowed-origins list must be set.
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.example.com}
+      # OSRM extract version file. The osrm container writes this after
+      # `osrm-customize`; the api mounts the volume RO and reads on every
+      # plan to filter stale rows from `route_legs`.
       OSRM_VERSION_FILE: /osrm-meta/osrm-version.txt
-    ports:
-      - "${API_PORT}:3030"
+
+      # ─── Cluster discovery (Pass 1) ─────────────────────────────────────
+      PLANNER_CLUSTERING: ${PLANNER_CLUSTERING:-louvain}
+      PLANNER_KNN_K: ${PLANNER_KNN_K:-12}
+
+      # ─── Loop-aware leg picker (Pass 2 polyline assembly) ───────────────
+      # See apps/api/src/tours/strategies/greedy/loop-aware-legs.ts.
+      PLANNER_LOOP_ALPHA: ${PLANNER_LOOP_ALPHA:-1.0}
+      PLANNER_LOOP_GRID_M: ${PLANNER_LOOP_GRID_M:-25}
+      PLANNER_LOOP_MAX_DETOUR: ${PLANNER_LOOP_MAX_DETOUR:-0.5}
+      PLANNER_LOOP_ALT_COUNT: ${PLANNER_LOOP_ALT_COUNT:-2}
+      # Via-waypoint nudge fallback when OSRM doesn't return useful alts.
+      PLANNER_LOOP_NUDGE_THRESHOLD: ${PLANNER_LOOP_NUDGE_THRESHOLD:-0.3}
+      PLANNER_LOOP_NUDGE_OFFSETS_M: ${PLANNER_LOOP_NUDGE_OFFSETS_M:-80,160}
+      PLANNER_LOOP_NUDGE_FRACTIONS: ${PLANNER_LOOP_NUDGE_FRACTIONS:-0.5}
+      # Severe-overlap relaxation: widen detour cap when primary retraces.
+      PLANNER_LOOP_SEVERE_OVERLAP: ${PLANNER_LOOP_SEVERE_OVERLAP:-0.5}
+      PLANNER_LOOP_SEVERE_MAX_DETOUR: ${PLANNER_LOOP_SEVERE_MAX_DETOUR:-1.5}
+
+      # ─── Marginal-cost trim (Pass 2 post-process) ───────────────────────
+      # See apps/api/src/tours/strategies/greedy/marginal-trim.ts and
+      # docs/PLANNER_TUNING.md for the full rationale.
+      PLANNER_MARGINAL_DROP_ENABLED: ${PLANNER_MARGINAL_DROP_ENABLED:-true}
+      PLANNER_MARGINAL_DROP_RATIO: ${PLANNER_MARGINAL_DROP_RATIO:-2.0}
+      PLANNER_MARGINAL_DROP_ABS_M: ${PLANNER_MARGINAL_DROP_ABS_M:-500}
+      # Hard ceiling on the trim threshold. Without it, a cluster whose
+      # median walking distance is itself huge (river archipelago) would
+      # have ratio × median > 20 km, and no cache would ever exceed
+      # that — trim becomes a no-op. 3 km is the empirical default.
+      PLANNER_MARGINAL_DROP_HARD_MAX_M: ${PLANNER_MARGINAL_DROP_HARD_MAX_M:-3000}
     volumes:
       # Read-only mount of the OSRM data volume so the API can read
       # /osrm-meta/osrm-version.txt without an extra IPC channel to the
@@ -182,7 +250,9 @@ services:
       valkey:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      # Same UAT override as api — jobs stub doesn't have the auth guard
+      # today but stays consistent with the rest of the stack.
+      NODE_ENV: uat
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OVERPASS_URL: ${OVERPASS_URL}
@@ -193,14 +263,26 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.web
       args:
+        # VITE_API_URL is baked into the static bundle at build time. For the
+        # UAT deployment it MUST be the public api URL because the browser
+        # makes the request, not the container.
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
     mem_limit: 256m
     memswap_limit: 256m
     depends_on:
       - api
-    ports:
-      - "${WEB_PORT}:80"
+    networks:
+      - default
+      - shared proxy network
+    labels:
+      shared reverse proxy.enable: "true"
+      shared reverse proxy.docker.network: the shared proxy network
+      shared reverse proxy.http.routers.gctp.rule: Host(`app.example.com`)
+      shared reverse proxy.http.routers.gctp.entrypoints: websecure
+      shared reverse proxy.http.routers.gctp.tls: "true"
+      shared reverse proxy.http.routers.gctp.tls.certresolver: letsencrypt
+      shared reverse proxy.http.services.gctp.loadbalancer.server.port: "80"
 
 volumes:
   pgdata: {}
