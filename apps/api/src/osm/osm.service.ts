@@ -6,12 +6,18 @@ import type { Landuse } from "@gctp/shared";
 import { LanduseRepository } from "./landuse.repository.js";
 
 /**
- * Cap how much area a single request can ask for, to prevent both client
- * mistakes and abuse. 0.5° square ≈ 55 km × 35 km at lat 52° — comfortably
- * larger than any practical search radius (max 50 km, so bbox ~1° on
- * diagonal but still under the cap when checked per axis).
+ * Cap how much area a single request can ask for, to prevent runaway
+ * payloads. With the osm2pgsql-fed table (ADR-0009), the GIST bbox query
+ * itself is fast (<100 ms); the limit exists to bound JSON-serialization
+ * cost — NL has ~32 landuse polygons / km², and a max-radius search
+ * already returns tens of thousands of polygons per request.
+ *
+ * 1.2° per axis ≈ 130 km × 90 km at lat 52° — sized to comfortably cover
+ * the UI's max search radius (50 km radius × 1.2 pad → bbox 1.08° per
+ * axis). Smaller search radii are well inside the cap; only ad-hoc curl
+ * with a deliberately huge bbox would trip it.
  */
-const MAX_DELTA_DEG = 0.6;
+const MAX_DELTA_DEG = 1.2;
 
 /**
  * Read-only service over the osm2pgsql-fed `landuse_polygons` table
