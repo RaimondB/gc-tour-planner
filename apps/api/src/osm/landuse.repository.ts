@@ -29,21 +29,60 @@ export class LanduseRepository {
   /**
    * Return all polygons intersecting the requested bbox, optionally
    * filtered by kind. Uses the GIST index on `geom`.
+   *
+   * Level-of-detail: at large bboxes the response would otherwise be
+   * tens of thousands of polygons + tens of MB of JSON (NL has ~32
+   * landuse polygons/km², ~1.3 M in total). Two PostGIS-side reductions
+   * scale with the requested bbox:
+   *
+   *   * `ST_SimplifyPreserveTopology(geom, tolerance)` — drop coordinate
+   *     pairs that are within `tolerance` degrees of a straight line.
+   *     Tolerance scales with bbox width: ~bbox_width / 1000, so at a
+   *     1024-px-wide map render each surviving vertex is ≥ ~1 px apart.
+   *   * Area filter — drop polygons whose bounding-box area is smaller
+   *     than ~(tolerance × 4)² sq-degrees, i.e. they'd be < 4×4 px at
+   *     this zoom and aren't visible anyway. Uses an envelope check
+   *     instead of ST_Area so the GIST index still helps.
+   *
+   * Both kick in continuously; at a small zoomed-in bbox the tolerance
+   * is sub-meter and the area floor is below any real polygon, so the
+   * detail you see when panned in is unaffected.
    */
   async findFeatures(
     bbox: Geo.BoundingBox,
     kinds: readonly Landuse.LanduseKind[] | undefined,
   ): Promise<Landuse.LanduseFeature[]> {
+    const widthDeg = Math.max(
+      bbox.maxLng - bbox.minLng,
+      bbox.maxLat - bbox.minLat,
+    );
+    // ~1 px equivalent on a 1024-px wide rendered map.
+    const toleranceDeg = widthDeg / 1024;
+    // ~4 px × 4 px floor in sq-degrees. We compare against the envelope
+    // dimensions (width × height) instead of ST_Area because envelope
+    // computation is cheap and "is this polygon visible at this zoom?"
+    // is the question we actually care about.
+    const minEnvSide = toleranceDeg * 4;
+
     let q = this.db
       .selectFrom("landuse_polygons")
       .select([
         "osm_id",
         "osm_type",
         "kind",
-        sql<string>`ST_AsGeoJSON(geom)`.as("geojson"),
+        sql<string>`ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, ${toleranceDeg}))`.as(
+          "geojson",
+        ),
       ])
       .where(
         sql<boolean>`geom && ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326)`,
+      )
+      // Drop polygons too small to render usefully at this zoom. The
+      // envelope dimensions come straight from the GIST-indexed geom
+      // metadata — no full geometry scan.
+      .where(
+        sql<boolean>`(ST_XMax(geom) - ST_XMin(geom)) > ${minEnvSide}
+                     AND (ST_YMax(geom) - ST_YMin(geom)) > ${minEnvSide}`,
       );
     if (kinds && kinds.length > 0) {
       q = q.where("kind", "in", kinds as unknown as string[]);
