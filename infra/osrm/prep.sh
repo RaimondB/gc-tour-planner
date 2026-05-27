@@ -76,9 +76,15 @@ if [ "${REGION_COUNT}" -eq 1 ]; then
   exit 0
 fi
 
-# Multi-region merge. osmium merge deduplicates elements that appear in both
-# inputs (e.g. border ways in a country-extract + a state-extract), which is
-# what we want.
+# Multi-region merge. `osmium merge` keeps only the latest version when
+# the same (type, id) appears across inputs (per the 1.15 manpage). This
+# only holds if the inputs are sorted (Geofabrik PBFs always are) AND
+# come from a recent enough snapshot that border-node versions are
+# consistent across regions. If you mix PBFs downloaded on different
+# days, you may see osm2pgsql complain with "node id N appears more than
+# once" — the workaround is to delete both regional PBFs from the
+# osrm-data volume and re-run this prep so both come from today's
+# Geofabrik snapshot.
 set --
 for r in ${REGIONS}; do
   set -- "$@" "${DATA_DIR}/$(echo "${r}" | tr '/' '-')-latest.osm.pbf"
@@ -86,5 +92,5 @@ done
 echo "[osm-prep] merging ${REGION_COUNT} extracts into ${TARGET_PBF}"
 # --overwrite covers the edge case where a previous run was interrupted
 # mid-write and left a partial file behind.
-osmium merge --overwrite -o "${TARGET_PBF}" "$@"
+osmium merge --overwrite -f pbf -o "${TARGET_PBF}" "$@"
 echo "[osm-prep] done"
