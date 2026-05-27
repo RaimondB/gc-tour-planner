@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -15,6 +15,7 @@ import { MapView } from "./features/map/MapView.js";
 import { CachesLayer } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
+import { ParkingPreviewLayer } from "./features/map/ParkingPreviewLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
 import { TourLayer } from "./features/map/TourLayer.js";
 import { WalkingGraphLayer } from "./features/map/WalkingGraphLayer.js";
@@ -71,6 +72,19 @@ export default function App(): JSX.Element {
   // Mirror query at App level so the sidebar can show the count without
   // CachesLayer having to lift it up. Same queryKey → same cache entry, no
   // double fetch.
+  // Source the cluster's cache IDs for the parking-preview layer:
+  //   * planned tour → its `orderedCacheIds` (the cluster the user committed to)
+  //   * else the focused cluster from the candidate list (preview-on-hover)
+  //   * else empty (preview hidden)
+  const parkingPreviewCacheIds = useMemo<readonly number[]>(() => {
+    if (planResult) return planResult.orderedCacheIds;
+    if (focusedClusterId && clusters) {
+      const focused = clusters.find((c) => c.clusterId === focusedClusterId);
+      if (focused) return focused.cacheIds;
+    }
+    return [];
+  }, [planResult, focusedClusterId, clusters]);
+
   const cachesQuery = useQuery({
     queryKey: ["caches", params],
     queryFn: () =>
@@ -166,6 +180,7 @@ export default function App(): JSX.Element {
               onCentroidClick={setFocusedClusterId}
             />
             <TourLayer result={planResult} caches={cachesQuery.data?.caches} />
+            <ParkingPreviewLayer cacheIds={parkingPreviewCacheIds} />
             <WalkingGraphLayer
               enabled={showWalkingGraph}
               params={params}

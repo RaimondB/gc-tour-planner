@@ -135,4 +135,25 @@ export class ToursController {
     }
     return this.service.planLoop(user.id, parsed.data);
   }
+
+  @Post("parking-options")
+  @ApiOperation({
+    summary:
+      "For each parking waypoint near a cluster, return an OSRM-routed walk to the cluster's nearest cache. Powers the parking-preview map layer.",
+  })
+  @ApiResponse({
+    status: 201,
+    description:
+      "Up to N parking options, each with its walking path + meters + seconds, sorted by walking distance ascending.",
+  })
+  async parkingOptions(
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ): Promise<Tours.ParkingOptionsResponse> {
+    const parsed = Tours.ParkingOptionsInput.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+    return this.service.getParkingOptions(user.id, parsed.data);
+  }
 }
