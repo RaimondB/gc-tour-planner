@@ -94,13 +94,15 @@ services:
     # apt mirrors return 404. Don't switch back without a very good reason.
     image: ghcr.io/project-osrm/osrm-backend:latest
     restart: unless-stopped
-    # NL-foot extract peaks at ~5-6 GiB regardless of algorithm (extract is
-    # algorithm-agnostic; MLD vs CH only changes the post-extract step). 8
-    # GiB covers extract with headroom; partition/customize and routed
-    # themselves sit well under that. The cap is the safety net that keeps a
-    # runaway from wrecking the host — not the design target.
-    mem_limit: 8g
-    memswap_limit: 8g
+    # NL-foot extract peaks at ~5-6 GiB; NL + Nordrhein-Westfalen merged
+    # peaks at ~8-9 GiB (measured: cgroup OOM'd at exactly 8 GiB during
+    # "Writing nodes for nodes-based and edges-based graphs"). 12 GiB
+    # comfortably covers the multi-region extract phase; partition /
+    # customize / routed themselves sit much lower. memswap_limit raised
+    # in step so the kernel can spill the bursty extract phase to swap
+    # (16 GiB host swap, prio=10 — see ADR-0009 ops notes).
+    mem_limit: 12g
+    memswap_limit: 14g
     entrypoint: ["/bin/sh", "/srv/bootstrap.sh"]
     environment:
       # Pass both — bootstrap picks OSRM_REGIONS when set, else OSRM_REGION.
@@ -134,11 +136,12 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     # Peak observed during NL import with --slim --drop --flat-nodes
-    # --cache 256 is ~1.5-2 GiB. 3 GiB cap leaves headroom for incidental
-    # spikes during the post-import index-build phase without risking the
-    # host-level OOM games that killed Overpass's update_database.
-    mem_limit: 3g
-    memswap_limit: 4g
+    # --cache 256 is ~1.5-2 GiB. Multi-region setups (e.g.
+    # NL + NRW = 2× the ways) scale linearly; 5 GiB cap covers that
+    # comfortably, and the host has 16 GiB of swap as the safety net
+    # if a flush spikes higher.
+    mem_limit: 5g
+    memswap_limit: 8g
     depends_on:
       # PBF must exist on the osrm-data volume — same dep as the (removed)
       # overpass service used to have.
