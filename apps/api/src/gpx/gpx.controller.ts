@@ -21,7 +21,15 @@ import { CurrentUser } from "../auth/current-user.decorator.js";
 import type { AuthUser } from "../auth/auth.types.js";
 import { GpxService, type GpxUploadResult } from "./gpx.service.js";
 
-const MAX_GPX_BYTES = 10 * 1024 * 1024; // 10 MB hard cap; larger files queue in M4+
+/**
+ * Hard cap on raw GPX upload size. PQ files scale roughly with cache
+ * count × ~10-50 KB per cache (logs + attributes + waypoints), so a
+ * 1000-cache PQ lands around 10-30 MB and a full "My Finds" can push
+ * 40-60 MB. 64 MB covers realistic Groundspeak exports with headroom
+ * and stays well within Nest's in-memory multer buffer comfort zone
+ * on a 1 GB-capped api container.
+ */
+const MAX_GPX_BYTES = 64 * 1024 * 1024;
 
 @ApiTags("gpx")
 @Controller("gpx")
