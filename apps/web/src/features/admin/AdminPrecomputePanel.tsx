@@ -56,7 +56,9 @@ function AdminBody(): JSX.Element {
             <code>{summaryQuery.data.osrmVersion}</code>
           </p>
           <KindTile kind="walking" counts={summaryQuery.data.walking} />
-          <KindTile kind="landuse" counts={summaryQuery.data.landuse} />
+          {/* Landuse precompute moved off per-cache tracking in ADR-0009.
+              See /admin/landuse/status for landuse import + replication
+              health. */}
         </>
       )}
       <p className="muted">

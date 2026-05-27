@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { z } from "zod";
-import { BoundingBox, GeoJsonPolygon } from "../geo/index.js";
+import { BoundingBox, GeoJsonAnyPolygon } from "../geo/index.js";
 
 /**
  * Canonical OSM landuse kinds we display + filter on. Maps from a mix of
@@ -40,7 +40,10 @@ export type LanduseFeatureProps = z.infer<typeof LanduseFeatureProps>;
 export const LanduseFeature = z.object({
   type: z.literal("Feature"),
   properties: LanduseFeatureProps,
-  geometry: GeoJsonPolygon,
+  // osm2pgsql normalises both closed-way and multipolygon-relation
+  // landuse polygons to MultiPolygon. The shared schema accepts either
+  // shape so legacy clients (or test seeds) still validate.
+  geometry: GeoJsonAnyPolygon,
 });
 export type LanduseFeature = z.infer<typeof LanduseFeature>;
 

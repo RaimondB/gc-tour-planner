@@ -3,19 +3,15 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ConfigService } from "@nestjs/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Geo, Landuse } from "@gctp/shared";
+import type { Landuse } from "@gctp/shared";
+import { sql } from "kysely";
 import { GpxRepository } from "../../src/gpx/gpx.repository.js";
 import { GpxService } from "../../src/gpx/gpx.service.js";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
 import { CachesService } from "../../src/caches/caches.service.js";
-import { OsmRepository } from "../../src/osm/osm.repository.js";
+import { LanduseRepository } from "../../src/osm/landuse.repository.js";
 import { OsmService } from "../../src/osm/osm.service.js";
-import type {
-  FetchedLanduse,
-  OverpassClient,
-} from "../../src/osm/overpass.client.js";
 import {
   type PostgresFixture,
   startPostgres,
@@ -32,14 +28,13 @@ const fixturePath = fileURLToPath(
 /**
  * Hand-built tiny "forest" polygon that contains 5.1214,52.0907 (cache
  * GCAAA111 from sample-pq.gpx) but NOT 5.13,52.095 (GCBBB222). Used to
- * verify the contexts hard filter without touching real Overpass.
+ * verify the contexts hard filter against the osm2pgsql-fed
+ * `landuse_polygons` table (ADR-0009 — no more Overpass mock).
  */
-const FAKE_FOREST: FetchedLanduse = {
-  osmSource: "way:999001",
-  kind: "forest",
-  polygon: {
-    type: "Polygon",
-    coordinates: [
+const FAKE_FOREST_GEOJSON = JSON.stringify({
+  type: "MultiPolygon",
+  coordinates: [
+    [
       [
         [5.115, 52.085],
         [5.125, 52.085],
@@ -48,30 +43,15 @@ const FAKE_FOREST: FetchedLanduse = {
         [5.115, 52.085],
       ],
     ],
-  },
-};
+  ],
+});
 
-class FakeOverpass implements OverpassClient {
-  calls: Geo.BoundingBox[] = [];
-  responses: FetchedLanduse[][] = [];
-
-  constructor(initial: FetchedLanduse[][]) {
-    this.responses = [...initial];
-  }
-
-  async fetchLanduse(bbox: Geo.BoundingBox): Promise<FetchedLanduse[]> {
-    this.calls.push(bbox);
-    return this.responses.shift() ?? [];
-  }
-}
-
-describe("M3 OSM landuse integration (PostGIS via Testcontainers)", () => {
+describe("OSM landuse integration (PostGIS via Testcontainers)", () => {
   let pg: PostgresFixture;
   let ownerId: string;
   let osmService: OsmService;
   let cachesService: CachesService;
   let gpxService: GpxService;
-  let overpass: FakeOverpass;
 
   beforeAll(async () => {
     pg = await startPostgres();
@@ -83,12 +63,19 @@ describe("M3 OSM landuse integration (PostGIS via Testcontainers)", () => {
       .executeTakeFirstOrThrow();
     ownerId = user.id;
 
-    overpass = new FakeOverpass([[FAKE_FOREST]]);
-    osmService = new OsmService(
-      new OsmRepository(pg.db),
-      overpass,
-      new ConfigService(),
-    );
+    // Seed a single landuse polygon — same shape osm2pgsql would produce.
+    // osm_type='w' (way), osm_id is arbitrary for the test.
+    await sql`
+      INSERT INTO landuse_polygons (osm_id, osm_type, kind, geom)
+      VALUES (
+        999001,
+        'w',
+        'forest',
+        ST_SetSRID(ST_GeomFromGeoJSON(${FAKE_FOREST_GEOJSON}), 4326)
+      )
+    `.execute(pg.db);
+
+    osmService = new OsmService(new LanduseRepository(pg.db));
     cachesService = new CachesService(new CachesRepository(pg.db));
     gpxService = new GpxService(new GpxRepository(pg.db));
 
@@ -101,19 +88,13 @@ describe("M3 OSM landuse integration (PostGIS via Testcontainers)", () => {
     await stopPostgres(pg);
   });
 
-  it("first /landuse call refreshes Overpass for missing cell; second is cached", async () => {
+  it("/landuse returns polygons intersecting the bbox", async () => {
     const bbox = { minLng: 5.11, minLat: 52.08, maxLng: 5.14, maxLat: 52.1 };
 
-    const first = await osmService.listLanduse({ bbox });
-    expect(first.type).toBe("FeatureCollection");
-    expect(first.features).toHaveLength(1);
-    expect(first.features[0]?.properties.kind).toBe("forest");
-    expect(overpass.calls).toHaveLength(1);
-
-    const second = await osmService.listLanduse({ bbox });
-    expect(second.features).toHaveLength(1);
-    // No new Overpass call — fully served from cache.
-    expect(overpass.calls).toHaveLength(1);
+    const result = await osmService.listLanduse({ bbox });
+    expect(result.type).toBe("FeatureCollection");
+    expect(result.features).toHaveLength(1);
+    expect(result.features[0]?.properties.kind).toBe("forest");
   });
 
   it("filters by kind in the projection", async () => {
@@ -125,8 +106,8 @@ describe("M3 OSM landuse integration (PostGIS via Testcontainers)", () => {
     expect(onlyParks.features).toEqual([]);
   });
 
-  it("contexts hard-filter on /caches uses ST_Contains over the cached polygons", async () => {
-    // GCAAA111 (5.1214,52.0907) is inside FAKE_FOREST; GCBBB222 (5.13,52.095) is not.
+  it("contexts hard-filter on /caches uses ST_Contains over landuse_polygons", async () => {
+    // GCAAA111 (5.1214,52.0907) is inside the forest; GCBBB222 (5.13,52.095) is not.
     const inForest = await cachesService.list(ownerId, {
       center: [5.12, 52.09],
       radiusM: 5_000,

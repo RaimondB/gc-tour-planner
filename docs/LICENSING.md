@@ -48,7 +48,7 @@ Groundspeak's attribute icons (the round badge images) are copyrighted by Ground
 OSM data is licensed under **ODbL 1.0**. ODbL is compatible with GPLv3 for our use (we consume the data, not relicense it). Obligations we comply with:
 
 - **Attribution on every map view**: "© OpenStreetMap contributors". Implemented as a permanent MapLibre attribution control.
-- **Attribution page** at `/attribution` listing: OpenStreetMap (ODbL), Overpass API, OSRM (BSD-2-Clause), MapLibre GL JS (BSD-3-Clause), the chosen tile provider.
+- **Attribution page** at `/attribution` listing: OpenStreetMap (ODbL), osm2pgsql (GPL-2.0+), OSRM (BSD-2-Clause), MapLibre GL JS (BSD-3-Clause), the chosen tile provider.
 - **Share-alike for derived databases**: `osm_landuse` rows are an ODbL-derived database. If we ever publish that table as a dataset, it must be released under ODbL. We currently only serve query results, which is allowed without relicensing.
 
 ### 3.4 Geocaching.com / Groundspeak data
@@ -73,15 +73,37 @@ Per-node license metadata is documented in the OKAPI source adapter README (to b
 
 OSRM is **BSD-2-Clause** — compatible. The OSM extract OSRM is preprocessed from is ODbL — see §3.3 above.
 
-### 3.9 Self-hosted Overpass sidecar (AGPL-3.0)
+### 3.9 osm2pgsql import + osmium-tool (GPL-2.0+) — ADR-0009
 
-We run the canonical [drolbr/Overpass-API](https://github.com/drolbr/Overpass-API) server (AGPL-3.0) via the `wiktorn/overpass-api` Docker image (see [ADR-0008](adr/0008-self-host-overpass.md)). The AGPL is GPLv3-compatible for our use because:
+We import landuse polygons from a Geofabrik PBF into the project's
+Postgres via [osm2pgsql](https://github.com/osm2pgsql-dev/osm2pgsql)
+(GPL-2.0+) and [osmium-tool](https://github.com/osmcode/osmium-tool)
+(GPL-3.0+) — both run in the one-shot `osm2pgsql-import` compose
+service ([infra/osm2pgsql/Dockerfile](../infra/osm2pgsql/Dockerfile)). See
+[ADR-0009](adr/0009-osm2pgsql-replaces-overpass.md) for the why; this
+section covers the licensing posture.
 
-- The Overpass server runs as a **separate process** in its own container, accessed over HTTP. It is not statically or dynamically linked into our binary — the boundary between our GPLv3 code and the AGPL-3.0 server is the HTTP interpreter API.
-- We publish our compose configuration and any wrapper scripts (e.g. [infra/docker-compose.yml](../infra/docker-compose.yml)) under GPLv3 in this repository, so AGPL §13's network-service obligation (offer corresponding source to users interacting over a network) is satisfied transitively — anyone interacting with our Overpass instance can obtain its source from the upstream repo we point them at.
-- We do not modify the Overpass server. If we ever fork the image to patch the server itself, those patches MUST be published under AGPL-3.0.
+GPL-2.0+ and GPL-3.0+ are both GPLv3-compatible:
 
-The license-checker (`pnpm licenses:check`) only scans the Node.js dependency graph, so the AGPL sidecar isn't flagged there. The audit trail lives in this file and in ADR-0008.
+- We invoke them as **separate processes** from a one-shot container — no
+  static or dynamic linking from our TypeScript code. The interface is
+  the command line + the resulting Postgres tables.
+- We don't modify osm2pgsql or osmium. If we ever fork either to patch
+  upstream behaviour (rather than configure via Lua), those patches MUST
+  ship under the same license as the modified project (GPL-2.0+ /
+  GPL-3.0+).
+- The Lua filter [infra/osm2pgsql/landuse.lua](../infra/osm2pgsql/landuse.lua)
+  is our own code under GPL-3.0-or-later; it's consumed by osm2pgsql as
+  configuration data, not linked.
+
+Previous setup (Overpass sidecar, AGPL-3.0 via wiktorn/overpass-api) was
+documented here under ADR-0008 and is **superseded** by ADR-0009. The
+AGPL §13 network-clause concerns from that note no longer apply because
+no AGPL code runs at request time anymore.
+
+The license-checker (`pnpm licenses:check`) only scans the Node.js
+dependency graph, so neither osm2pgsql nor osmium-tool appears there.
+The audit trail lives in this file and in ADR-0009.
 
 ### 3.7 Tile sources
 
@@ -126,7 +148,8 @@ When this fails, **don't skip the check**. Either replace the offending dep, or 
 | This project      | GPL-3.0-or-later              | LICENSE at repo root, header on every source file |
 | OSM data          | ODbL 1.0                      | Map attribution + `/attribution` page             |
 | OSRM              | BSD-2-Clause                  | Listed on `/attribution`                          |
-| Overpass server   | AGPL-3.0                      | Self-hosted sidecar; HTTP boundary keeps it compatible (§3.9, ADR-0008) |
+| osm2pgsql         | GPL-2.0+                      | One-shot import + replication sidecar (§3.9, ADR-0009)                  |
+| osmium-tool       | GPL-3.0+                      | Same container as osm2pgsql, used for PBF metadata reads (§3.9)         |
 | MapLibre GL JS    | BSD-3-Clause                  | Listed on `/attribution`                          |
 | Valkey            | BSD-3-Clause                  | Use instead of Redis                              |
 | PostGIS           | GPL-2.0+                      | Compatible                                        |

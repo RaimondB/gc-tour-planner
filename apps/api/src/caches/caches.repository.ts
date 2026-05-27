@@ -17,7 +17,7 @@ export interface FindCachesParams {
   /** When true, exclude caches the current user has logged as found. */
   excludeFound?: boolean;
   /**
-   * Hard filter: cache must be inside at least one cached osm_landuse polygon
+   * Hard filter: cache must be inside at least one landuse_polygons polygon
    * whose `kind` is in this list. Relies on the OSM landuse cache being warm
    * for the relevant cells — the web app calls /landuse before /caches to
    * guarantee that.
@@ -136,11 +136,11 @@ export class CachesRepository {
       q = q.where((eb) =>
         eb.exists(
           eb
-            .selectFrom("osm_landuse as l")
+            .selectFrom("landuse_polygons as l")
             .select(sql<number>`1`.as("one"))
             .where("l.kind", "in", contexts as unknown as string[])
             .where(
-              sql<boolean>`ST_Contains(l.polygon::geometry, c.location::geometry)`,
+              sql<boolean>`ST_Contains(l.geom, c.location::geometry)`,
             ),
         ),
       );
