@@ -7,14 +7,17 @@ import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../database/database.tokens.js";
 
 /**
- * Per-cache landuse membership: which `osm_landuse` polygons contain a given
- * cache. Used by Pass 1 cluster scoring (`cluster-scoring.ts`) to compute the
- * `landuseMatch` term — "what fraction of this cluster's caches sit inside a
- * polygon whose kind matches the user's landuse profile?".
+ * Per-cache landuse-kind membership (ADR-0009): which canonical kinds of
+ * `landuse_polygons` contain a given cache. Used by Pass 1 cluster scoring
+ * (`cluster-scoring.ts`) to compute the `landuseMatch` term — "what
+ * fraction of this cluster's caches sit inside any polygon whose kind
+ * matches the user's landuse profile?".
  *
- * Storage strategy: lazy-populate per bbox on first plan that touches a region.
- * The `populate_cache_landuse_in_bbox` SQL function is idempotent (ON CONFLICT
- * DO NOTHING), so it's safe to call repeatedly on overlapping regions.
+ * Storage strategy: lazy-populate per bbox on first plan that touches a
+ * region. The `populate_cache_landuse_in_bbox` SQL function is idempotent
+ * (ON CONFLICT DO NOTHING), so it's safe to call repeatedly on overlapping
+ * regions. PK is now (cache_id, kind) so a cache inside three forest
+ * polygons gets ONE forest row, not three.
  */
 @Injectable()
 export class CacheLanduseRepository {
@@ -27,9 +30,9 @@ export class CacheLanduseRepository {
    * cache lies inside a polygon and both sit inside `bbox`. Returns the number
    * of new rows inserted (existing rows are not double-counted).
    *
-   * Idempotent: a region planned twice does not double-write. Caller should
-   * have already warmed `osm_landuse` for the bbox (the web client guarantees
-   * this by calling /landuse before /tours/clusters).
+   * Idempotent: a region planned twice does not double-write. Assumes
+   * `landuse_polygons` has been populated for the region — the
+   * osm2pgsql-import compose service (ADR-0009) runs once at first boot.
    */
   async populateForBbox(
     minLng: number,

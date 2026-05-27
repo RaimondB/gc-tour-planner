@@ -120,66 +120,56 @@ services:
       osm-prep:
         condition: service_completed_successfully
 
-  # Self-hosted Overpass sidecar (ADR-0008). Public mirrors are unreachable
-  # / rate-limited / whitelist-only from this network, so we run our own.
-  # `wiktorn/overpass-api` is the maintained Docker wrapper around the
-  # canonical drolbr/Overpass-API server (AGPL-3.0 — boundary is HTTP, so
-  # GPLv3-compatible per LICENSING.md §3.9).
+  # One-shot landuse import (ADR-0009). Reads the shared OSRM PBF via the
+  # osrm-data volume and populates `landuse_polygons` + `landuse_import_meta`
+  # via osm2pgsql with a flex-output Lua filter. Exits 0 on success;
+  # subsequent boots short-circuit on the metadata row in ~2 s.
   #
-  # First boot: downloads OVERPASS_PLANET_URL (NL extract = ~1 GB bz2),
-  # imports it into the Overpass DB (~30 min on the host, ~12 GB in the
-  # overpass-db volume), then starts the dispatcher. Subsequent boots
-  # detect the existing DB and skip straight to the dispatcher (~10s).
-  #
-  # Continuous diffs: the image's built-in `fetch_osc.sh` polls
-  # OVERPASS_DIFF_URL every OVERPASS_UPDATE_SLEEP seconds (default 86400 =
-  # daily) and applies minutely diffs. ~5 MB/day for NL — negligible.
-  #
-  # Dev shares this instance via the host-published port (see
-  # scripts/dev.env.example). Running a second one would OOM the host and
-  # waste 30 min of bootstrap on every dev rebuild for zero benefit.
-  overpass:
-    image: wiktorn/overpass-api:latest
-    restart: unless-stopped
-    # NL working set is ~3 GiB; 4 GiB cap leaves headroom for dispatcher
-    # spikes during diff application. Same swap-off pattern as the rest
-    # of the stack — predictable kill instead of swap thrash.
-    mem_limit: 4g
+  # Replaces ADR-0008's Overpass sidecar — same data (landuse polygons),
+  # smaller footprint (no permanent dispatcher; uses the existing
+  # Postgres), more deterministic memory profile (~1.5-2 GB peak).
+  osm2pgsql-import:
+    build:
+      context: ./osm2pgsql
+      dockerfile: Dockerfile
+    restart: "no"
+    # Peak observed during NL import with --slim --drop --flat-nodes
+    # --cache 256 is ~1.5-2 GiB. 3 GiB cap leaves headroom for incidental
+    # spikes during the post-import index-build phase without risking the
+    # host-level OOM games that killed Overpass's update_database.
+    mem_limit: 3g
     memswap_limit: 4g
+    depends_on:
+      # PBF must exist on the osrm-data volume — same dep as the (removed)
+      # overpass service used to have.
+      osm-prep:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     environment:
-      # Geofabrik NL extract by default. Override via .env for other
-      # regions; keep .bz2 (the image's import path expects bzipped PBF).
-      OVERPASS_PLANET_URL: ${OVERPASS_PLANET_URL:-https://download.geofabrik.de/europe/netherlands-latest.osm.bz2}
-      # Daily diffs for the same extract. Geofabrik publishes
-      # minutely-replicated diffs under <region>-updates/.
-      OVERPASS_DIFF_URL: ${OVERPASS_DIFF_URL:-https://download.geofabrik.de/europe/netherlands-updates/}
-      # `init` triggers the first-boot import. The image's entrypoint
-      # short-circuits when the DB is already populated, so this is safe
-      # to leave as `init` across restarts.
-      OVERPASS_MODE: init
-      # Include OSM meta (uid/version/timestamp) in stored elements so
-      # queries can request `out meta;` if we ever need it. Marginal disk
-      # cost; switching this on later requires a full re-import.
-      OVERPASS_META: "yes"
-      # Number of `rules_load` requests to pipeline during initial import.
-      # 10 keeps the import inside the 4 GiB cap on the host.
-      OVERPASS_RULES_LOAD: "10"
-      # Diff-fetch interval in seconds. Daily is plenty for landuse;
-      # geocaches don't move and forests don't get rezoned hourly.
-      OVERPASS_UPDATE_SLEEP: "86400"
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_DATABASE: ${POSTGRES_DB}
+      OSRM_REGION: ${OSRM_REGION:-}
+      OSRM_REGIONS: ${OSRM_REGIONS:-}
+      # Set to 1 to force a full re-import even if landuse_import_meta is
+      # already populated. Used by the admin /admin/landuse/reimport
+      # endpoint (which restarts this service) and by operators.
+      LANDUSE_FORCE_REIMPORT: ${LANDUSE_FORCE_REIMPORT:-}
+      # Tuneable osm2pgsql knobs — defaults are memory-safe on the host.
+      # Bump OSM2PGSQL_CACHE to 1024+ to trade RAM for faster import; bump
+      # OSM2PGSQL_PROCESSES to use hyperthreads. See PLANNER_TUNING.md.
+      OSM2PGSQL_CACHE: ${OSM2PGSQL_CACHE:-256}
+      OSM2PGSQL_PROCESSES: ${OSM2PGSQL_PROCESSES:-4}
+      OSM2PGSQL_EXTRA: ${OSM2PGSQL_EXTRA:-}
     volumes:
-      - overpass-db:/db
-    ports:
-      - "${OVERPASS_PORT:-5001}:80"
-    healthcheck:
-      # /api/status returns plain text with slot availability when the
-      # dispatcher is up. During the multi-tens-of-minutes initial
-      # import the endpoint 503s — start_period covers that.
-      test: ["CMD-SHELL", "wget -qO- http://localhost/api/status | grep -q 'Slot available' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 45m
+      # PBF source — read-only.
+      - osrm-data:/osrm-data:ro
+      # Persistent flat-nodes file so osm2pgsql-replication can find the
+      # same node-id → location mapping across runs. ~150 MB for NL.
+      - osm2pgsql-data:/var/lib/osm2pgsql
 
   # Timefold sidecar (ADR-0005). Always boots so the dependency below stays
   # unconditional — compose v2 has no syntax for "depends_on only when
@@ -219,11 +209,12 @@ services:
         condition: service_healthy
       solver:
         condition: service_healthy
-      # Overpass is required for landuse precompute. service_started (not
-      # service_healthy) so the api can boot during the 30-min initial
-      # import — overpass-refresh jobs retry naturally once the dispatcher
-      # comes up.
-      overpass:
+      # Landuse import is one-shot. The api can boot in parallel with the
+      # import — the /landuse endpoint will return empty rows until the
+      # import completes (~30-40 min on first boot only). Cluster scoring
+      # treats missing landuse as "no preference match", so the planner
+      # stays usable throughout.
+      osm2pgsql-import:
         condition: service_started
     networks:
       - default
@@ -256,12 +247,6 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
-      # Internal compose DNS — api talks to the overpass sidecar over the
-      # default network. Override in .env if pointing at a remote instance.
-      OVERPASS_URL: ${OVERPASS_URL:-http://overpass:80/api/interpreter}
-      # Self-hosted Overpass trivially handles 8 concurrent slots; raise
-      # from the public-mirror politeness floor of 2 (see ADR-0008).
-      OVERPASS_MAX_PARALLEL: ${OVERPASS_MAX_PARALLEL:-8}
       JWT_SECRET: ${JWT_SECRET}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
@@ -321,8 +306,6 @@ services:
       # Caches per retrigger-stale chunked job. Bounds individual job
       # runtime so the operator dashboard updates promptly during a sweep.
       PRECOMPUTE_RETRIGGER_CHUNK: ${PRECOMPUTE_RETRIGGER_CHUNK:-50}
-      # Convex-hull buffer around new caches for overpass-refresh bbox.
-      OVERPASS_BBOX_BUFFER_M: ${OVERPASS_BBOX_BUFFER_M:-500}
     volumes:
       # Read-only mount of the OSRM data volume so the API can read
       # /osrm-meta/osrm-version.txt without an extra IPC channel to the
@@ -347,8 +330,6 @@ services:
       NODE_ENV: uat
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
-      OVERPASS_URL: ${OVERPASS_URL:-http://overpass:80/api/interpreter}
-      OVERPASS_MAX_PARALLEL: ${OVERPASS_MAX_PARALLEL:-8}
       LOG_LEVEL: ${LOG_LEVEL}
 
   web:
@@ -381,4 +362,7 @@ volumes:
   pgdata: {}
   valkey-data: {}
   osrm-data: {}
-  overpass-db: {}
+  # osm2pgsql --flat-nodes file (~150 MB for NL). Persisted across re-imports
+  # so the import service can find the node-id → location mapping it built
+  # last time — required by osm2pgsql-replication update.
+  osm2pgsql-data: {}

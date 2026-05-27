@@ -152,8 +152,10 @@ retrigger-stale) and bull-board at `/admin/queues` (queue-level ops).
 | `PRECOMPUTE_OSRM_CHUNK_ORIGINS`  | `100`   | Max OSRM `/table` origins per HTTP call. Higher = fewer round-trips, larger response payloads. Lower if OSRM CPU spikes. |
 | `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `state='fresh'` `cache_precompute_state` row is considered stale and eligible for retrigger-stale. |
 | `PRECOMPUTE_RETRIGGER_CHUNK`     | `50`    | Caches per retrigger-stale job. Bounds individual job runtime so the dashboard updates promptly during a sweep. |
-| `OVERPASS_BBOX_BUFFER_M`         | `500`   | Convex-hull buffer around newly-uploaded caches that defines the overpass-refresh bbox. |
-| `OVERPASS_MAX_PARALLEL`          | `2`     | Max concurrent Overpass HTTP requests across a single bbox refresh. Public mirrors enforce a per-IP slot quota (~2); exceeding it manifests as silent `ETIMEDOUT` on connect mid-batch. Raise only when pointed at a self-hosted Overpass. |
+| `LANDUSE_FORCE_REIMPORT`         | _unset_ | Set to `1` and recreate the `osm2pgsql-import` service to force a full re-import (drops & repopulates `landuse_polygons`). Default is to short-circuit on the existing `landuse_import_meta` row (~2 s no-op). See ADR-0009. |
+| `OSM2PGSQL_CACHE`                | `256`   | MB of RAM osm2pgsql holds for node-id → location lookups during import. Bumping to `1024` trades ~+800 MB peak RSS for ~25-40% faster import. Disk I/O is the current bottleneck on slim-mode imports; this is the highest-impact knob. |
+| `OSM2PGSQL_PROCESSES`            | `4`     | Parallel worker count. host is 4C/8T; default uses physical cores. Setting `8` uses hyperthreads for ~10-15% extra speed. No RAM cost worth worrying about. |
+| `OSM2PGSQL_EXTRA`                | _unset_ | Free-form extra flags passed to `osm2pgsql`. Example for the fastest one-shot import (drops `--slim` → ~3× faster but ~5-6 GB peak RAM and loses `osm2pgsql-replication` support): `OSM2PGSQL_EXTRA="--cache 4096"` + manually edit `infra/osm2pgsql/bootstrap.sh` to drop `--slim --drop`. Rare; only useful before a permanent region change. |
 
 Symptom → knob:
 

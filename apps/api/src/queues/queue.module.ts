@@ -5,7 +5,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { Global, Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
-  QUEUE_OVERPASS_REFRESH,
+  QUEUE_LANDUSE_REPLICATION,
   QUEUE_WALKING_PRECOMPUTE,
 } from "./queue.tokens.js";
 
@@ -52,12 +52,15 @@ import {
         },
       },
       {
-        name: QUEUE_OVERPASS_REFRESH,
+        name: QUEUE_LANDUSE_REPLICATION,
         defaultJobOptions: {
-          removeOnComplete: { age: 3600, count: 1000 },
-          removeOnFail: { age: 7 * 24 * 3600 },
+          removeOnComplete: { age: 7 * 24 * 3600, count: 100 },
+          removeOnFail: { age: 30 * 24 * 3600 },
+          // Replication is daily and idempotent; on transient failure
+          // retry twice over a few minutes before giving up (operator
+          // can manually retrigger via /admin/landuse/reimport).
           attempts: 3,
-          backoff: { type: "exponential", delay: 10000 },
+          backoff: { type: "exponential", delay: 60_000 },
         },
       },
     ),

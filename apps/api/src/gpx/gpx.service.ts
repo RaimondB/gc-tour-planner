@@ -5,12 +5,8 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { parseGpx, type ParsedGpx } from "@gctp/shared/gpx";
 import type { Queue } from "bullmq";
-import type { OverpassRefreshJobData } from "../jobs/overpass-refresh/overpass-refresh.types.js";
 import type { WalkingPrecomputeJobData } from "../jobs/walking-precompute/walking-precompute.types.js";
-import {
-  QUEUE_OVERPASS_REFRESH,
-  QUEUE_WALKING_PRECOMPUTE,
-} from "../queues/queue.tokens.js";
+import { QUEUE_WALKING_PRECOMPUTE } from "../queues/queue.tokens.js";
 import { GpxRepository } from "./gpx.repository.js";
 
 export interface GpxUploadResult {
@@ -38,8 +34,6 @@ export class GpxService {
     private readonly repo: GpxRepository,
     @InjectQueue(QUEUE_WALKING_PRECOMPUTE)
     private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
-    @InjectQueue(QUEUE_OVERPASS_REFRESH)
-    private readonly overpassQueue: Queue<OverpassRefreshJobData>,
   ) {}
 
   async ingest(
@@ -97,27 +91,27 @@ export class GpxService {
     };
   }
 
+  /**
+   * Enqueue walking-graph precompute for the newly-arrived caches.
+   * Landuse is no longer per-upload — it lives in `landuse_polygons` for
+   * the entire imported region (ADR-0009). Caches that fall inside the
+   * region pick up landuse memberships via the lazy `cache_landuse`
+   * populate function on first plan.
+   */
   private async enqueuePrecompute(
     ownerId: string,
     newCacheIds: number[],
   ): Promise<void> {
     try {
-      await Promise.all([
-        this.walkingQueue.add("precompute", {
-          ownerId,
-          newCacheIds,
-          reason: "upload",
-        }),
-        this.overpassQueue.add("refresh", {
-          ownerId,
-          newCacheIds,
-          reason: "upload",
-        }),
-      ]);
+      await this.walkingQueue.add("precompute", {
+        ownerId,
+        newCacheIds,
+        reason: "upload",
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(
-        `precompute enqueue failed for owner=${ownerId} (${newCacheIds.length} caches): ${message}. ` +
+        `walking precompute enqueue failed for owner=${ownerId} (${newCacheIds.length} caches): ${message}. ` +
           `Caches are saved; retry from /admin/jobs.`,
       );
     }

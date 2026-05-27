@@ -12,7 +12,7 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import type { Queue } from "bullmq";
 import { AppModule } from "./app.module.js";
 import {
-  QUEUE_OVERPASS_REFRESH,
+  QUEUE_LANDUSE_REPLICATION,
   QUEUE_WALKING_PRECOMPUTE,
 } from "./queues/queue.tokens.js";
 
@@ -53,13 +53,15 @@ async function bootstrap(): Promise<void> {
   // Nest DI tokens so we get the live BullMQ Queue instances configured
   // with the production Valkey connection — not a second connection.
   const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
-  const overpassQueue = app.get<Queue>(getQueueToken(QUEUE_OVERPASS_REFRESH));
+  const replicationQueue = app.get<Queue>(
+    getQueueToken(QUEUE_LANDUSE_REPLICATION),
+  );
   const bullBoardAdapter = new ExpressAdapter();
   bullBoardAdapter.setBasePath("/admin/queues");
   createBullBoard({
     queues: [
       new BullMQAdapter(walkingQueue),
-      new BullMQAdapter(overpassQueue),
+      new BullMQAdapter(replicationQueue),
     ],
     serverAdapter: bullBoardAdapter,
   });

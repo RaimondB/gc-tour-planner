@@ -3,8 +3,17 @@
 
 import { z } from "zod";
 
-/** Wire-format mirror of the Postgres `precompute_kind` enum. */
-export const PrecomputeKind = z.enum(["walking", "landuse"]);
+/**
+ * Per-cache precompute kinds tracked in `cache_precompute_state`. Landuse
+ * was removed in ADR-0009: landuse polygons are now imported region-wide
+ * via osm2pgsql, not per-cache, so freshness is one timestamp on
+ * `landuse_import_meta` rather than N×CacheCount rows here. See
+ * `/admin/landuse/status` for the new landuse health endpoint.
+ *
+ * The Postgres `precompute_kind` enum still has 'landuse' for back-compat
+ * with old rows that the migration deletes — we just don't write new ones.
+ */
+export const PrecomputeKind = z.enum(["walking"]);
 export type PrecomputeKind = z.infer<typeof PrecomputeKind>;
 
 /** Wire-format mirror of the Postgres `precompute_state` enum. */
@@ -35,7 +44,6 @@ export type PrecomputeKindCounts = z.infer<typeof PrecomputeKindCounts>;
 
 export const PrecomputeSummary = z.object({
   walking: PrecomputeKindCounts,
-  landuse: PrecomputeKindCounts,
   /**
    * The OSRM extract version the summary was computed against. Surfaced so
    * operators can tell at a glance whether a stale-count spike was caused
@@ -66,10 +74,11 @@ export type StaleCacheListResponse = z.infer<typeof StaleCacheListResponse>;
 
 export const RetriggerStaleRequest = z.object({
   /**
-   * `'all'` retriggers stale caches for both kinds; each kind gets its
-   * own batched jobs on its own queue.
+   * Currently 'walking' is the only per-cache precompute kind (ADR-0009
+   * moved landuse off per-cache tracking). 'all' is kept for forward
+   * compatibility but is currently equivalent to 'walking'.
    */
-  kind: z.enum(["walking", "landuse", "all"]),
+  kind: z.enum(["walking", "all"]),
 });
 export type RetriggerStaleRequest = z.infer<typeof RetriggerStaleRequest>;
 

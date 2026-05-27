@@ -10,12 +10,8 @@ import type { Queue } from "bullmq";
 import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../../database/database.tokens.js";
 import { PrecomputeStateRepository } from "../../precompute-state/precompute-state.repository.js";
-import {
-  QUEUE_OVERPASS_REFRESH,
-  QUEUE_WALKING_PRECOMPUTE,
-} from "../../queues/queue.tokens.js";
+import { QUEUE_WALKING_PRECOMPUTE } from "../../queues/queue.tokens.js";
 import { OsrmVersionService } from "../../routing/osrm-version.service.js";
-import type { OverpassRefreshJobData } from "../../jobs/overpass-refresh/overpass-refresh.types.js";
 import type { WalkingPrecomputeJobData } from "../../jobs/walking-precompute/walking-precompute.types.js";
 
 /** Default TTL beyond which a 'fresh' row is considered stale. */
@@ -36,8 +32,6 @@ export class AdminPrecomputeService {
     @Inject(KYSELY) private readonly db: Kysely<Database>,
     @InjectQueue(QUEUE_WALKING_PRECOMPUTE)
     private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
-    @InjectQueue(QUEUE_OVERPASS_REFRESH)
-    private readonly overpassQueue: Queue<OverpassRefreshJobData>,
   ) {}
 
   async summary(): Promise<Admin.PrecomputeSummary> {
@@ -48,7 +42,6 @@ export class AdminPrecomputeService {
     });
     return {
       walking: counts.walking,
-      landuse: counts.landuse,
       osrmVersion,
     };
   }
@@ -67,14 +60,20 @@ export class AdminPrecomputeService {
     });
     return {
       total,
-      entries: entries.map((e) => ({
-        cacheId: e.cacheId,
-        kind: e.kind,
-        state: e.state,
-        fetchedAt: e.fetchedAt ? e.fetchedAt.toISOString() : null,
-        osrmVersion: e.osrmVersion,
-        errorText: e.errorText,
-      })),
+      // The DB enum still has 'landuse' for back-compat with old rows;
+      // the migration deletes them all but the type system can't know
+      // that. We filter defensively here so the wire-format never carries
+      // a kind the admin schema doesn't allow.
+      entries: entries
+        .filter((e): e is typeof e & { kind: "walking" } => e.kind === "walking")
+        .map((e) => ({
+          cacheId: e.cacheId,
+          kind: e.kind,
+          state: e.state,
+          fetchedAt: e.fetchedAt ? e.fetchedAt.toISOString() : null,
+          osrmVersion: e.osrmVersion,
+          errorText: e.errorText,
+        })),
     };
   }
 
@@ -91,8 +90,10 @@ export class AdminPrecomputeService {
   async retriggerStale(
     kind: Admin.RetriggerStaleRequest["kind"],
   ): Promise<Admin.RetriggerStaleResponse> {
-    const kinds: Admin.PrecomputeKind[] =
-      kind === "all" ? ["walking", "landuse"] : [kind];
+    // ADR-0009: landuse no longer has per-cache precompute state. 'walking'
+    // is the only kind. 'all' is kept on the wire for forward compat.
+    const kinds: Admin.PrecomputeKind[] = ["walking"];
+    void kind;
     const chunkSize = this.envInt(
       "PRECOMPUTE_RETRIGGER_CHUNK",
       DEFAULT_RETRIGGER_CHUNK,
@@ -177,13 +178,12 @@ export class AdminPrecomputeService {
     cacheIds: number[],
     reason: "upload" | "retrigger-stale" | "retrigger-one",
   ): Promise<string> {
+    // Only 'walking' remains after ADR-0009. Keeping the `kind` parameter
+    // for callsite symmetry with the wire types.
+    void kind;
     const data = { ownerId, newCacheIds: cacheIds, reason };
-    const queue =
-      kind === "walking" ? this.walkingQueue : this.overpassQueue;
-    const jobName =
-      kind === "walking" ? "precompute" : "refresh";
-    const job = await queue.add(jobName, data);
-    return job.id ?? `${jobName}-${Date.now()}`;
+    const job = await this.walkingQueue.add("precompute", data);
+    return job.id ?? `precompute-${Date.now()}`;
   }
 
   private staleTtlDays(): number {

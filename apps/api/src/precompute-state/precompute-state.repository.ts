@@ -108,7 +108,7 @@ export class PrecomputeStateRepository {
   async summary(args: {
     currentOsrmVersion: string;
     staleTtlDays: number;
-  }): Promise<{ walking: CountsByState; landuse: CountsByState }> {
+  }): Promise<{ walking: CountsByState }> {
     const rows = await sql<{
       kind: PrecomputeKind;
       bucket: keyof CountsByState;
@@ -145,9 +145,14 @@ export class PrecomputeStateRepository {
       pending: 0,
       missing: 0,
     });
-    const out = { walking: empty(), landuse: empty() };
+    const out = { walking: empty() };
     for (const r of rows.rows) {
-      out[r.kind][r.bucket] = Number(r.n);
+      // Defensive: the migration deletes all kind='landuse' rows, but a
+      // stale row could still appear during the cutover window. Skip
+      // anything we don't track.
+      if (r.kind === "walking") {
+        out.walking[r.bucket] = Number(r.n);
+      }
     }
     return out;
   }

@@ -29,6 +29,24 @@ export const GeoJsonPolygon = z.object({
 });
 export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygon>;
 
+/**
+ * Array of polygon coordinates (outer ring + optional inner holes per
+ * polygon). osm2pgsql normalises closed ways AND multipolygon relations
+ * to MultiPolygon so the landuse table has a uniform geometry type.
+ */
+export const GeoJsonMultiPolygon = z.object({
+  type: z.literal("MultiPolygon"),
+  coordinates: z.array(z.array(z.array(LngLat).min(4)).min(1)).min(1),
+});
+export type GeoJsonMultiPolygon = z.infer<typeof GeoJsonMultiPolygon>;
+
+/** Either a single-ring polygon or a multipolygon. */
+export const GeoJsonAnyPolygon = z.union([
+  GeoJsonPolygon,
+  GeoJsonMultiPolygon,
+]);
+export type GeoJsonAnyPolygon = z.infer<typeof GeoJsonAnyPolygon>;
+
 export const BoundingBox = z.object({
   minLng: z.number(),
   minLat: z.number(),

@@ -80,20 +80,41 @@ export interface CacheFindsTable {
   source: string;
 }
 
-export interface OsmLanduseTable {
-  id: Generated<number>;
-  /** 0.1°-cell coordinate, e.g. "5.1,52.0" */
-  area_hash: string;
-  /**
-   * OSM source identifier. 'way:<id>' for a standalone closed way,
-   * 'rel:<id>:<ringIndex>' for one outer ring of a multipolygon relation.
-   * (area_hash, osm_source) is the dedup key.
-   */
-  osm_source: string;
+/**
+ * Landuse polygons imported from a Geofabrik PBF via osm2pgsql (ADR-0009).
+ * Schema is also declared in `infra/osm2pgsql/landuse.lua` — keep the two in
+ * lockstep (osm2pgsql `--create` will drop and recreate this table on first
+ * import, using the Lua definition as the source of truth).
+ */
+export interface LandusePolygonsTable {
+  /** OSM id of the way or relation. */
+  osm_id: number;
+  /** 'w' (way) or 'r' (relation). */
+  osm_type: string;
   /** Canonical kind from packages/shared/src/landuse. */
   kind: string;
-  polygon: Geography;
-  fetched_at: Generated<Date>;
+  /**
+   * MultiPolygon (geometry, SRID 4326). osm2pgsql normalises closed ways
+   * and multipolygon relations into MultiPolygon. Repositories use
+   * ST_AsGeoJSON to read.
+   */
+  geom: string;
+}
+
+/**
+ * Single-row metadata table tracking the most recent landuse import +
+ * replication run. `id` is constrained to 1 by a CHECK so jobs can
+ * blindly UPSERT.
+ */
+export interface LanduseImportMetaTable {
+  id: number;
+  imported_at: Date;
+  pbf_timestamp: Date | null;
+  source_file: string | null;
+  /** NULL until the first successful osm2pgsql-replication update. */
+  replicated_at: Date | null;
+  /** 'ok' or 'error: …'. NULL before any replication run. */
+  replication_state: string | null;
 }
 
 export interface RouteLegsTable {
@@ -120,10 +141,15 @@ export interface RouteLegsTable {
   fetched_at: Generated<Date>;
 }
 
+/**
+ * Membership materialisation: (cache_id, kind) rows for every kind the
+ * cache sits inside. PK is (cache_id, kind), so a cache inside three
+ * different forest polygons gets ONE row of kind='forest'. Populated
+ * lazily on plan via `populate_cache_landuse_in_bbox(...)`.
+ */
 export interface CacheLanduseTable {
   cache_id: number;
-  landuse_id: number;
-  /** Mirror of osm_landuse.kind; denormalised for fast scoring queries. */
+  /** Canonical kind from packages/shared/src/landuse. */
   kind: string;
   computed_at: Generated<Date>;
 }
@@ -178,7 +204,8 @@ export interface Database {
   additional_waypoints: AdditionalWaypointsTable;
   gpx_uploads: GpxUploadsTable;
   cache_finds: CacheFindsTable;
-  osm_landuse: OsmLanduseTable;
+  landuse_polygons: LandusePolygonsTable;
+  landuse_import_meta: LanduseImportMetaTable;
   route_legs: RouteLegsTable;
   cache_landuse: CacheLanduseTable;
   cache_precompute_state: CachePrecomputeStateTable;

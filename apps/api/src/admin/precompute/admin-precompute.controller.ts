@@ -47,9 +47,7 @@ export class AdminPrecomputeController {
   ): Promise<Admin.StaleCacheListResponse> {
     const kind = Admin.PrecomputeKind.safeParse(kindParam);
     if (!kind.success) {
-      throw new BadRequestException(
-        "kind must be 'walking' or 'landuse'.",
-      );
+      throw new BadRequestException("kind must be 'walking'.");
     }
     const limit = clampInt(limitParam, 1, 500, 200);
     const offset = clampInt(offsetParam, 0, 1_000_000, 0);
