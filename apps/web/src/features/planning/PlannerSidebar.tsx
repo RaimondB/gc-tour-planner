@@ -621,6 +621,21 @@ function PlanResultPanel({
   const visitMin = result.totals.visitMinutes;
   const totalMin = walkingMin + visitMin;
 
+  const downloadPlan = () => {
+    const blob = new Blob([JSON.stringify(result, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.href = url;
+    a.download = `gctp-plan-${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="plan-result">
       <h3>Planned loop</h3>
@@ -661,6 +676,15 @@ function PlanResultPanel({
           </li>
         ))}
       </ul>
+      <div className="planner-actions">
+        <button
+          type="button"
+          onClick={downloadPlan}
+          title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
+        >
+          Download plan JSON
+        </button>
+      </div>
     </div>
   );
 }
