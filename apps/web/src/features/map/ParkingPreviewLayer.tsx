@@ -5,32 +5,51 @@ import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
 import { fetchParkingOptions } from "../../lib/api.js";
+import type { SelectedParking } from "./CachesLayer.js";
 import { useMap } from "./MapContext.js";
 
 const SOURCE_ID = "gctp-parking-preview";
 const LINE_LAYER = "gctp-parking-preview-line";
+/** Wider invisible hitbox so the user doesn't need pixel-perfect clicks. */
+const HIT_LAYER = "gctp-parking-preview-hit";
 
 /**
  * Fetches walking previews from each parking candidate near the cluster
- * to its nearest cache, and renders them as semi-transparent dashed
- * lines beneath the main tour polyline. Lets the user compare parking
- * options at a glance.
+ * to its nearest cache, and renders them as dashed lines beneath the
+ * main tour polyline. Lets the user compare parking options at a glance.
  *
- * Activates when a non-empty `cacheIds` is supplied (i.e. the user has
- * either selected a cluster from /tours/clusters or pinned a selection
- * via the Cluster Lab). Empty cacheIds → no fetch, no render.
+ * Bogus options (OSRM walk > `maxWalkingMeters`, almost always an OSM
+ * data gap) render red so the user can still see them and pick a better
+ * candidate.
+ *
+ * Clicking a preview line drives the parent's `onParkingSelect` callback;
+ * the standalone `ParkingOwnerLinkLayer` renders the resulting owner
+ * link. Same machinery as clicking a parking marker in `CachesLayer`.
  */
 export function ParkingPreviewLayer({
   cacheIds,
+  maxWalkingMeters,
+  onParkingSelect,
 }: {
   cacheIds: readonly number[];
+  /** Cap on OSRM walking distance; matches the planner's `maxLinkMeters`. */
+  maxWalkingMeters?: number;
+  onParkingSelect?: (next: SelectedParking | null) => void;
 }): null {
   const { map, ready } = useMap();
 
   const query = useQuery({
-    queryKey: ["parking-options", [...cacheIds].sort((a, b) => a - b)],
+    queryKey: [
+      "parking-options",
+      [...cacheIds].sort((a, b) => a - b),
+      maxWalkingMeters ?? null,
+    ],
     queryFn: () =>
-      fetchParkingOptions({ cacheIds: [...cacheIds], maxOptions: 8 }),
+      fetchParkingOptions({
+        cacheIds: [...cacheIds],
+        maxOptions: 8,
+        maxWalkingMeters,
+      }),
     enabled: cacheIds.length > 0,
     staleTime: 5 * 60_000, // parking + osrm don't change mid-session
   });
@@ -47,6 +66,10 @@ export function ParkingPreviewLayer({
           id: opt.id,
           walkingMeters: opt.walkingMeters,
           nearestCacheId: opt.nearestCacheId,
+          ownerCacheId: opt.ownerCacheId,
+          parkingLng: opt.point[0],
+          parkingLat: opt.point[1],
+          bogus: opt.bogus,
         },
         geometry: opt.polyline,
       })),
@@ -61,15 +84,20 @@ export function ParkingPreviewLayer({
 
     if (!map.getLayer(LINE_LAYER)) {
       // Render below the main tour polyline so the chosen tour stays
-      // visually dominant. Dashed, semi-transparent — clearly "preview"
-      // not "the route".
+      // visually dominant. Bogus options (over the walking cap) render
+      // red so the user can see them but knows they're not real walks.
       map.addLayer(
         {
           id: LINE_LAYER,
           type: "line",
           source: SOURCE_ID,
           paint: {
-            "line-color": "#1e88e5",
+            "line-color": [
+              "case",
+              ["==", ["get", "bogus"], true],
+              "#e53935",
+              "#1e88e5",
+            ],
             "line-width": 2.5,
             "line-opacity": 0.55,
             "line-dasharray": [2, 1.5],
@@ -78,6 +106,21 @@ export function ParkingPreviewLayer({
         firstTourLayer(map),
       );
     }
+    if (!map.getLayer(HIT_LAYER)) {
+      // Invisible wide hitbox stacked on top — gives the click target
+      // some pixel slack without making the visible dashed line look
+      // thick.
+      map.addLayer({
+        id: HIT_LAYER,
+        type: "line",
+        source: SOURCE_ID,
+        paint: {
+          "line-color": "#000",
+          "line-width": 14,
+          "line-opacity": 0,
+        },
+      });
+    }
   }, [map, ready, query.data]);
 
   // Tear down when cacheIds clears so the previews disappear with the
@@ -85,10 +128,56 @@ export function ParkingPreviewLayer({
   useEffect(() => {
     if (!ready) return;
     if (cacheIds.length === 0) {
+      if (map.getLayer(HIT_LAYER)) map.removeLayer(HIT_LAYER);
       if (map.getLayer(LINE_LAYER)) map.removeLayer(LINE_LAYER);
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     }
   }, [map, ready, cacheIds.length]);
+
+  // Click handler: report the parking → owner-cache association to the
+  // parent. Uses a global click + queryRenderedFeatures so it survives
+  // the teardown effect removing/re-adding HIT_LAYER (layer-bound
+  // listeners can otherwise miss events).
+  useEffect(() => {
+    if (!ready || !onParkingSelect) return;
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!map.getLayer(HIT_LAYER)) return;
+      const hits = map.queryRenderedFeatures(e.point, {
+        layers: [HIT_LAYER],
+      });
+      const f = hits[0];
+      if (!f) return;
+      const props = f.properties as {
+        ownerCacheId?: number;
+        parkingLng?: number;
+        parkingLat?: number;
+      };
+      if (
+        typeof props.ownerCacheId !== "number" ||
+        typeof props.parkingLng !== "number" ||
+        typeof props.parkingLat !== "number"
+      ) {
+        return;
+      }
+      onParkingSelect({
+        point: [props.parkingLng, props.parkingLat],
+        ownerCacheId: props.ownerCacheId,
+      });
+    };
+    const onMove = (e: maplibregl.MapMouseEvent) => {
+      if (!map.getLayer(HIT_LAYER)) return;
+      const hits = map.queryRenderedFeatures(e.point, {
+        layers: [HIT_LAYER],
+      });
+      if (hits.length > 0) map.getCanvas().style.cursor = "pointer";
+    };
+    map.on("click", onClick);
+    map.on("mousemove", onMove);
+    return () => {
+      map.off("click", onClick);
+      map.off("mousemove", onMove);
+    };
+  }, [map, ready, onParkingSelect]);
 
   return null;
 }

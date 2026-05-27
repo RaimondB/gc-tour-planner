@@ -12,9 +12,10 @@ import type {
 import { listCaches } from "./lib/api.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
 import { MapView } from "./features/map/MapView.js";
-import { CachesLayer } from "./features/map/CachesLayer.js";
+import { CachesLayer, type SelectedParking } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
+import { ParkingOwnerLinkLayer } from "./features/map/ParkingOwnerLinkLayer.js";
 import { ParkingPreviewLayer } from "./features/map/ParkingPreviewLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
 import { TourLayer } from "./features/map/TourLayer.js";
@@ -44,6 +45,13 @@ export default function App(): JSX.Element {
   );
   const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
   const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  /**
+   * Most recently clicked parking spot — drives the yellow dotted line to
+   * the cache that listed it. Set from either a parking-marker click in
+   * `CachesLayer` or a dashed-line click in `ParkingPreviewLayer`.
+   */
+  const [selectedParking, setSelectedParking] =
+    useState<SelectedParking | null>(null);
   const [planResult, setPlanResultRaw] = useState<PlanResult | null>(null);
   /**
    * Manual cluster selection — populated by shift-clicking cache markers on the
@@ -172,6 +180,7 @@ export default function App(): JSX.Element {
               params={params}
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}
+              onParkingSelect={setSelectedParking}
             />
             <ClustersPreviewLayer
               candidates={clusters}
@@ -180,7 +189,15 @@ export default function App(): JSX.Element {
               onCentroidClick={setFocusedClusterId}
             />
             <TourLayer result={planResult} caches={cachesQuery.data?.caches} />
-            <ParkingPreviewLayer cacheIds={parkingPreviewCacheIds} />
+            <ParkingPreviewLayer
+              cacheIds={parkingPreviewCacheIds}
+              maxWalkingMeters={planSettings.maxLinkMeters}
+              onParkingSelect={setSelectedParking}
+            />
+            <ParkingOwnerLinkLayer
+              selectedParking={selectedParking}
+              caches={cachesQuery.data?.caches}
+            />
             <WalkingGraphLayer
               enabled={showWalkingGraph}
               params={params}
