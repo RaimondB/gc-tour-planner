@@ -17,4 +17,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0005](0005-timefold-solver-sidecar.md)    | Timefold as the solver-backed `TourPlannerStrategy` | Accepted |
 | [0006](0006-docs-restructure-and-sync-policy.md) | Docs restructure into per-area subdirectories + sync policy | Accepted |
 | [0007](0007-precompute-walking-paths-on-upload.md) | Precompute walking paths + landuse on GPX upload | Accepted |
-| [0008](0008-self-host-overpass.md) | Self-host Overpass as a compose sidecar (shared with dev) | Accepted |
+| [0008](0008-self-host-overpass.md) | Self-host Overpass as a compose sidecar (shared with dev) | Superseded by ADR-0009 |
+| [0009](0009-osm2pgsql-replaces-overpass.md) | Replace self-hosted Overpass with osm2pgsql + PostGIS | Accepted |
