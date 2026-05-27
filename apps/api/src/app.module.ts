@@ -11,7 +11,6 @@ import { DatabaseModule } from "./database/database.module.js";
 import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { OsmModule } from "./osm/osm.module.js";
-import { LanduseReplicationModule } from "./jobs/landuse-replication/landuse-replication.module.js";
 import { WalkingPrecomputeModule } from "./jobs/walking-precompute/walking-precompute.module.js";
 import { PrecomputeStateModule } from "./precompute-state/precompute-state.module.js";
 import { QueueModule } from "./queues/queue.module.js";
@@ -32,7 +31,6 @@ import { ToursModule } from "./tours/tours.module.js";
     RoutingModule,
     ToursModule,
     WalkingPrecomputeModule,
-    LanduseReplicationModule,
     AdminPrecomputeModule,
     AdminLanduseModule,
   ],

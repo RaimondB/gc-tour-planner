@@ -4,10 +4,7 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Global, Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import {
-  QUEUE_LANDUSE_REPLICATION,
-  QUEUE_WALKING_PRECOMPUTE,
-} from "./queue.tokens.js";
+import { QUEUE_WALKING_PRECOMPUTE } from "./queue.tokens.js";
 
 /**
  * Shared BullMQ wiring. Producers (admin controller, gpx upload service)
@@ -38,32 +35,18 @@ import {
         };
       },
     }),
-    BullModule.registerQueue(
-      {
-        name: QUEUE_WALKING_PRECOMPUTE,
-        defaultJobOptions: {
-          // Failed jobs stay around for the operator dashboard's failed-list.
-          // Successful jobs are purged so the dashboard doesn't fill with
-          // green noise from steady-state operations.
-          removeOnComplete: { age: 3600, count: 1000 },
-          removeOnFail: { age: 7 * 24 * 3600 },
-          attempts: 3,
-          backoff: { type: "exponential", delay: 5000 },
-        },
+    BullModule.registerQueue({
+      name: QUEUE_WALKING_PRECOMPUTE,
+      defaultJobOptions: {
+        // Failed jobs stay around for the operator dashboard's failed-list.
+        // Successful jobs are purged so the dashboard doesn't fill with
+        // green noise from steady-state operations.
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 7 * 24 * 3600 },
+        attempts: 3,
+        backoff: { type: "exponential", delay: 5000 },
       },
-      {
-        name: QUEUE_LANDUSE_REPLICATION,
-        defaultJobOptions: {
-          removeOnComplete: { age: 7 * 24 * 3600, count: 100 },
-          removeOnFail: { age: 30 * 24 * 3600 },
-          // Replication is daily and idempotent; on transient failure
-          // retry twice over a few minutes before giving up (operator
-          // can manually retrigger via /admin/landuse/reimport).
-          attempts: 3,
-          backoff: { type: "exponential", delay: 60_000 },
-        },
-      },
-    ),
+    }),
   ],
   exports: [BullModule],
 })

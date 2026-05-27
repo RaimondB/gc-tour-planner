@@ -4,13 +4,15 @@
 import { z } from "zod";
 
 /**
- * Health view of the osm2pgsql-fed landuse pipeline (ADR-0009).
+ * Health view of the osm2pgsql-fed landuse pipeline (ADR-0009 +
+ * ADR-0010 simplification).
  *
- * `imported_at` is the most recent successful full import (one-shot or
- * forced reimport). `replicated_at` is the most recent diff-apply or
- * heartbeat from the daily replication job. `replication_state` is a
- * short free-text status ('heartbeat: …', 'ok', 'error: …', or null
- * before any replication run).
+ * `imported_at` is the most recent successful full import. Refreshes
+ * are operator-driven via `scripts/refresh-osm-data.sh` (kept in
+ * lockstep with OSRM), not by a daily BullMQ job — the `replicated_at`
+ * and `replication_state` fields are retained on the wire for back-
+ * compat but are always null until a future incremental-update path
+ * (if any) is wired up.
  */
 export const LanduseStatus = z.object({
   importedAt: z.string().nullable(),
@@ -22,10 +24,3 @@ export const LanduseStatus = z.object({
   polygonCount: z.number().int().nonnegative(),
 });
 export type LanduseStatus = z.infer<typeof LanduseStatus>;
-
-export const LanduseReimportResponse = z.object({
-  jobId: z.string(),
-  /** Free-text confirmation. */
-  note: z.string(),
-});
-export type LanduseReimportResponse = z.infer<typeof LanduseReimportResponse>;
