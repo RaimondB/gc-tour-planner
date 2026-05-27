@@ -1,9 +1,13 @@
 # ADR-0009 — Replace self-hosted Overpass with osm2pgsql + PostGIS
 
-- **Status:** Accepted
+- **Status:** Accepted (daily-diff path amended by [ADR-0010](0010-unified-osm-refresh.md))
 - **Date:** 2026-05-27
 - **Deciders:** Raimond Brookman (owner)
 - **Supersedes:** [ADR-0008](0008-self-host-overpass.md)
+- **Amended by:** [ADR-0010](0010-unified-osm-refresh.md) — the
+  `landuse-replication` BullMQ queue was never load-bearing and is
+  removed; refreshes are operator-driven via
+  `scripts/refresh-osm-data.sh` in lockstep with OSRM.
 
 ## Context
 

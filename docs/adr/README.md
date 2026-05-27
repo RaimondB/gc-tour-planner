@@ -18,4 +18,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0006](0006-docs-restructure-and-sync-policy.md) | Docs restructure into per-area subdirectories + sync policy | Accepted |
 | [0007](0007-precompute-walking-paths-on-upload.md) | Precompute walking paths + landuse on GPX upload | Accepted |
 | [0008](0008-self-host-overpass.md) | Self-host Overpass as a compose sidecar (shared with dev) | Superseded by ADR-0009 |
-| [0009](0009-osm2pgsql-replaces-overpass.md) | Replace self-hosted Overpass with osm2pgsql + PostGIS | Accepted |
+| [0009](0009-osm2pgsql-replaces-overpass.md) | Replace self-hosted Overpass with osm2pgsql + PostGIS | Accepted; daily-diff path amended by ADR-0010 |
+| [0010](0010-unified-osm-refresh.md) | Unified OSM refresh (drop daily landuse replication) | Accepted |
