@@ -44,24 +44,35 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("docs/api", app, document);
 
-  // Bull-Board: operator queue dashboard at /admin/queues. Mounted on the
-  // underlying Express instance so it shares the same HTTP server (no
-  // separate port, no second TLS terminator). Reads the queues by their
-  // Nest DI tokens so we get the live BullMQ Queue instances configured
-  // with the production Valkey connection — not a second connection.
+  // Bull-Board: operator queue dashboard. Mounted on the underlying
+  // Express instance so it shares the same HTTP server (no separate port,
+  // no second TLS terminator). Reads the queues by their Nest DI tokens
+  // so we get the live BullMQ Queue instances — same connection as the
+  // workers.
+  //
+  // Asset URLs are baked from `setBasePath` — they need to match the
+  // PUBLIC URL path, not the in-container path. In UAT, shared reverse proxy strips
+  // `/api` before forwarding, so the browser is at
+  // `app.example.com/api/admin/queues` while the container sees
+  // `/admin/queues`. Set `BULL_BOARD_BASE_PATH=/api/admin/queues` in
+  // the UAT compose env. Dev uses the default `/admin/queues` (api is
+  // direct at localhost:3030).
+  const queuesMountPath = "/admin/queues";
+  const publicBasePath =
+    process.env.BULL_BOARD_BASE_PATH ?? queuesMountPath;
   const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
   const bullBoardAdapter = new ExpressAdapter();
-  bullBoardAdapter.setBasePath("/admin/queues");
+  bullBoardAdapter.setBasePath(publicBasePath);
   createBullBoard({
     queues: [new BullMQAdapter(walkingQueue)],
     serverAdapter: bullBoardAdapter,
   });
-  app.use("/admin/queues", bullBoardAdapter.getRouter());
+  app.use(queuesMountPath, bullBoardAdapter.getRouter());
 
   const port = Number(process.env.API_PORT ?? 3000);
   await app.listen(port);
   console.warn(
-    `[api] listening on :${port} (OpenAPI at /docs/api, queues at /admin/queues)`,
+    `[api] listening on :${port} (OpenAPI at /docs/api, queues at ${publicBasePath})`,
   );
 }
 
