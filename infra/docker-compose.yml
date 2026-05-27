@@ -250,6 +250,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
+      # Traefik strips /api before forwarding, but bull-board needs the
+      # public URL path to bake correct asset URLs. See
+      # apps/api/src/main.ts for the rationale.
+      BULL_BOARD_BASE_PATH: ${BULL_BOARD_BASE_PATH:-/api/admin/queues}
       JWT_SECRET: ${JWT_SECRET}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
