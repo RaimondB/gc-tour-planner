@@ -1,8 +1,18 @@
 # ADR-0008 — Self-host Overpass as a compose sidecar
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0009](0009-osm2pgsql-replaces-overpass.md)
 - **Date:** 2026-05-26
 - **Deciders:** Raimond Brookman (owner)
+- **Superseded on:** 2026-05-27
+
+> **Superseded note (2026-05-27):** the Overpass sidecar described below
+> proved impossible to bootstrap on the 16 GB host8i7BEH — eight
+> consecutive imports were killed mid-`update_database` with no
+> observable cause (no cgroup OOM, no kernel OOM, no userspace
+> OOM-daemon kill). ADR-0009 replaces this approach with `osm2pgsql`
+> writing landuse polygons directly into the existing Postgres+PostGIS
+> database. The PBF-share-with-OSRM design and the dev-shares-with-UAT
+> pattern from this ADR carry over.
 
 ## Context
 
@@ -29,7 +39,7 @@ This is brittle architecture for a non-trivial feature path. Landuse precompute 
 Add a **self-hosted Overpass instance as a compose sidecar**, modelled on the OSRM and Timefold sidecars already in the stack.
 
 - **Image:** `wiktorn/overpass-api` (well-maintained, Docker-first wrapper around `drolbr/Overpass-API`, the canonical implementation; AGPL-3.0 — compatible with our GPLv3 license per [LICENSING.md §2](../LICENSING.md#2-hard-compatibility-rules) because the Overpass server runs as a separate process accessed over HTTP, not linked into our binary).
-- **Extract:** Netherlands (`https://download.geofabrik.de/europe/netherlands-latest.osm.bz2`), matching the OSRM extract scope. Operators wanting a wider area override `OVERPASS_PBF_URL` in their `.env`.
+- **Extract:** Netherlands, by default reusing the PBF that OSRM's `osm-prep` service already downloads into the `osrm-data` volume (`file:///osrm-data/europe-netherlands-latest.osm.pbf`). Saves ~1 GB of download + ~10 min wall-clock vs. fetching Geofabrik a second time. Operators wanting Overpass to cover a different region than OSRM override `OVERPASS_PLANET_URL` in their `.env` to a direct Geofabrik URL. Overpass is gated on `osm-prep: service_completed_successfully` so the file exists when it first boots.
 - **Update channel:** Geofabrik daily diffs (`OVERPASS_DIFF_URL=https://download.geofabrik.de/europe/netherlands-updates/`). The image's built-in `dispatcher`/`fetch_osc.sh` applies minutely-style diffs continuously.
 - **Service name:** `overpass`, defined **only in the UAT compose file** ([infra/docker-compose.yml](../../infra/docker-compose.yml)). Exposes `:80` inside compose; published as `:5001` on the host.
 - **Dev shares UAT's Overpass — same pattern as OSRM.** [CLAUDE.md] already enforces this for OSRM ("OSRM is shared with UAT — a second OSRM instance OOMs the host"). Overpass has the same RAM-and-cold-start cost profile (~3 GB RAM + ~30 min initial PBF import), and the same read-only-HTTP risk profile from dev's perspective. Running a second Overpass for dev would double both the RAM bill on the host and the cold-start time on `pnpm dev:down && pnpm dev`, with no upside. Dev points at the UAT instance via the already-published host port `:5001`. `scripts/dev.env.example` gains an `OVERPASS_URL_DEV` knob mirroring the existing `OSRM_URL_DEV`.
@@ -68,7 +78,8 @@ The existing `OsmService` + `overpass-refresh` BullMQ machinery is unchanged —
 
 - **+~12 GB volume** for the NL extract DB (`overpass_db` volume in compose, UAT only — dev shares). Planet would be ~150 GB — out of scope.
 - **+~3 GB RAM** when warm, paid **once** on the host because dev shares UAT's instance. Fits comfortably alongside Postgres/Valkey/OSRM.
-- **+~30 min first-boot** to import the PBF (similar wall-clock cost to OSRM preprocessing; both can run in parallel on first `docker compose up --build`). Dev never re-pays this cost.
+- **+~30 min first-boot** to import the PBF (similar wall-clock cost to OSRM preprocessing; the two run sequentially because Overpass `depends_on: osm-prep`, not in parallel — the PBF is shared). Dev never re-pays this cost.
+- **Region coupling:** Overpass and OSRM by default share the same Geofabrik extract via the `osrm-data` volume. Setting `OSRM_REGION` to something other than `europe/netherlands` requires `OVERPASS_PLANET_URL` to be updated to match (or pointed back at a Geofabrik URL to download independently). This is desirable — landuse precompute and walking precompute should cover the same geographic scope — but worth being explicit about.
 - **Daily diff bandwidth** ~5 MB/day for NL. Negligible.
 - **One more service to monitor.** Add an Overpass row to the `/admin/jobs` summary or to whatever ops dashboard we settle on. Failure mode: dispatcher crash → 503s → BullMQ retries → admin sees failed jobs.
 - **License audit:** AGPL-3.0 on the server adds a new SPDX to `pnpm licenses:check`. Network-service clause is satisfied by publishing our compose config in the public GPLv3 repo. Updated [LICENSING.md] needed.
