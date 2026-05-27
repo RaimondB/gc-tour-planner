@@ -11,10 +11,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import type { Queue } from "bullmq";
 import { AppModule } from "./app.module.js";
-import {
-  QUEUE_LANDUSE_REPLICATION,
-  QUEUE_WALKING_PRECOMPUTE,
-} from "./queues/queue.tokens.js";
+import { QUEUE_WALKING_PRECOMPUTE } from "./queues/queue.tokens.js";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -53,16 +50,10 @@ async function bootstrap(): Promise<void> {
   // Nest DI tokens so we get the live BullMQ Queue instances configured
   // with the production Valkey connection — not a second connection.
   const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
-  const replicationQueue = app.get<Queue>(
-    getQueueToken(QUEUE_LANDUSE_REPLICATION),
-  );
   const bullBoardAdapter = new ExpressAdapter();
   bullBoardAdapter.setBasePath("/admin/queues");
   createBullBoard({
-    queues: [
-      new BullMQAdapter(walkingQueue),
-      new BullMQAdapter(replicationQueue),
-    ],
+    queues: [new BullMQAdapter(walkingQueue)],
     serverAdapter: bullBoardAdapter,
   });
   app.use("/admin/queues", bullBoardAdapter.getRouter());

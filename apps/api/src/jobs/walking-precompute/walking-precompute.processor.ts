@@ -6,6 +6,7 @@ import { Inject, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Routing } from "@gctp/shared";
 import type { Job } from "bullmq";
+import { CacheLanduseRepository } from "../../caches/cache-landuse.repository.js";
 import { CachesRepository } from "../../caches/caches.repository.js";
 import { PrecomputeStateRepository } from "../../precompute-state/precompute-state.repository.js";
 import { OsrmVersionService } from "../../routing/osrm-version.service.js";
@@ -41,6 +42,7 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly state: PrecomputeStateRepository,
     private readonly config: ConfigService,
+    private readonly cacheLanduse: CacheLanduseRepository,
   ) {
     super();
   }
@@ -184,7 +186,47 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
         await this.routing.upsertMatrixCells(toPersist, osrmVersion);
       }
 
-      // 7. Mark in-scope as fresh with the current OSRM version. Failed cells
+      // 7. Eagerly populate `cache_landuse` for the in-scope caches'
+      //    bounding box. The function is idempotent (ON CONFLICT DO NOTHING)
+      //    and PostGIS-fast (~50-100 ms). Pre-warming here saves that cost
+      //    on the first plan after upload — symmetric with how this job
+      //    pre-warms route_legs. Best-effort: a failure here does NOT fail
+      //    the precompute job (route_legs is the load-bearing artifact;
+      //    cache_landuse will be populated lazily by the planner if needed).
+      const allCoords = inScope
+        .map((id) => coordsById.get(id))
+        .filter((c): c is [number, number] => c !== undefined);
+      if (allCoords.length > 0) {
+        const lngs = allCoords.map(([lng]) => lng);
+        const lats = allCoords.map(([, lat]) => lat);
+        // Add a tiny padding (~10 m at lat 52°) so caches sitting exactly
+        // on a landuse boundary don't get missed by ST_Contains.
+        const pad = 0.0001;
+        const minLng = Math.min(...lngs) - pad;
+        const minLat = Math.min(...lats) - pad;
+        const maxLng = Math.max(...lngs) + pad;
+        const maxLat = Math.max(...lats) + pad;
+        try {
+          const inserted = await this.cacheLanduse.populateForBbox(
+            minLng,
+            minLat,
+            maxLng,
+            maxLat,
+          );
+          if (inserted > 0) {
+            this.logger.log(
+              `walking-precompute (${reason}): warmed cache_landuse with ${inserted} new rows`,
+            );
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          this.logger.warn(
+            `walking-precompute (${reason}): cache_landuse populate failed (lazy fallback will run on first plan): ${m}`,
+          );
+        }
+      }
+
+      // 8. Mark in-scope as fresh with the current OSRM version. Failed cells
       //    (impossible speeds / suspicious zero-distance) were silently
       //    dropped by upsertMatrixCells; that's not a per-cache failure, so
       //    the cache is still considered "fresh" — Pass 1 will just see

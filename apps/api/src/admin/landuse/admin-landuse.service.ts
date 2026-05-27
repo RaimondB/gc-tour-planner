@@ -1,27 +1,22 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Database } from "@gctp/db";
 import type { Admin } from "@gctp/shared";
-import type { Queue } from "bullmq";
 import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../../database/database.tokens.js";
 import { LanduseRepository } from "../../osm/landuse.repository.js";
-import { QUEUE_LANDUSE_REPLICATION } from "../../queues/queue.tokens.js";
-import type { LanduseReplicationJobData } from "../../jobs/landuse-replication/landuse-replication.types.js";
 
 /**
- * Admin surface for the osm2pgsql-fed landuse pipeline (ADR-0009).
+ * Admin surface for the osm2pgsql-fed landuse pipeline (ADR-0009 +
+ * ADR-0010 simplification).
  *
- * Two endpoints back this:
- *   - `GET /admin/landuse/status` — current import + replication health.
- *   - `POST /admin/landuse/reimport` — enqueue a manual replication job
- *     to refresh the heartbeat. Full re-imports (drop + osm2pgsql --create
- *     from scratch) live in the `osm2pgsql-import` compose service;
- *     operators trigger them with
- *     `LANDUSE_FORCE_REIMPORT=1 docker compose -p gctp run --rm osm2pgsql-import`.
+ * `GET /admin/landuse/status` — current import health. Refreshes happen
+ * out-of-band via the `scripts/refresh-osm-data.sh` host script (which
+ * the operator runs on a schedule), not from an admin button — keeping
+ * landuse + OSRM updates strictly in lockstep avoids data drift between
+ * the two halves of the geo stack.
  */
 @Injectable()
 export class AdminLanduseService {
@@ -30,8 +25,6 @@ export class AdminLanduseService {
   constructor(
     @Inject(KYSELY) private readonly db: Kysely<Database>,
     private readonly landuse: LanduseRepository,
-    @InjectQueue(QUEUE_LANDUSE_REPLICATION)
-    private readonly queue: Queue<LanduseReplicationJobData>,
   ) {}
 
   async status(): Promise<Admin.LanduseStatus> {
@@ -52,17 +45,4 @@ export class AdminLanduseService {
     };
   }
 
-  async enqueueReimport(): Promise<Admin.LanduseReimportResponse> {
-    const job = await this.queue.add("manual-replication", {
-      reason: "manual",
-    });
-    this.logger.log(`landuse-replication manual enqueue jobId=${job.id}`);
-    return {
-      jobId: job.id ?? "unknown",
-      note:
-        "Manual replication enqueued. For a full re-import of the PBF, " +
-        "set LANDUSE_FORCE_REIMPORT=1 and run " +
-        "`docker compose -p gctp run --rm osm2pgsql-import`.",
-    };
-  }
 }

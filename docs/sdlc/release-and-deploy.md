@@ -57,7 +57,17 @@ A single UAT instance runs at https://app.example.com, served from a host behind
 3. `cd infra && docker compose up --build -d` — shared reverse proxy picks up the new containers via labels (see [infra/docker-compose.yml](../../infra/docker-compose.yml)).
 4. `docker compose logs -f api web` for the first minute to confirm the stack is healthy.
 
-OSRM preprocessing (first boot, ~10 min for a country extract) runs in the `osrm` service via `infra/osrm/bootstrap.sh`. Subsequent boots reuse `osrm-data`.
+OSRM preprocessing (first boot, ~10 min for a country extract) runs in the `osrm` service via `infra/osrm/bootstrap.sh`. Subsequent boots reuse `osrm-data`. Landuse polygons are populated by a parallel one-shot `osm2pgsql-import` service into the existing Postgres (see [ADR-0009](../adr/0009-osm2pgsql-replaces-overpass.md)).
+
+## OSM data refresh
+
+Both OSRM and landuse refresh from the same Geofabrik PBFs. Run the unified refresh script when you want fresh OSM data:
+
+```bash
+./scripts/refresh-osm-data.sh
+```
+
+It re-downloads the regional PBFs, re-preprocesses OSRM, and re-imports landuse — all against the same daily snapshot, so the two halves stay in lockstep ([ADR-0010](../adr/0010-unified-osm-refresh.md)). Wall clock: ~15 min for NL alone, ~30 min for NL + NRW. Existing `route_legs` rows tagged with the previous `osrm_version` are automatically ignored on read and repopulate via `walking-precompute` on the next upload (or lazily on the next plan). A weekly host systemd timer to run the script is a planned follow-up.
 
 ## What's deliberately not here yet
 
