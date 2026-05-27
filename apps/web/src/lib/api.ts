@@ -16,6 +16,8 @@ import {
   ClusterCandidatesResponse,
   type ExplainClusterInput,
   ExplainClusterResponse,
+  type ParkingOptionsInput,
+  ParkingOptionsResponse,
   type PlanInput,
   type PlanLoopInput,
   PlanResult,
@@ -147,6 +149,15 @@ export async function planLoop(input: PlanLoopInput) {
     body: JSON.stringify(input),
   });
   return PlanResult.parse(raw);
+}
+
+export async function fetchParkingOptions(input: ParkingOptionsInput) {
+  const raw = await request<unknown>("/tours/parking-options", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return ParkingOptionsResponse.parse(raw);
 }
 
 export async function explainSelection(input: ExplainClusterInput) {

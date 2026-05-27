@@ -10,6 +10,7 @@ import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
+import { haversineMeters } from "./strategies/greedy/equirectangular.js";
 import { explainSelection } from "./strategies/greedy/clustering/explain.js";
 import {
   buildWalkingGraphResponse,
@@ -65,6 +66,81 @@ export class ToursService {
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
     return this.planner.planLoop(ownerId, input);
+  }
+
+  /**
+   * For each distinct parking waypoint contributed by the supplied cluster,
+   * return an OSRM-routed walk to the cluster's nearest cache. Powers the
+   * web map's parking-preview layer so the user can compare candidate
+   * parking spots before committing to a plan.
+   *
+   * Costs one OSRM /route per unique parking; capped at `maxOptions` (≤20)
+   * so a cluster with many parkings can't fan out unboundedly. Results
+   * sorted by walking distance ascending.
+   */
+  async getParkingOptions(
+    ownerId: string,
+    input: Tours.ParkingOptionsInput,
+  ): Promise<Tours.ParkingOptionsResponse> {
+    const caches = await this.cachesRepo.findByIds(ownerId, input.cacheIds);
+    if (caches.length === 0) return { options: [] };
+
+    // Deduplicate parking waypoints by rounded coord — the same physical
+    // spot is often listed by multiple caches in a cluster.
+    const byKey = new Map<
+      string,
+      { lng: number; lat: number; ownerCacheId: number }
+    >();
+    for (const c of caches) {
+      for (const [lng, lat] of c.parkingPoints) {
+        const key = `${lng.toFixed(5)},${lat.toFixed(5)}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, { lng, lat, ownerCacheId: c.id });
+        }
+      }
+    }
+    if (byKey.size === 0) return { options: [] };
+
+    // For each parking, find the cluster's nearest cache by haversine
+    // (cheap pre-filter — the OSRM /route then gives the real walking
+    // distance to that cache). Then collect with bounded concurrency to
+    // keep OSRM happy.
+    const candidates = Array.from(byKey.entries()).map(([key, p]) => {
+      let nearest = caches[0]!;
+      let nearestD = Number.POSITIVE_INFINITY;
+      for (const c of caches) {
+        const d = haversineMeters(
+          [p.lng, p.lat],
+          c.location.coordinates as [number, number],
+        );
+        if (d < nearestD) {
+          nearestD = d;
+          nearest = c;
+        }
+      }
+      return { key, parking: p, nearestCache: nearest };
+    });
+
+    const options: Tours.ParkingOption[] = [];
+    for (const { key, parking, nearestCache } of candidates) {
+      const route = await this.osrm.route(
+        [parking.lng, parking.lat],
+        nearestCache.location.coordinates as [number, number],
+        "foot",
+      );
+      if (!route) continue;
+      options.push({
+        id: key,
+        point: [parking.lng, parking.lat],
+        ownerCacheId: parking.ownerCacheId,
+        nearestCacheId: nearestCache.id,
+        walkingMeters: route.meters,
+        walkingSeconds: route.seconds,
+        polyline: route.geometry,
+      });
+    }
+    options.sort((a, b) => a.walkingMeters - b.walkingMeters);
+    return { options: options.slice(0, input.maxOptions) };
   }
 
   /**

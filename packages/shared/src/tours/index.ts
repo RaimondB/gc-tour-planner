@@ -3,6 +3,7 @@
 
 export * from "./cluster-candidate.js";
 export * from "./explain-cluster.js";
+export * from "./parking-options.js";
 export * from "./plan-input.js";
 export * from "./plan-loop-input.js";
 export * from "./plan-result.js";
