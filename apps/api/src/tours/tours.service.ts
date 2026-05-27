@@ -123,23 +123,46 @@ export class ToursService {
 
     const options: Tours.ParkingOption[] = [];
     for (const { key, parking, nearestCache } of candidates) {
-      const route = await this.osrm.route(
+      // Ask OSRM for up to 3 routes and pick the shortest by meters. The
+      // primary `/route` result is sometimes a noticeable detour on dense
+      // foot networks (e.g. it routes onto a main road instead of a
+      // cut-through path); alternatives let us surface the genuinely
+      // shortest walk to the user.
+      const alts = await this.osrm.routeAlternatives(
         [parking.lng, parking.lat],
         nearestCache.location.coordinates as [number, number],
         "foot",
+        3,
       );
-      if (!route) continue;
+      if (alts.length === 0) continue;
+      const best = alts.reduce((a, b) => (a.meters <= b.meters ? a : b));
+      // Flag options whose OSRM walk vastly exceeds the planner's link
+      // budget — these are almost always OSM data gaps (missing footway
+      // connectors, fenced-off shortcuts) rather than real walks. We keep
+      // them in the response so the user can see "this parking belongs
+      // to cache X but OSRM thinks it's far" and decide to file an OSM
+      // fix; the client renders them in a warning style.
+      const bogus =
+        input.maxWalkingMeters !== undefined &&
+        best.meters > input.maxWalkingMeters;
       options.push({
         id: key,
         point: [parking.lng, parking.lat],
         ownerCacheId: parking.ownerCacheId,
         nearestCacheId: nearestCache.id,
-        walkingMeters: route.meters,
-        walkingSeconds: route.seconds,
-        polyline: route.geometry,
+        walkingMeters: best.meters,
+        walkingSeconds: best.seconds,
+        polyline: best.geometry,
+        bogus,
       });
     }
-    options.sort((a, b) => a.walkingMeters - b.walkingMeters);
+    // Sort non-bogus first (by walking meters asc), then bogus (also asc).
+    // The maxOptions slice favours real candidates; bogus ones only appear
+    // when there's still room.
+    options.sort((a, b) => {
+      if (a.bogus !== b.bogus) return a.bogus ? 1 : -1;
+      return a.walkingMeters - b.walkingMeters;
+    });
     return { options: options.slice(0, input.maxOptions) };
   }
 

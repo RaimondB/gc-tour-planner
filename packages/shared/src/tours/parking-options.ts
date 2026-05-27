@@ -18,6 +18,13 @@ export const ParkingOptionsInput = z.object({
    * also bounds the number of OSRM /route calls (one per option).
    */
   maxOptions: z.number().int().positive().max(20).default(8),
+  /**
+   * Drop options whose OSRM walking distance exceeds this cap. Used by the
+   * map preview to hide parkings that route through huge detours caused by
+   * OSM data gaps (missing footway connectors, fenced-off shortcuts).
+   * Typically wired to the planner's `maxLinkMeters`.
+   */
+  maxWalkingMeters: z.number().positive().optional(),
 });
 export type ParkingOptionsInput = z.infer<typeof ParkingOptionsInput>;
 
@@ -37,6 +44,14 @@ export const ParkingOption = z.object({
   walkingSeconds: z.number().nonnegative(),
   /** OSRM /route polyline from parking → nearestCache. */
   polyline: GeoJsonLineString,
+  /**
+   * `true` when this option's OSRM walking distance exceeds the request's
+   * `maxWalkingMeters` cap — almost always caused by OSM data gaps
+   * (missing footway connectors, fenced-off shortcuts) rather than a real
+   * long walk. The client renders these in a "warning" style so the user
+   * still sees the candidate but knows it's not a good pick.
+   */
+  bogus: z.boolean().default(false),
 });
 export type ParkingOption = z.infer<typeof ParkingOption>;
 

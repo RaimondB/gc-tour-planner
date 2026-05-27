@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CacheDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
@@ -16,6 +16,7 @@ import type {
 import {
   discoverClusters,
   explainSelection,
+  fetchParkingOptions,
   planLoop,
   purgeBogusWalkingCells,
   testOsrmRoute,
@@ -621,19 +622,40 @@ function PlanResultPanel({
   const visitMin = result.totals.visitMinutes;
   const totalMin = walkingMin + visitMin;
 
-  const downloadPlan = () => {
-    const blob = new Blob([JSON.stringify(result, null, 2)], {
+  // Same queryKey as ParkingPreviewLayer → no double fetch. Lets us dump the
+  // exact parking-options payload the map is rendering for offline diagnosis
+  // of weird-looking preview routes.
+  const parkingQuery = useQuery({
+    queryKey: [
+      "parking-options",
+      [...result.orderedCacheIds].sort((a, b) => a - b),
+    ],
+    queryFn: () =>
+      fetchParkingOptions({
+        cacheIds: [...result.orderedCacheIds],
+        maxOptions: 8,
+      }),
+    enabled: result.orderedCacheIds.length > 0,
+    staleTime: 5 * 60_000,
+  });
+
+  const downloadJson = (data: unknown, slug: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     a.href = url;
-    a.download = `gctp-plan-${ts}.json`;
+    a.download = `gctp-${slug}-${ts}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+  const downloadPlan = () => downloadJson(result, "plan");
+  const downloadParkingOptions = () => {
+    if (parkingQuery.data) downloadJson(parkingQuery.data, "parking-options");
   };
 
   return (
@@ -683,6 +705,14 @@ function PlanResultPanel({
           title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
         >
           Download plan JSON
+        </button>
+        <button
+          type="button"
+          onClick={downloadParkingOptions}
+          disabled={!parkingQuery.data || parkingQuery.data.options.length === 0}
+          title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
+        >
+          Download parking options JSON
         </button>
       </div>
     </div>

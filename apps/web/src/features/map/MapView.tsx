@@ -88,7 +88,11 @@ export function MapView({
       // handlers). `map.getLayer` requires `map.style` to be loaded —
       // bound only after the `"load"` event below so this is safe.
       const hits = map.queryRenderedFeatures(e.point, {
-        layers: ["gctp-caches-circle"].filter((id) => map.getLayer(id)),
+        layers: [
+          "gctp-caches-circle",
+          "gctp-parking-preview-hit",
+          "gctp-cluster-centroids-circle",
+        ].filter((id) => map.getLayer(id)),
       });
       if (hits.length > 0) return;
       onPickRef.current?.([e.lngLat.lng, e.lngLat.lat]);

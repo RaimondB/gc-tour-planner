@@ -44,18 +44,30 @@ interface CacheProps {
 
 const SELECTED_LAYER = "gctp-caches-selected";
 
+export interface SelectedParking {
+  point: [number, number];
+  ownerCacheId: number;
+}
+
 export interface CachesLayerProps {
   params: SearchParams;
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
   selectedCacheIds?: ReadonlySet<number>;
   /** Shift-click toggles a cache in/out of the selection. */
   onSelectionChange?: (next: ReadonlySet<number>) => void;
+  /**
+   * Clicking a parking marker reports it here so the parent can render the
+   * owner-cache link line. `null` clears the selection (used when the
+   * caller wants to deselect on outside click).
+   */
+  onParkingSelect?: (next: SelectedParking | null) => void;
 }
 
 export function CachesLayer({
   params,
   selectedCacheIds,
   onSelectionChange,
+  onParkingSelect,
 }: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
@@ -97,14 +109,14 @@ export function CachesLayer({
 
     const parkingFeatures: GeoJSON.Feature<
       GeoJSON.Point,
-      { cacheCode: string }
+      { cacheCode: string; cacheId: number }
     >[] = [];
     for (const c of caches) {
       for (const [lng, lat] of c.parkingPoints) {
         parkingFeatures.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: [lng, lat] },
-          properties: { cacheCode: c.code },
+          properties: { cacheCode: c.code, cacheId: c.id },
         });
       }
     }
@@ -271,7 +283,9 @@ export function CachesLayer({
     ) => {
       const f = e.features?.[0];
       if (!f) return;
-      const code = (f.properties as { cacheCode?: string }).cacheCode ?? "?";
+      const props = f.properties as { cacheCode?: string; cacheId?: number };
+      const code = props.cacheCode ?? "?";
+      const cacheId = props.cacheId;
       const [lng, lat] = (f.geometry as GeoJSON.Point).coordinates;
       new maplibregl.Popup({ closeButton: true })
         .setLngLat([lng, lat])
@@ -279,6 +293,12 @@ export function CachesLayer({
           `<div style="font:13px system-ui;padding:2px 4px">Parking for <strong>${code}</strong></div>`,
         )
         .addTo(map);
+      // Drive the owner-link layer — every click pins to the latest
+      // parking. Clearing happens via the dedicated layer's outside-click
+      // handler, keeping this handler simple.
+      if (typeof cacheId === "number" && onParkingSelect) {
+        onParkingSelect({ point: [lng, lat], ownerCacheId: cacheId });
+      }
     };
     map.on("click", CACHES_CIRCLE_LAYER, handler);
     map.on("mouseenter", CACHES_CIRCLE_LAYER, enter);
@@ -294,7 +314,14 @@ export function CachesLayer({
       map.off("mouseenter", PARKING_LAYER, enter);
       map.off("mouseleave", PARKING_LAYER, leave);
     };
-  }, [map, ready, queryClient, selectedCacheIds, onSelectionChange]);
+  }, [
+    map,
+    ready,
+    queryClient,
+    selectedCacheIds,
+    onSelectionChange,
+    onParkingSelect,
+  ]);
 
   return null;
 }
