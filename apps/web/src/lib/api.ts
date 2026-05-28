@@ -12,6 +12,7 @@ import {
 import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
+import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
 import {
   ParkingFacilitiesResponse,
   type ParkingAccessChip,
@@ -122,6 +123,11 @@ export async function listParkingFacilities(
     `/parking-facilities?${search.toString()}`,
   );
   return ParkingFacilitiesResponse.parse(raw);
+}
+
+export async function listLanduseProfiles() {
+  const raw = await request<unknown>("/landuse-profiles");
+  return LanduseProfilesResponse.parse(raw);
 }
 
 export interface UploadGpxResult {

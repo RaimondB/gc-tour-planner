@@ -31,6 +31,10 @@
       "types": "./dist/landuse/index.d.ts",
       "import": "./dist/landuse/index.js"
     },
+    "./landuse-profiles": {
+      "types": "./dist/landuse-profiles/index.d.ts",
+      "import": "./dist/landuse-profiles/index.js"
+    },
     "./parking-facilities": {
       "types": "./dist/parking-facilities/index.d.ts",
       "import": "./dist/parking-facilities/index.js"

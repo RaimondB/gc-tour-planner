@@ -12,6 +12,7 @@ import { RoutingRepository } from "../../../routing/routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
 import { OsrmVersionService } from "../../../routing/osrm-version.service.js";
 import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
+import { LanduseProfilesRepository } from "../../../landuse-profiles/landuse-profiles.repository.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
 import {
   CLUSTERING_STRATEGIES,
@@ -51,6 +52,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly osrmVersion: OsrmVersionService,
     private readonly parkingFacilities: ParkingFacilitiesRepository,
+    private readonly landuseProfiles: LanduseProfilesRepository,
   ) {}
 
   // ─── Pass 1: cluster discovery ────────────────────────────────────────────
@@ -132,6 +134,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     // 4. Score + sort.
     const preferredLanduseKinds = await this.kindsForLanduseProfile(
+      ownerId,
       input.softPreferences.landuseProfileId,
     );
     const scored = splitClusters.map((cacheIds) => {
@@ -264,15 +267,20 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
   /**
    * Map a landuse profile id → kinds the profile considers "preferred".
-   * Placeholder until a landuse_profiles table lands: for now the id IS the
-   * kind (e.g. `landuseProfileId='forest'`). Empty when no profile selected.
+   * Reads `landuse_profiles` via `LanduseProfilesRepository` with the
+   * caller's ownerId so system profiles + the user's own profiles are
+   * both eligible, but other users' private profiles are silently
+   * filtered. Returns an empty list when no profile is requested or
+   * when the id is not visible to the caller — the planner's
+   * `landuseMatch` term then zeroes out, matching pre-M5-β behaviour.
    */
   private async kindsForLanduseProfile(
+    ownerId: string,
     profileId: string | undefined,
   ): Promise<string[]> {
     if (!profileId) return [];
-    // TODO(M5-β): join landuse_profiles table once it exists.
-    return [profileId];
+    const profile = await this.landuseProfiles.findById(ownerId, profileId);
+    return profile?.kinds ?? [];
   }
 
   // ─── Pass 2: routed closed loop ───────────────────────────────────────────

@@ -132,12 +132,23 @@ CREATE TABLE gpx_uploads (
   uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE landuse_profiles (
-  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id  UUID REFERENCES users(id) ON DELETE CASCADE,      -- NULL = system profile
-  name      TEXT NOT NULL,
-  weights   JSONB NOT NULL                                    -- {"forest":8,"park":4,"residential":-5}
+CREATE TABLE landuse_profiles (                                -- M5-β
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id    UUID REFERENCES users(id) ON DELETE CASCADE,    -- NULL = system profile
+  name        TEXT NOT NULL,
+  description TEXT,
+  -- Canonical kinds the profile rewards. Must be a subset of
+  -- packages/shared/src/landuse LANDUSE_KINDS (validated app-side).
+  -- Per-kind weights are deferred; today every kind in the set
+  -- counts equally toward the cluster's `landuseMatch` term.
+  kinds       JSONB NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX landuse_profiles_owner_idx ON landuse_profiles (owner_id);
+-- Three seed system profiles ship with the migration:
+--   Forest-heavy (forest, park, scrub, heath)
+--   Urban        (residential, industrial)
+--   Balanced     (forest, park, meadow, heath, scrub, residential, farmland)
 
 CREATE TABLE preference_profiles (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
