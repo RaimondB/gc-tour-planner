@@ -54,7 +54,11 @@ export async function buildWalkingGraphResponse(
     maxLinkMeters: input.maxLinkMeters,
     distanceBudgetMeters: input.distanceBudgetMeters,
     hardFilters: input.hardFilters,
-    softPreferences: { clusterDensityWeight: 1, loopCompactnessWeight: 1 },
+    softPreferences: {
+      clusterDensityWeight: 1,
+      loopCompactnessWeight: 1,
+      landuseWeight: 1,
+    },
     startPreference: "parking-waypoint",
     osmParkingAccessFilter: ["yes", "customers"],
     osmParkingFeeFilter: "any",

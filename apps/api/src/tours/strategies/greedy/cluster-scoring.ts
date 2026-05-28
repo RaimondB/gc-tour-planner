@@ -9,8 +9,17 @@ const PARKING_PRESENCE_RADIUS_M = 500;
 
 export interface ScoreClusterInput {
   caches: readonly Caches.CacheDTO[];
-  /** MST length (m) — used for density + budgetFit terms. */
+  /** MST length (m) — used by the density term as a compactness proxy. */
   mstLengthMeters: number;
+  /**
+   * Estimated closed-loop tour length (m) — NN+2-opt on the same distance
+   * lookup the MST uses. Replaces the MST in the `budgetFit` term: MST is
+   * a lower bound that dramatically undershoots the actual TSP tour for
+   * thin / chained clusters (a 14-cache cluster with MST 3.3 km can yield
+   * a 17 km tour). Using the TSP estimate makes the budgetFit penalty
+   * actually reflect what the user gets in Pass 2.
+   */
+  estimatedTourMeters: number;
   /** User's distance budget in metres — feeds the Gaussian budgetFit term. */
   distanceBudgetMeters: number;
   softPrefs: Tours.SoftPreferences;
@@ -82,9 +91,14 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     : 0;
   breakdown.parkingPresence = parkingPresence;
 
-  // Budget fit: Gaussian peak at MST = budget.
-  const r =
-    (mstLengthMeters - distanceBudgetMeters) / distanceBudgetMeters;
+  // Budget fit: Gaussian peak when the estimated TSP closed loop matches
+  // the user's distance budget. Uses `estimatedTourMeters` (NN+2-opt on
+  // the cluster's distance lookup) rather than MST — MST is a lower
+  // bound that undershoots by 2-5× on thin / chained clusters and lets
+  // 17 km tours rank as if they were 3 km tours.
+  const tourMeters =
+    input.estimatedTourMeters > 0 ? input.estimatedTourMeters : mstLengthMeters;
+  const r = (tourMeters - distanceBudgetMeters) / distanceBudgetMeters;
   breakdown.budgetFit =
     Math.exp(-(r * r)) * softPrefs.loopCompactnessWeight;
 

@@ -224,7 +224,11 @@ function planInput(over: Partial<Tours.PlanInput> = {}): Tours.PlanInput {
     maxLinkMeters: 1_500,
     distanceBudgetMeters: 8_000,
     hardFilters: {},
-    softPreferences: { clusterDensityWeight: 1, loopCompactnessWeight: 1 },
+    softPreferences: {
+      clusterDensityWeight: 1,
+      loopCompactnessWeight: 1,
+      landuseWeight: 1,
+    },
     startPreference: "parking-waypoint",
     ...over,
   };

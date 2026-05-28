@@ -53,6 +53,7 @@ export async function explainSelection(
     softPreferences: {
       clusterDensityWeight: 1,
       loopCompactnessWeight: 1,
+      landuseWeight: 1,
     },
     startPreference: "parking-waypoint",
     osmParkingAccessFilter: ["yes", "customers"],
@@ -231,6 +232,7 @@ function describeSelection(
   const score = scoreCluster({
     caches: present,
     mstLengthMeters: mst,
+    estimatedTourMeters: loopLowerBound,
     distanceBudgetMeters: ctx.input.distanceBudgetMeters,
     softPrefs: ctx.input.softPreferences,
     landuseKindsByCacheId: new Map(),
@@ -460,9 +462,13 @@ function computeAttribution(
           )
         : 0,
     );
+    // Explain mode is analytic-only; we don't compute the TSP estimate
+    // here (it's just MST × 2 as a cheap stand-in). The actual planner
+    // path uses the real NN+2-opt estimate.
     const score = scoreCluster({
       caches: cluster,
       mstLengthMeters: mst,
+      estimatedTourMeters: mst * 2,
       distanceBudgetMeters: ctx.input.distanceBudgetMeters,
       softPrefs: ctx.input.softPreferences,
       landuseKindsByCacheId: new Map(),
@@ -481,6 +487,7 @@ function computeAttribution(
           coordinates: [meanLng, meanLat],
         },
         mstLengthMeters: round2(mst),
+        estimatedTourMeters: round2(mst * 2),
         score: round4(score.total),
         scoreBreakdown: Object.fromEntries(
           Object.entries(score.breakdown).map(([k, v]) => [k, round4(v)]),

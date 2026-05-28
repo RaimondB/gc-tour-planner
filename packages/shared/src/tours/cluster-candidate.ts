@@ -20,6 +20,14 @@ export const ClusterCandidate = z.object({
   centroid: GeoJsonPoint,
   /** Closed-loop lower bound via MST × 2 in meters; useful for budget hints. */
   mstLengthMeters: z.number().nonnegative(),
+  /**
+   * Pass-1 closed-loop tour estimate (NN+2-opt) in meters. Calibrated to
+   * OSRM-walked length via a 1.4× factor so the value is comparable to
+   * what Pass 2 produces. Drives the budgetFit scoring term and is
+   * surfaced on the cluster card so the user can see "est. tour 12 km"
+   * instead of just "MST 3.3 km" before committing to a plan.
+   */
+  estimatedTourMeters: z.number().nonnegative().default(0),
   score: z.number(),
   scoreBreakdown: z.record(z.string(), z.number()),
 });

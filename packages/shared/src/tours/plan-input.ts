@@ -23,6 +23,13 @@ export const SoftPreferences = z.object({
   terrainTarget: TargetedWeight.optional(),
   clusterDensityWeight: z.number().default(1),
   loopCompactnessWeight: z.number().default(1),
+  /**
+   * Multiplier on `landuseMatch` (0..1, fraction of cluster caches
+   * inside a preferred-kind polygon). Default 1 — same contribution as
+   * `parkingPresence`. Bump to 3-5 when a profile match should dominate
+   * the ranking; sidebar slider 0..5.
+   */
+  landuseWeight: z.number().min(0).max(5).default(1),
 });
 export type SoftPreferences = z.infer<typeof SoftPreferences>;
 
