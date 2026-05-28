@@ -1,23 +1,18 @@
-# OSM context — Overpass
+# OSM context — landuse + parking (was: Overpass)
 
-Lives at `apps/api/src/osm/`.
-
-- **Cell scheme.** The world is divided into 0.1°-square cells (≈ 11 km × 7 km at lat 52°). `area_hash` is `"minLng,minLat"` rounded to two decimals. Every `osm_landuse` row records the cell it was fetched in via `(area_hash, osm_way_id)` (unique). Freshness is tracked per cell — `max(fetched_at)` per cell determines stale.
-- **`OsmService.listLanduse({ bbox, kinds })`**:
-  1. Snap `bbox` to all overlapping cells (capped at 0.6° per axis to prevent abuse).
-  2. For each cell whose newest row is stale (>30 d) or missing → refresh from Overpass and `replaceCell` in one transaction.
-  3. Query `osm_landuse` with `polygon::geometry && ST_MakeEnvelope(bbox)` (optionally `WHERE kind = ANY(:kinds)`) and return as a GeoJSON `FeatureCollection`.
-- **Overpass query** (`HttpOverpassClient.fetchLanduse`):
-  ```overpass
-  [out:json][timeout:60];
-  (
-    way["landuse"~"^(forest|park|residential|farmland|industrial|meadow|heath|scrub)$"](minLat,minLng,maxLat,maxLng);
-    way["natural"~"^(wood|water|wetland|heath|scrub)$"](minLat,minLng,maxLat,maxLng);
-    way["leisure"~"^(park|nature_reserve)$"](minLat,minLng,maxLat,maxLng);
-  );
-  out tags geom;
-  ```
-  Closed ways only — relations (multipolygons) are deferred. Tags → canonical kind in `apps/api/src/osm/landuse-classify.ts`.
-- **Caches `contexts` hard filter.** When `GET /caches?contexts=forest&contexts=park` is set, the query adds `WHERE EXISTS (SELECT 1 FROM osm_landuse l WHERE l.kind = ANY(:contexts) AND ST_Contains(l.polygon::geometry, c.location::geometry))`. The web app warms `/landuse` for the same bbox first so cells are populated.
-- **Endpoint override.** Public Overpass by default; override via env `OVERPASS_URL`.
-- **MVP fetch path is synchronous.** The DI'd `OverpassClient` is called directly on cache miss; a process-local `Map<areaHash, Promise>` dedupes concurrent requests for the same cell within one Node process. The cross-process Valkey lock and the BullMQ `overpass-refresh` queue (with serve-stale behavior) arrive with M4.
+> **Superseded.** This document was written when the OSM landuse context was fetched from Overpass at request time and stored cell-by-cell in `osm_landuse`. That whole pipeline has been removed.
+>
+> The current pipeline is a single osm2pgsql pass — described by [ADR-0009](../adr/0009-osm2pgsql-replaces-overpass.md), [ADR-0010](../adr/0010-unified-osm-refresh.md), and [ADR-0011](../adr/0011-osm-parking-facilities.md) — that populates two tables:
+>
+> * `landuse_polygons` — `MultiPolygon` features for 10 canonical kinds (`forest`, `park`, `residential`, …). Replaces the Overpass-fed `osm_landuse`.
+> * `parking_facilities` — `Point | MultiPolygon` features for `amenity=parking`, with `access`, `fee`, `parking_type`, `capacity`, `maxstay`, etc.
+>
+> Both are produced by the same Lua filter at [infra/osm2pgsql/osm-features.lua](../../infra/osm2pgsql/osm-features.lua) and the same one-shot `osm2pgsql-import` compose service. Freshness lives in `landuse_import_meta` (single row); the operator-driven refresh script is [scripts/refresh-osm-data.sh](../../scripts/refresh-osm-data.sh).
+>
+> Lives at:
+>
+> - [apps/api/src/osm/landuse.repository.ts](../../apps/api/src/osm/landuse.repository.ts) — `GET /landuse`. Server-side LOD via `ST_SimplifyPreserveTopology` (tolerance scales with bbox width) + envelope-area floor + `LIMIT 5000` safety net.
+> - [apps/api/src/osm/parking-facilities.repository.ts](../../apps/api/src/osm/parking-facilities.repository.ts) — `GET /parking-facilities`. Same LOD pattern + unconditional drop of `access=private`. Used by `OsmParkingLayer` on the map and by the `startPreference="osm-parking"` planner branch.
+> - [apps/api/src/tours/strategies/pick-osm-parking.ts](../../apps/api/src/tours/strategies/pick-osm-parking.ts) — picks a candidate from `parking_facilities`, OSRM-walks each to the cluster's nearest cache, returns the shortest within `maxLinkMeters`.
+>
+> See [design/api-surface.md](api-surface.md) for the HTTP DTOs and [design/data-model.md](data-model.md) for the table schemas.

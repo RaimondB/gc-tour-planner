@@ -54,15 +54,47 @@ CREATE TABLE additional_waypoints (
 );
 CREATE INDEX additional_waypoints_location_gist ON additional_waypoints USING GIST (location);
 
-CREATE TABLE osm_landuse (
-  id         BIGSERIAL PRIMARY KEY,
-  area_hash  TEXT NOT NULL,                                   -- bbox+kinds hash, for cache lookup
-  kind       TEXT NOT NULL,                                   -- 'forest', 'park', 'residential', ...
-  polygon    GEOGRAPHY(Polygon, 4326) NOT NULL,
-  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+-- ADR-0009 replaced the Overpass-fed osm_landuse with osm2pgsql-fed
+-- landuse_polygons. ADR-0011 adds parking_facilities to the same import.
+-- Both tables are populated by infra/osm2pgsql/osm-features.lua in a
+-- single PBF pass, with freshness recorded in landuse_import_meta.
+CREATE TABLE landuse_polygons (
+  osm_id    BIGINT NOT NULL,                                  -- OSM way / relation id
+  osm_type  CHAR(1) NOT NULL,                                 -- 'W' (way) | 'R' (relation), uppercase from osm2pgsql flex
+  kind      TEXT NOT NULL,                                    -- 'forest', 'park', 'residential', ... (see packages/shared/src/landuse)
+  geom      GEOMETRY(MultiPolygon, 4326) NOT NULL,
+  PRIMARY KEY (osm_type, osm_id)
 );
-CREATE INDEX osm_landuse_polygon_gist ON osm_landuse USING GIST (polygon);
-CREATE INDEX osm_landuse_area_idx ON osm_landuse (area_hash);
+CREATE INDEX landuse_polygons_geom_gix ON landuse_polygons USING GIST (geom);
+CREATE INDEX landuse_polygons_kind_idx ON landuse_polygons (kind);
+
+CREATE TABLE parking_facilities (                              -- ADR-0011
+  osm_id        BIGINT NOT NULL,
+  osm_type      CHAR(1) NOT NULL,                             -- 'N' | 'W' | 'R' (uppercase, osm2pgsql flex)
+  geom          GEOMETRY NOT NULL,                            -- Point for nodes, MultiPolygon for ways/relations, 4326
+  access        TEXT,                                         -- yes | customers | permit | private | no | …
+  fee           TEXT,                                         -- normalised: parking:condition=disc → 'no'
+  parking_type  TEXT,                                         -- surface | multi-storey | underground | …
+  capacity      INTEGER,
+  maxstay       TEXT,
+  supervised    TEXT,
+  opening_hours TEXT,
+  surface       TEXT,
+  name          TEXT,
+  PRIMARY KEY (osm_type, osm_id)
+);
+CREATE INDEX parking_facilities_geom_gix    ON parking_facilities USING GIST (geom);
+CREATE INDEX parking_facilities_access_idx  ON parking_facilities (access);
+CREATE INDEX parking_facilities_fee_idx     ON parking_facilities (fee);
+
+CREATE TABLE landuse_import_meta (                             -- single-row, CHECK id=1
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  imported_at   TIMESTAMPTZ NOT NULL,
+  pbf_timestamp TIMESTAMPTZ,
+  source_file   TEXT,
+  replicated_at TIMESTAMPTZ,                                  -- legacy; replication queue dropped per ADR-0010
+  replication_state TEXT
+);
 
 CREATE TABLE route_legs (
   from_cache_id BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
