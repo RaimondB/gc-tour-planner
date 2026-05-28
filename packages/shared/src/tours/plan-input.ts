@@ -4,6 +4,10 @@
 import { z } from "zod";
 import { CacheType, AttributeFilterGroups } from "../caches/index.js";
 import { LngLat } from "../geo/index.js";
+import {
+  ParkingAccessChip,
+  ParkingFeeFilter,
+} from "../parking-facilities/index.js";
 
 export const TargetedWeight = z.object({
   value: z.number(),
@@ -32,6 +36,11 @@ export const StartPreference = z.enum([
   "parking-waypoint",
   "osrm-nearest-road",
   "user-supplied-point",
+  // OSM-sourced amenity=parking facilities (ADR-0011). Filtered by
+  // `osmParkingAccessFilter` + `osmParkingFeeFilter`; the planner walks
+  // each candidate to the cluster's nearest cache via OSRM and picks the
+  // shortest.
+  "osm-parking",
 ]);
 export type StartPreference = z.infer<typeof StartPreference>;
 
@@ -78,6 +87,25 @@ export const PlanInput = z.object({
   softPreferences: SoftPreferences,
   startPreference: StartPreference.default("parking-waypoint"),
   userSuppliedStart: LngLat.optional(),
+  /**
+   * How many ranked clusters to return from Pass 1. The planner always
+   * sorts by score; this just sets the cut-off. Capped at 20 — anything
+   * higher is more useful for diagnostics than planning.
+   */
+  topNClusters: z.number().int().min(1).max(20).default(5),
+  /**
+   * Applies only when `startPreference === "osm-parking"`. Defaults to
+   * `["yes", "customers"]` — `permit` is opt-in (ADR-0011): a permit you
+   * don't have is functionally the same as private.
+   */
+  osmParkingAccessFilter: z
+    .array(ParkingAccessChip)
+    .default(["yes", "customers"]),
+  /**
+   * Applies only when `startPreference === "osm-parking"`. `any` (default)
+   * lets the planner pick the closest candidate regardless of fee.
+   */
+  osmParkingFeeFilter: ParkingFeeFilter.default("any"),
   /**
    * Which Pass-1 clustering algorithm to use. When omitted, the server falls
    * back to the `PLANNER_CLUSTERING` env default (and ultimately `louvain`).

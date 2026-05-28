@@ -15,11 +15,14 @@
 #   3. Wipe the existing .osrm.* preprocessed files and recreate the
 #      osrm container so it re-runs `osrm-extract` + `osrm-partition` +
 #      `osrm-customize` against the fresh PBF, then come back online.
-#   4. Force a full landuse re-import via LANDUSE_FORCE_REIMPORT=1.
+#   4. Force a full osm2pgsql re-import via LANDUSE_FORCE_REIMPORT=1.
+#      Refreshes BOTH `landuse_polygons` and `parking_facilities` in
+#      one pass — they share the same Lua filter (ADR-0011).
 #
-# Both landuse and OSRM end up at the same OSM snapshot — no drift
-# between "what the planner thinks the road network looks like" and
-# "what landuse the cluster scorer sees".
+# Landuse, parking, and OSRM all end up at the same OSM snapshot — no
+# drift between "what the planner thinks the road network looks like",
+# "what landuse the cluster scorer sees", and "which parking the
+# osm-parking start mode picks from".
 #
 # Wall clock on the NUC8i7BEH:
 #   * NL alone:   ~12-15 min total
@@ -75,4 +78,5 @@ LANDUSE_FORCE_REIMPORT=1 ${COMPOSE} up osm2pgsql-import
 
 echo "→ refresh complete"
 echo "  - osm-version.txt: $(docker exec gctp-osrm-1 cat /data/osrm-version.txt 2>/dev/null || echo unknown)"
-echo "  - landuse_polygons: $(docker exec gctp-postgres-1 psql -U gctp -d gctp -At -c 'SELECT count(*) FROM landuse_polygons' 2>/dev/null) rows"
+echo "  - landuse_polygons:    $(docker exec gctp-postgres-1 psql -U gctp -d gctp -At -c 'SELECT count(*) FROM landuse_polygons' 2>/dev/null) rows"
+echo "  - parking_facilities: $(docker exec gctp-postgres-1 psql -U gctp -d gctp -At -c 'SELECT count(*) FROM parking_facilities' 2>/dev/null) rows"

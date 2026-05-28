@@ -10,11 +10,14 @@ import type {
   PlanResult,
 } from "@gctp/shared/tours";
 import { listCaches } from "./lib/api.js";
+import { useLocalStorageState } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
 import { MapView } from "./features/map/MapView.js";
 import { CachesLayer, type SelectedParking } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
+import { ZoomDebugBadge } from "./features/map/ZoomDebugBadge.js";
+import { OsmParkingLayer } from "./features/map/OsmParkingLayer.js";
 import { ParkingOwnerLinkLayer } from "./features/map/ParkingOwnerLinkLayer.js";
 import { ParkingPreviewLayer } from "./features/map/ParkingPreviewLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
@@ -35,10 +38,21 @@ import { AdminPrecomputePanel } from "./features/admin/AdminPrecomputePanel.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 
 export default function App(): JSX.Element {
-  const [params, setParams] = useState<SearchParams>(DEFAULT_SEARCH);
-  const [planSettings, setPlanSettings] = useState<PlanSettings>(
+  const [params, setParams] = useLocalStorageState<SearchParams>(
+    "search",
+    DEFAULT_SEARCH,
+  );
+  const [planSettings, setPlanSettings] = useLocalStorageState<PlanSettings>(
+    "plan-settings",
     DEFAULT_PLAN_SETTINGS,
   );
+  // Persisted map viewport — restored on first mount of MapView, refreshed
+  // on every `moveend`. Decoupled from `params.center` so panning around to
+  // browse parking doesn't churn the search.
+  const [viewport, setViewport] = useLocalStorageState<{
+    center: [number, number];
+    zoom: number;
+  } | null>("viewport", null);
   const [clusters, setClusters] = useState<ClusterCandidate[] | null>(null);
   const [diagnostics, setDiagnostics] = useState<ClusterDiagnostics | null>(
     null,
@@ -167,14 +181,19 @@ export default function App(): JSX.Element {
         </div>
         <main className="app-main">
           <MapView
-            initialCenter={params.center}
-            initialZoom={zoomForRadius(params.radiusM)}
+            initialCenter={viewport?.center ?? params.center}
+            initialZoom={viewport?.zoom ?? zoomForRadius(params.radiusM)}
             onPickCenter={handlePickCenter}
             onReady={(m) => {
               mapRef.current = m;
             }}
+            onViewportChange={setViewport}
           >
             <LanduseLayer params={params} />
+            <OsmParkingLayer
+              access={planSettings.osmParkingAccessFilter}
+              fee={planSettings.osmParkingFeeFilter}
+            />
             <RadiusLayer params={params} />
             <CachesLayer
               params={params}
@@ -206,6 +225,7 @@ export default function App(): JSX.Element {
               onStatsChange={setWalkingGraphStats}
             />
             <TestRouteLayer result={testRoute} />
+            <ZoomDebugBadge />
           </MapView>
         </main>
       </div>

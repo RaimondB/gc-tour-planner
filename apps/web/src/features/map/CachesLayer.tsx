@@ -10,6 +10,7 @@ import { listCaches, markCacheFound, unmarkCacheFound } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
+import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
 
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
@@ -150,11 +151,37 @@ export function CachesLayer({
         id: PARKING_LAYER,
         type: "circle",
         source: PARKING_SOURCE,
+        // Cache-owner parking waypoints aren't useful below city-block
+        // zoom — they overlap the cache they belong to and just add
+        // visual noise. PARKING_MIN_ZOOM is shared with OsmParkingLayer
+        // so the two layers always pop in together.
+        minzoom: PARKING_MIN_ZOOM,
         paint: {
-          "circle-radius": 6,
+          // Sized smaller than the cache circle at every zoom so the
+          // cache stays the headline feature. Cache layer interpolates
+          // z9→4 / z14→9; parking goes PARKING_MIN_ZOOM→3 / +3→6.
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            PARKING_MIN_ZOOM,
+            3,
+            PARKING_MIN_ZOOM + 3,
+            6,
+          ],
           "circle-color": "#ffffff",
           "circle-stroke-color": "#1565c0",
-          "circle-stroke-width": 2,
+          // Stroke also tapers so a small radius doesn't look like a
+          // doughnut at city zoom.
+          "circle-stroke-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            PARKING_MIN_ZOOM,
+            1,
+            PARKING_MIN_ZOOM + 3,
+            1.8,
+          ],
         },
       });
     }

@@ -56,6 +56,9 @@ export async function buildWalkingGraphResponse(
     hardFilters: input.hardFilters,
     softPreferences: { clusterDensityWeight: 1, loopCompactnessWeight: 1 },
     startPreference: "parking-waypoint",
+    osmParkingAccessFilter: ["yes", "customers"],
+    osmParkingFeeFilter: "any",
+    topNClusters: 5,
   };
   const ctx = await prepareClusteringContext(ownerId, planInput, {
     caches: deps.caches,

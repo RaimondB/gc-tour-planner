@@ -39,7 +39,8 @@
       "Bash(DATABASE_URL=postgresql://gctp:gctp-dev@localhost:5432/gctp pnpm --filter @gctp/db migrate:up)",
       "Bash(pnpm -r test --no-color)",
       "Bash(FORCE_COLOR=0 pnpm -r test)",
-      "Bash(FORCE_COLOR=0 pnpm -r lint)"
+      "Bash(FORCE_COLOR=0 pnpm -r lint)",
+      "Bash(pnpm --filter @gctp/db build)"
     ],
     "additionalDirectories": [
       "/tmp"

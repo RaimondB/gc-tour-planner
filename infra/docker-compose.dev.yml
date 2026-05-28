@@ -31,6 +31,9 @@ services:
     restart: unless-stopped
     mem_limit: 1g
     memswap_limit: 1g
+    # Docker's default container /dev/shm is 64 MiB — Postgres parallel
+    # workers blow through that on any non-trivial PostGIS query.
+    shm_size: 512m
     environment:
       POSTGRES_USER: ${POSTGRES_USER_DEV:-gctp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_DEV:-gctp-dev}

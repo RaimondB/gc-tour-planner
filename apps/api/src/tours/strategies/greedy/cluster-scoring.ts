@@ -59,7 +59,13 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
   const breakdown: Record<string, number> = {};
 
   // Density: more caches per unit MST length → more cohesive cluster.
-  const density = mstLengthMeters > 0 ? caches.length / mstLengthMeters : 0;
+  // Expressed as caches per 100 m of MST so the value lands in roughly
+  // the same 0..1+ range as the other terms (parkingPresence is 0/1,
+  // budgetFit and landuseMatch are 0..1). Without the 100× rescale this
+  // term sat around ~0.003 and never moved the ranking — the user-
+  // configurable `clusterDensityWeight` lets the user tune from there.
+  const density =
+    mstLengthMeters > 0 ? (caches.length * 100) / mstLengthMeters : 0;
   breakdown.clusterDensity = density * softPrefs.clusterDensityWeight;
 
   // Parking presence: any cache within 500 m of an owner-supplied parking waypoint.

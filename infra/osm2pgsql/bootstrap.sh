@@ -80,11 +80,14 @@ fi
 
 echo "[landuse-import] importing ${TARGET_PBF} into ${PG_DATABASE}@${PG_HOST}"
 
-# Wipe the target table BEFORE osm2pgsql runs — --slim --drop --create
-# wants to own the table and will DROP+CREATE it from the Lua definition,
-# which our migration also creates. TRUNCATE is the safest neutral state:
-# osm2pgsql sees an existing (empty) table and recreates it cleanly.
+# Wipe the target tables BEFORE osm2pgsql runs — --slim --drop --create
+# wants to own the tables and will DROP+CREATE them from the Lua
+# definition, which our migrations also create. TRUNCATE is the safest
+# neutral state: osm2pgsql sees existing (empty) tables and recreates
+# them cleanly. parking_facilities is populated from the same Lua pass
+# (ADR-0011); both tables refresh atomically.
 ${PSQL} -c "TRUNCATE landuse_polygons RESTART IDENTITY CASCADE;"
+${PSQL} -c "TRUNCATE parking_facilities RESTART IDENTITY CASCADE;"
 
 # Wipe any in-flight flat.bin from a previous failed import.
 rm -f /var/lib/osm2pgsql/flat.bin
@@ -112,7 +115,7 @@ osm2pgsql \
   --cache "${OSM2PGSQL_CACHE}" \
   --number-processes "${OSM2PGSQL_PROCESSES}" \
   --output=flex \
-  --style /srv/landuse.lua \
+  --style /srv/osm-features.lua \
   ${OSM2PGSQL_EXTRA:-} \
   "${TARGET_PBF}"
 
@@ -132,5 +135,6 @@ ON CONFLICT (id) DO UPDATE SET
   replication_state = NULL;
 "
 
-COUNT=$(${PSQL} -c "SELECT count(*) FROM landuse_polygons")
-echo "[landuse-import] done — ${COUNT} polygons in landuse_polygons"
+LANDUSE_COUNT=$(${PSQL} -c "SELECT count(*) FROM landuse_polygons")
+PARKING_COUNT=$(${PSQL} -c "SELECT count(*) FROM parking_facilities")
+echo "[landuse-import] done — ${LANDUSE_COUNT} polygons in landuse_polygons, ${PARKING_COUNT} rows in parking_facilities"

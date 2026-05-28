@@ -101,6 +101,25 @@ Dropped caches surface in the `PlanResult.droppedCacheIds` field and
 get a gray-x marker on the map so the user can see they were trimmed
 deliberately, not just absent from the cluster.
 
+## Pass 2 — OSM parking start (ADR-0011)
+
+When `startPreference="osm-parking"` is selected, the planner picks a
+tour start from the `parking_facilities` table populated by osm2pgsql.
+Two per-request knobs live on `PlanInput` / `PlanLoopInput`, surfaced
+in the sidebar:
+
+| Field | Default | Effect |
+|---|---|---|
+| `osmParkingAccessFilter` | `["yes", "customers"]` | OSM `access` values eligible as tour starts. `permit` is opt-in (a permit you don't have ≈ private). `private`/`no` are never offered. |
+| `osmParkingFeeFilter` | `"any"` | `"free"` requires `fee=no`; `"paid"` requires `fee=yes`; `"any"` allows both. `parking:condition=disc` (NL blue zones) is normalised to `fee=no` upstream by the Lua import. |
+
+Selection is "shortest OSRM walk to the cluster's nearest cache, within
+`maxLinkMeters`". Candidates whose walk exceeds the cap (usually an OSM
+data gap, e.g. missing footway connector) are silently dropped — the
+planner falls back to OSRM-nearest-road if no facility survives the cap.
+The chosen `ParkingChoice.reason` always includes the OSM id, access,
+fee, and rounded walking distance so the UI can explain the pick.
+
 ## Symptom → knob
 
 | Symptom | Probable cause | Adjust |

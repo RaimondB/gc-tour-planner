@@ -31,8 +31,8 @@ RUN apt-get update \
 # Mounted via the osm2pgsql-data named volume in compose.
 RUN mkdir -p /var/lib/osm2pgsql
 
-COPY landuse.lua    /srv/landuse.lua
-COPY bootstrap.sh   /srv/bootstrap.sh
+COPY osm-features.lua /srv/osm-features.lua
+COPY bootstrap.sh     /srv/bootstrap.sh
 RUN chmod +x /srv/bootstrap.sh
 
 ENTRYPOINT ["/srv/bootstrap.sh"]

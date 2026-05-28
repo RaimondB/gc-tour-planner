@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Injectable, Logger } from "@nestjs/common";
-import type { Landuse } from "@gctp/shared";
+import type { Landuse, ParkingFacilities } from "@gctp/shared";
 import { LanduseRepository } from "./landuse.repository.js";
+import { ParkingFacilitiesRepository } from "./parking-facilities.repository.js";
 
 /**
  * Cap how much area a single request can ask for, as a guard against
@@ -29,7 +30,10 @@ const MAX_DELTA_DEG = 2.5;
 export class OsmService {
   private readonly logger = new Logger(OsmService.name);
 
-  constructor(private readonly repo: LanduseRepository) {}
+  constructor(
+    private readonly repo: LanduseRepository,
+    private readonly parkingRepo: ParkingFacilitiesRepository,
+  ) {}
 
   async listLanduse(
     query: Landuse.LanduseQuery,
@@ -45,6 +49,25 @@ export class OsmService {
     }
 
     const features = await this.repo.findFeatures(bbox, query.kinds);
+    return { type: "FeatureCollection", features };
+  }
+
+  async listParkingFacilities(
+    query: ParkingFacilities.ParkingFacilitiesQuery,
+  ): Promise<ParkingFacilities.ParkingFacilitiesResponse> {
+    const { bbox, access, fee } = query;
+    if (
+      bbox.maxLng - bbox.minLng > MAX_DELTA_DEG ||
+      bbox.maxLat - bbox.minLat > MAX_DELTA_DEG
+    ) {
+      throw new Error(
+        `Parking-facilities bbox too large (max ${MAX_DELTA_DEG}° per axis). Pan in to refine.`,
+      );
+    }
+    const features = await this.parkingRepo.findFeatures(bbox, {
+      access,
+      fee,
+    });
     return { type: "FeatureCollection", features };
   }
 }
