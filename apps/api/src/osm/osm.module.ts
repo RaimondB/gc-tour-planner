@@ -6,16 +6,19 @@ import { DatabaseModule } from "../database/database.module.js";
 import { LanduseRepository } from "./landuse.repository.js";
 import { OsmController } from "./osm.controller.js";
 import { OsmService } from "./osm.service.js";
+import { ParkingFacilitiesController } from "./parking-facilities.controller.js";
+import { ParkingFacilitiesRepository } from "./parking-facilities.repository.js";
 
 /**
- * Read-only landuse module (ADR-0009). Writes happen out-of-band via
- * osm2pgsql; this module exposes `LanduseRepository` and `OsmService` for
- * the rest of the API to consume.
+ * Read-only OSM module (ADR-0009 + ADR-0011). Writes happen out-of-band
+ * via a single osm2pgsql pass that populates both `landuse_polygons` and
+ * `parking_facilities`. This module exposes the repositories + `OsmService`
+ * for the rest of the API to consume.
  */
 @Module({
   imports: [DatabaseModule],
-  controllers: [OsmController],
-  providers: [OsmService, LanduseRepository],
-  exports: [OsmService, LanduseRepository],
+  controllers: [OsmController, ParkingFacilitiesController],
+  providers: [OsmService, LanduseRepository, ParkingFacilitiesRepository],
+  exports: [OsmService, LanduseRepository, ParkingFacilitiesRepository],
 })
 export class OsmModule {}

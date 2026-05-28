@@ -35,6 +35,14 @@ services:
     # disables swap for the container — predictable kill instead of swap thrash.
     mem_limit: 2g
     memswap_limit: 2g
+    # Docker's default container /dev/shm is 64 MiB. Postgres parallel
+    # workers use POSIX shm for cross-worker hash tables, sort buffers
+    # and gather nodes — at the 64 MiB default any non-trivial parallel
+    # plan over PostGIS data hits "could not resize shared memory
+    # segment ... No space left on device". 1 GiB is well above the
+    # high-water mark we've seen on the planner's biggest queries and
+    # still inside the 2 GiB mem_limit.
+    shm_size: 1g
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -110,6 +118,11 @@ services:
       OSRM_REGION: ${OSRM_REGION:-}
       OSRM_REGIONS: ${OSRM_REGIONS:-}
       OSRM_MAX_TABLE_SIZE: ${OSRM_MAX_TABLE_SIZE:-5000}
+      # Worker thread count for osrm-routed. Bound to physical cores by
+      # default to leave HT headroom for the rest of the stack; raise
+      # for higher single-tenant throughput, lower if OSRM is starving
+      # postgres / api under load.
+      OSRM_THREADS: ${OSRM_THREADS:-4}
     volumes:
       - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
       - osrm-data:/data
@@ -203,8 +216,13 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.api
     restart: unless-stopped
-    mem_limit: 1g
-    memswap_limit: 1g
+    # 1 GiB was tight: a province-wide /landuse response (post-LOD-relax
+    # for the viewport-following layer) used to push Node V8 over the
+    # default ~750 MiB old-space and crash with "Reached heap limit". 2 GiB
+    # gives comfortable headroom for the LIMIT-5000 worst case and the
+    # planner's matrices that also live in-process briefly.
+    mem_limit: 2g
+    memswap_limit: 2g
     depends_on:
       postgres:
         condition: service_healthy
@@ -250,6 +268,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
+      OSRM_MAX_CONCURRENCY: ${OSRM_MAX_CONCURRENCY:-8}
       # shared reverse proxy strips /api before forwarding, but bull-board needs the
       # public URL path to bake correct asset URLs. See
       # apps/api/src/main.ts for the rationale.

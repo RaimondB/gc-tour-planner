@@ -8,6 +8,8 @@ import { CachesModule } from "../caches/caches.module.js";
 import { CachesRepository } from "../caches/caches.repository.js";
 import { CachesService } from "../caches/caches.service.js";
 import { CacheLanduseRepository } from "../caches/cache-landuse.repository.js";
+import { OsmModule } from "../osm/osm.module.js";
+import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
@@ -48,6 +50,7 @@ const tourPlannerProvider: Provider = {
     osrm: OsrmClient,
     osrmVersion: OsrmVersionService,
     solver: SolverClient,
+    parkingFacilities: ParkingFacilitiesRepository,
   ) => {
     const greedy = new GreedyTspPlanner(
       caches,
@@ -57,11 +60,19 @@ const tourPlannerProvider: Provider = {
       routingRepo,
       osrm,
       osrmVersion,
+      parkingFacilities,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
       case "solver":
-        return new SolverTourPlanner(greedy, caches, routing, osrm, solver);
+        return new SolverTourPlanner(
+          greedy,
+          caches,
+          routing,
+          osrm,
+          solver,
+          parkingFacilities,
+        );
       case "greedy":
       default:
         return greedy;
@@ -77,11 +88,12 @@ const tourPlannerProvider: Provider = {
     OSRM_CLIENT,
     OsrmVersionService,
     SOLVER_CLIENT,
+    ParkingFacilitiesRepository,
   ],
 };
 
 @Module({
-  imports: [CachesModule, RoutingModule],
+  imports: [CachesModule, RoutingModule, OsmModule],
   controllers: [ToursController],
   providers: [
     ToursService,

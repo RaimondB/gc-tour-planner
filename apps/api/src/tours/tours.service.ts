@@ -3,6 +3,7 @@
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Tours } from "@gctp/shared";
+import type { Caches } from "@gctp/shared";
 import { CachesService } from "../caches/caches.service.js";
 import { CachesRepository } from "../caches/caches.repository.js";
 import { CacheLanduseRepository } from "../caches/cache-landuse.repository.js";
@@ -101,69 +102,105 @@ export class ToursService {
     }
     if (byKey.size === 0) return { options: [] };
 
-    // For each parking, find the cluster's nearest cache by haversine
-    // (cheap pre-filter — the OSRM /route then gives the real walking
-    // distance to that cache). Then collect with bounded concurrency to
-    // keep OSRM happy.
-    const candidates = Array.from(byKey.entries()).map(([key, p]) => {
-      let nearest = caches[0]!;
-      let nearestD = Number.POSITIVE_INFINITY;
-      for (const c of caches) {
-        const d = haversineMeters(
-          [p.lng, p.lat],
-          c.location.coordinates as [number, number],
-        );
-        if (d < nearestD) {
-          nearestD = d;
-          nearest = c;
+    // Bundle the "which cache is each parking nearest to (by walking)"
+    // question into ONE OSRM /table call covering all parkings × all
+    // caches. Previous shape did N parkings × routeAlternatives = N
+    // separate OSRM /route requests; for a cluster with 12 parkings
+    // that's 11 calls we can skip.
+    const parkings = Array.from(byKey.entries()).map(([key, p]) => ({
+      key,
+      parking: p,
+    }));
+    const parkingCoords: [number, number][] = parkings.map((p) => [
+      p.parking.lng,
+      p.parking.lat,
+    ]);
+    const cacheCoords: [number, number][] = caches.map(
+      (c) => c.location.coordinates as [number, number],
+    );
+    // /table returns an (origins × destinations) matrix. We pass
+    // [...parkings, ...caches] and read the parkings-rows × caches-cols
+    // submatrix.
+    const matrix = await this.osrm.table(
+      [...parkingCoords, ...cacheCoords],
+      "foot",
+    );
+
+    // First pass: pick each parking's nearest *walking* cache (not
+    // haversine) and capture meters + seconds.
+    interface Picked {
+      key: string;
+      parking: { lng: number; lat: number; ownerCacheId: number };
+      nearestCache: Caches.CacheDTO;
+      walkingMeters: number;
+      walkingSeconds: number;
+    }
+    const picked: Picked[] = [];
+    for (let i = 0; i < parkings.length; i += 1) {
+      const row = matrix[i];
+      if (!row) continue;
+      let bestJ = -1;
+      let bestM = Number.POSITIVE_INFINITY;
+      let bestS = 0;
+      for (let j = 0; j < caches.length; j += 1) {
+        const cell = row[parkings.length + j];
+        if (!cell) continue;
+        if (cell.meters < bestM) {
+          bestM = cell.meters;
+          bestS = cell.seconds;
+          bestJ = j;
         }
       }
-      return { key, parking: p, nearestCache: nearest };
-    });
-
-    const options: Tours.ParkingOption[] = [];
-    for (const { key, parking, nearestCache } of candidates) {
-      // Ask OSRM for up to 3 routes and pick the shortest by meters. The
-      // primary `/route` result is sometimes a noticeable detour on dense
-      // foot networks (e.g. it routes onto a main road instead of a
-      // cut-through path); alternatives let us surface the genuinely
-      // shortest walk to the user.
-      const alts = await this.osrm.routeAlternatives(
-        [parking.lng, parking.lat],
-        nearestCache.location.coordinates as [number, number],
-        "foot",
-        3,
-      );
-      if (alts.length === 0) continue;
-      const best = alts.reduce((a, b) => (a.meters <= b.meters ? a : b));
-      // Flag options whose OSRM walk vastly exceeds the planner's link
-      // budget — these are almost always OSM data gaps (missing footway
-      // connectors, fenced-off shortcuts) rather than real walks. We keep
-      // them in the response so the user can see "this parking belongs
-      // to cache X but OSRM thinks it's far" and decide to file an OSM
-      // fix; the client renders them in a warning style.
-      const bogus =
-        input.maxWalkingMeters !== undefined &&
-        best.meters > input.maxWalkingMeters;
-      options.push({
-        id: key,
-        point: [parking.lng, parking.lat],
-        ownerCacheId: parking.ownerCacheId,
-        nearestCacheId: nearestCache.id,
-        walkingMeters: best.meters,
-        walkingSeconds: best.seconds,
-        polyline: best.geometry,
-        bogus,
+      if (bestJ < 0) continue;
+      picked.push({
+        key: parkings[i]!.key,
+        parking: parkings[i]!.parking,
+        nearestCache: caches[bestJ]!,
+        walkingMeters: bestM,
+        walkingSeconds: bestS,
       });
     }
-    // Sort non-bogus first (by walking meters asc), then bogus (also asc).
-    // The maxOptions slice favours real candidates; bogus ones only appear
-    // when there's still room.
-    options.sort((a, b) => {
+
+    // Sort non-bogus first (by walking meters asc), then bogus (also
+    // asc). Truncate to `maxOptions` BEFORE fetching geometries — we
+    // only need polylines for what we'll actually render.
+    const withBogus = picked.map((p) => ({
+      ...p,
+      bogus:
+        input.maxWalkingMeters !== undefined &&
+        p.walkingMeters > input.maxWalkingMeters,
+    }));
+    withBogus.sort((a, b) => {
       if (a.bogus !== b.bogus) return a.bogus ? 1 : -1;
       return a.walkingMeters - b.walkingMeters;
     });
-    return { options: options.slice(0, input.maxOptions) };
+    const survivors = withBogus.slice(0, input.maxOptions);
+
+    // Second pass: ONE /route per survivor for the polyline. Could be
+    // collapsed further into a routeAlternatives if the primary tends
+    // to be a detour (it sometimes is, per ADR-0011 comments), but
+    // this already drops from N OSRM calls per cluster preview to
+    // ~maxOptions + 1.
+    const options: Tours.ParkingOption[] = [];
+    for (const p of survivors) {
+      const route = await this.osrm.route(
+        [p.parking.lng, p.parking.lat],
+        p.nearestCache.location.coordinates as [number, number],
+        "foot",
+      );
+      if (!route) continue;
+      options.push({
+        id: p.key,
+        point: [p.parking.lng, p.parking.lat],
+        ownerCacheId: p.parking.ownerCacheId,
+        nearestCacheId: p.nearestCache.id,
+        walkingMeters: p.walkingMeters,
+        walkingSeconds: p.walkingSeconds,
+        polyline: route.geometry,
+        bogus: p.bogus,
+      });
+    }
+    return { options };
   }
 
   /**

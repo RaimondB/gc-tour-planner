@@ -5,9 +5,24 @@ import { z } from "zod";
 import { GeoJsonLineString, GeoJsonPoint } from "../geo/index.js";
 
 export const ParkingChoice = z.object({
-  type: z.enum(["pq", "osrm-nearest", "user"]),
+  type: z.enum(["pq", "osrm-nearest", "user", "osm"]),
   point: GeoJsonPoint,
   reason: z.string(),
+  /**
+   * When `type === "osm"`, identifies the source feature in
+   * `parking_facilities`. Lets the UI link the picked parking back to its
+   * map polygon and surface attributes (fee, access, capacity).
+   */
+  osm: z
+    .object({
+      osmId: z.number().int(),
+      // osm2pgsql flex stores uppercase: N (node), W (way), R (relation).
+      osmType: z.enum(["N", "W", "R"]),
+      access: z.string().nullable(),
+      fee: z.string().nullable(),
+      name: z.string().nullable(),
+    })
+    .optional(),
 });
 export type ParkingChoice = z.infer<typeof ParkingChoice>;
 

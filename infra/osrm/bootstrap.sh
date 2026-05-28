@@ -78,4 +78,14 @@ echo "[osrm] osrm-routed listening on :5000 (MLD)"
 # cluster-discovery /table call (we send the full candidate pool, capped at
 # 2000 in GreedyTspPlanner). Override via env if you ever push the pool higher.
 MAX_TABLE_SIZE="${OSRM_MAX_TABLE_SIZE:-5000}"
-exec osrm-routed --algorithm MLD --port 5000 --max-table-size "${MAX_TABLE_SIZE}" "${OSRM_BASE}"
+# Worker thread count for osrm-routed. Defaults to the number of hardware
+# threads, which can pin the box under load. NUC8i7BEH is 4C/8T; 4 is a
+# sane middle (leaves headroom for postgres + api + the osm2pgsql-import
+# container if it ever runs concurrently). Pair with the API-side
+# OSRM_MAX_CONCURRENCY cap (HttpOsrmClient) — that bounds inbound, this
+# bounds parallelism per request inside OSRM.
+OSRM_THREADS="${OSRM_THREADS:-4}"
+exec osrm-routed --algorithm MLD --port 5000 \
+  --max-table-size "${MAX_TABLE_SIZE}" \
+  --threads "${OSRM_THREADS}" \
+  "${OSRM_BASE}"

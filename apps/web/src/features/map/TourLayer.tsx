@@ -324,6 +324,15 @@ export function TourLayer({
         "text-color": "#ffffff",
       },
     });
+
+    // Some MapLibre builds don't schedule a redraw after addLayer+setData
+    // when the map is in a quiescent state — the layer is in the style
+    // but the canvas keeps showing the pre-update frame until the next
+    // user interaction (a click, a pan, anything that calls
+    // map.update()). Force the next frame ourselves so the numbered
+    // visit pins + dropped-cache badges appear immediately after the
+    // plan response lands.
+    map.triggerRepaint();
   }, [map, ready, result, caches]);
 
   // Auto-fit the camera to the polyline whenever a new tour is planned.

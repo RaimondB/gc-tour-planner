@@ -58,11 +58,12 @@ export class LanduseRepository {
     );
     // ~1 px equivalent on a 1024-px wide rendered map.
     const toleranceDeg = widthDeg / 1024;
-    // ~4 px × 4 px floor in sq-degrees. We compare against the envelope
-    // dimensions (width × height) instead of ST_Area because envelope
-    // computation is cheap and "is this polygon visible at this zoom?"
-    // is the question we actually care about.
-    const minEnvSide = toleranceDeg * 4;
+    // Envelope-side floor for "is this polygon visible at this zoom?".
+    // ~2 px on each axis. Combined with OR (not AND) below, this keeps
+    // long-thin features like rivers / industrial strips even when one
+    // axis is sub-pixel, while still dropping the truly-tiny-dot
+    // polygons that bloat the payload at country zoom.
+    const minEnvSide = toleranceDeg * 2;
 
     let q = this.db
       .selectFrom("landuse_polygons")
@@ -77,9 +78,13 @@ export class LanduseRepository {
       .where(
         sql<boolean>`geom && ST_MakeEnvelope(${bbox.minLng}, ${bbox.minLat}, ${bbox.maxLng}, ${bbox.maxLat}, 4326)`,
       )
-      // Drop polygons too small to render usefully at this zoom. The
-      // envelope dimensions come straight from the GIST-indexed geom
-      // metadata — no full geometry scan.
+      // Drop polygons too small to render at this zoom. AND-rule (both
+      // axes must clear the floor) keeps the response bounded — OR was
+      // briefly tried but let through enough polygons at province-wide
+      // zoom to OOM the Node heap. The multiplier was lowered from 4
+      // to 2 in the same change so rural fragmented landuse (small
+      // parks / forest patches in the 350–700 m range) survives at
+      // region zoom; that's the readability win we wanted.
       .where(
         sql<boolean>`(ST_XMax(geom) - ST_XMin(geom)) > ${minEnvSide}
                      AND (ST_YMax(geom) - ST_YMin(geom)) > ${minEnvSide}`,
@@ -87,6 +92,19 @@ export class LanduseRepository {
     if (kinds && kinds.length > 0) {
       q = q.where("kind", "in", kinds as unknown as string[]);
     }
+    // Hard ceiling on response size. Even at very low zoom (~province
+    // wide, post-LOD) we should never ship more than this — a runaway
+    // result set previously crashed the Node heap with OOM. Order by
+    // envelope area DESC so the *biggest* polygons land first;
+    // truncation drops invisible-grade dots rather than headline
+    // features.
+    const MAX_FEATURES = 5_000;
+    q = q
+      .orderBy(
+        sql`(ST_XMax(geom) - ST_XMin(geom)) * (ST_YMax(geom) - ST_YMin(geom))`,
+        "desc",
+      )
+      .limit(MAX_FEATURES);
     const rows = (await q.execute()) as unknown as LanduseRow[];
 
     // Use osm_id as the user-visible numeric id; pair with osm_type if a

@@ -55,6 +55,9 @@ export async function explainSelection(
       loopCompactnessWeight: 1,
     },
     startPreference: "parking-waypoint",
+    osmParkingAccessFilter: ["yes", "customers"],
+    osmParkingFeeFilter: "any",
+    topNClusters: 5,
     clusteringStrategy: input.clusteringStrategy,
   };
 

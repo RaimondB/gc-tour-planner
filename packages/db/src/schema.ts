@@ -102,6 +102,40 @@ export interface LandusePolygonsTable {
 }
 
 /**
+ * `amenity=parking` features ingested by the same osm2pgsql pass that
+ * populates landuse_polygons (ADR-0011). One row per OSM node, closed
+ * way, or multipolygon relation tagged `amenity=parking`.
+ *
+ * Schema declared in `infra/osm2pgsql/osm-features.lua` and
+ * `packages/db/migrations/1779620000000_parking_facilities.sql` — keep
+ * them in lockstep. Freshness shares `landuse_import_meta` (no separate
+ * metadata row).
+ */
+export interface ParkingFacilitiesTable {
+  osm_id: number;
+  /** 'n' (node), 'w' (way), or 'r' (relation). */
+  osm_type: string;
+  /**
+   * Untyped geometry — Point for nodes, MultiPolygon for ways/relations.
+   * Repositories use ST_AsGeoJSON + ST_GeometryType to dispatch.
+   */
+  geom: string;
+  /** Raw OSM `access` value: yes | customers | permit | private | no | … */
+  access: string | null;
+  /** Effective fee after `parking:condition` normalisation: yes | no | donation | NULL. */
+  fee: string | null;
+  /** OSM `parking` tag: surface | multi-storey | underground | … */
+  parking_type: string | null;
+  /** Best-effort integer parse of `capacity`. NULL when unparseable. */
+  capacity: number | null;
+  maxstay: string | null;
+  supervised: string | null;
+  opening_hours: string | null;
+  surface: string | null;
+  name: string | null;
+}
+
+/**
  * Single-row metadata table tracking the most recent landuse import +
  * replication run. `id` is constrained to 1 by a CHECK so jobs can
  * blindly UPSERT.
@@ -205,6 +239,7 @@ export interface Database {
   gpx_uploads: GpxUploadsTable;
   cache_finds: CacheFindsTable;
   landuse_polygons: LandusePolygonsTable;
+  parking_facilities: ParkingFacilitiesTable;
   landuse_import_meta: LanduseImportMetaTable;
   route_legs: RouteLegsTable;
   cache_landuse: CacheLanduseTable;

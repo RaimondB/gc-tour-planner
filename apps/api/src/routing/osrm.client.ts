@@ -101,155 +101,203 @@ interface OsrmTableResponse {
 export class HttpOsrmClient implements OsrmClient {
   private readonly logger = new Logger(HttpOsrmClient.name);
   private readonly base: string;
+  /**
+   * Global concurrency cap on outbound OSRM requests. Configurable via
+   * `OSRM_MAX_CONCURRENCY` env (default 8). Keeps the single-process
+   * osrm-routed server from being overwhelmed when multiple users plan
+   * tours at the same time; surplus requests queue. See `withSemaphore`.
+   */
+  private readonly maxConcurrency: number;
+  private inFlight = 0;
+  private readonly waiters: Array<() => void> = [];
 
   constructor(@Inject(ConfigService) config: ConfigService) {
     this.base = (config.get<string>("OSRM_URL") ?? "http://osrm:5000").replace(
       /\/+$/,
       "",
     );
+    const raw = config.get<string>("OSRM_MAX_CONCURRENCY");
+    const parsed = raw === undefined ? 8 : Number.parseInt(raw, 10);
+    this.maxConcurrency =
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
+    this.logger.log(
+      `OSRM client → ${this.base} (max concurrency ${this.maxConcurrency})`,
+    );
   }
 
-  async route(
+  /**
+   * Acquire a slot in the global semaphore, run `fn`, release. The queue
+   * is FIFO. Failures still release the slot. The bound applies across
+   * all instance callers — that's the whole point. The Nest container
+   * defaults this provider to a singleton, so all controllers share one
+   * counter.
+   */
+  private async withSemaphore<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.inFlight >= this.maxConcurrency) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.inFlight += 1;
+    try {
+      return await fn();
+    } finally {
+      this.inFlight -= 1;
+      const next = this.waiters.shift();
+      if (next) next();
+    }
+  }
+
+  route(
     from: [number, number],
     to: [number, number],
     profile: Routing.RoutingProfile,
   ): Promise<OsrmLeg | null> {
-    const url =
-      `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
-      `?overview=full&geometries=geojson&steps=false&annotations=false`;
-    const res = await this.fetchWithTimeout(url);
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as OsrmRouteResponse;
-    if (json.code !== "Ok" || !json.routes || json.routes.length === 0)
-      return null;
-    const r = json.routes[0]!;
-    if (r.geometry.type !== "LineString") return null;
-    return {
-      meters: r.distance,
-      seconds: r.duration,
-      geometry: r.geometry as Geo.GeoJsonLineString,
-    };
+    return this.withSemaphore(async () => {
+      const url =
+        `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
+        `?overview=full&geometries=geojson&steps=false&annotations=false`;
+      const res = await this.fetchWithTimeout(url);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as OsrmRouteResponse;
+      if (json.code !== "Ok" || !json.routes || json.routes.length === 0)
+        return null;
+      const r = json.routes[0]!;
+      if (r.geometry.type !== "LineString") return null;
+      return {
+        meters: r.distance,
+        seconds: r.duration,
+        geometry: r.geometry as Geo.GeoJsonLineString,
+      };
+    });
   }
 
-  async routeAlternatives(
+  routeAlternatives(
     from: [number, number],
     to: [number, number],
     profile: Routing.RoutingProfile,
     count: number,
   ): Promise<OsrmLeg[]> {
-    if (count < 1) return [];
-    // OSRM's `alternatives` parameter accepts an integer = additional routes
-    // beyond the primary (alternatives=2 → up to 3 total routes). Capped at
-    // 5 — anything higher rarely produces useful variants for foot routing
-    // on dense urban networks.
-    const altParam = Math.min(Math.max(0, count - 1), 5);
-    const url =
-      `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
-      `?overview=full&geometries=geojson&steps=false&annotations=false` +
-      `&alternatives=${altParam}`;
-    const res = await this.fetchWithTimeout(url);
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as OsrmRouteResponse;
-    if (json.code !== "Ok" || !json.routes || json.routes.length === 0) {
-      return [];
-    }
-    const legs: OsrmLeg[] = [];
-    for (const r of json.routes) {
-      if (r.geometry.type !== "LineString") continue;
-      legs.push({
-        meters: r.distance,
-        seconds: r.duration,
-        geometry: r.geometry as Geo.GeoJsonLineString,
-      });
-    }
-    return legs;
+    if (count < 1) return Promise.resolve([]);
+    return this.withSemaphore(async () => {
+      // OSRM's `alternatives` parameter accepts an integer = additional routes
+      // beyond the primary (alternatives=2 → up to 3 total routes). Capped at
+      // 5 — anything higher rarely produces useful variants for foot routing
+      // on dense urban networks.
+      const altParam = Math.min(Math.max(0, count - 1), 5);
+      const url =
+        `${this.base}/route/v1/${profile}/${fmt(from)};${fmt(to)}` +
+        `?overview=full&geometries=geojson&steps=false&annotations=false` +
+        `&alternatives=${altParam}`;
+      const res = await this.fetchWithTimeout(url);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as OsrmRouteResponse;
+      if (json.code !== "Ok" || !json.routes || json.routes.length === 0) {
+        return [];
+      }
+      const legs: OsrmLeg[] = [];
+      for (const r of json.routes) {
+        if (r.geometry.type !== "LineString") continue;
+        legs.push({
+          meters: r.distance,
+          seconds: r.duration,
+          geometry: r.geometry as Geo.GeoJsonLineString,
+        });
+      }
+      return legs;
+    });
   }
 
-  async routeMulti(
+  routeMulti(
     coords: readonly [number, number][],
     profile: Routing.RoutingProfile,
   ): Promise<OsrmLeg | null> {
-    if (coords.length < 2) return null;
-    const url =
-      `${this.base}/route/v1/${profile}/${coords.map(fmt).join(";")}` +
-      `?overview=full&geometries=geojson&steps=false&annotations=false`;
-    const res = await this.fetchWithTimeout(url);
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as OsrmRouteResponse;
-    if (json.code !== "Ok" || !json.routes || json.routes.length === 0)
-      return null;
-    const r = json.routes[0]!;
-    if (r.geometry.type !== "LineString") return null;
-    return {
-      meters: r.distance,
-      seconds: r.duration,
-      geometry: r.geometry as Geo.GeoJsonLineString,
-    };
+    if (coords.length < 2) return Promise.resolve(null);
+    return this.withSemaphore(async () => {
+      const url =
+        `${this.base}/route/v1/${profile}/${coords.map(fmt).join(";")}` +
+        `?overview=full&geometries=geojson&steps=false&annotations=false`;
+      const res = await this.fetchWithTimeout(url);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`OSRM /route ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as OsrmRouteResponse;
+      if (json.code !== "Ok" || !json.routes || json.routes.length === 0)
+        return null;
+      const r = json.routes[0]!;
+      if (r.geometry.type !== "LineString") return null;
+      return {
+        meters: r.distance,
+        seconds: r.duration,
+        geometry: r.geometry as Geo.GeoJsonLineString,
+      };
+    });
   }
 
-  async table(
+  table(
     coords: readonly [number, number][],
     profile: Routing.RoutingProfile,
   ): Promise<(OsrmMatrixEntry | null)[][]> {
-    if (coords.length === 0) return [];
-    if (coords.length === 1) return [[{ meters: 0, seconds: 0 }]];
-    const url =
-      `${this.base}/table/v1/${profile}/${coords.map(fmt).join(";")}` +
-      `?annotations=distance,duration`;
-    const res = await this.fetchWithTimeout(url);
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OSRM /table ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as OsrmTableResponse;
-    if (json.code !== "Ok" || !json.durations || !json.distances) {
-      throw new Error(`OSRM /table returned code=${json.code}`);
-    }
-    const out: (OsrmMatrixEntry | null)[][] = [];
-    for (let i = 0; i < coords.length; i += 1) {
-      const row: (OsrmMatrixEntry | null)[] = [];
-      for (let j = 0; j < coords.length; j += 1) {
-        const d = json.distances[i]?.[j];
-        const t = json.durations[i]?.[j];
-        if (d === null || d === undefined || t === null || t === undefined) {
-          row.push(null);
-        } else {
-          row.push({ meters: d, seconds: t });
-        }
+    if (coords.length === 0) return Promise.resolve([]);
+    if (coords.length === 1)
+      return Promise.resolve([[{ meters: 0, seconds: 0 }]]);
+    return this.withSemaphore(async () => {
+      const url =
+        `${this.base}/table/v1/${profile}/${coords.map(fmt).join(";")}` +
+        `?annotations=distance,duration`;
+      const res = await this.fetchWithTimeout(url);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`OSRM /table ${res.status}: ${body.slice(0, 200)}`);
       }
-      out.push(row);
-    }
-    return out;
+      const json = (await res.json()) as OsrmTableResponse;
+      if (json.code !== "Ok" || !json.durations || !json.distances) {
+        throw new Error(`OSRM /table returned code=${json.code}`);
+      }
+      const out: (OsrmMatrixEntry | null)[][] = [];
+      for (let i = 0; i < coords.length; i += 1) {
+        const row: (OsrmMatrixEntry | null)[] = [];
+        for (let j = 0; j < coords.length; j += 1) {
+          const d = json.distances[i]?.[j];
+          const t = json.durations[i]?.[j];
+          if (d === null || d === undefined || t === null || t === undefined) {
+            row.push(null);
+          } else {
+            row.push({ meters: d, seconds: t });
+          }
+        }
+        out.push(row);
+      }
+      return out;
+    });
   }
 
-  async nearest(
+  nearest(
     point: [number, number],
     profile: Routing.RoutingProfile,
   ): Promise<[number, number] | null> {
-    const url = `${this.base}/nearest/v1/${profile}/${fmt(point)}?number=1`;
-    const res = await this.fetchWithTimeout(url);
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OSRM /nearest ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as {
-      code: string;
-      waypoints?: Array<{ location?: [number, number] }>;
-    };
-    if (json.code !== "Ok" || !json.waypoints || json.waypoints.length === 0)
-      return null;
-    const loc = json.waypoints[0]?.location;
-    if (!loc) return null;
-    return [loc[0], loc[1]];
+    return this.withSemaphore(async () => {
+      const url = `${this.base}/nearest/v1/${profile}/${fmt(point)}?number=1`;
+      const res = await this.fetchWithTimeout(url);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`OSRM /nearest ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const json = (await res.json()) as {
+        code: string;
+        waypoints?: Array<{ location?: [number, number] }>;
+      };
+      if (json.code !== "Ok" || !json.waypoints || json.waypoints.length === 0)
+        return null;
+      const loc = json.waypoints[0]?.location;
+      if (!loc) return null;
+      return [loc[0], loc[1]];
+    });
   }
 
   private async fetchWithTimeout(url: string): Promise<Response> {

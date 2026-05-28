@@ -3,6 +3,10 @@
 
 import { z } from "zod";
 import { LngLat } from "../geo/index.js";
+import {
+  ParkingAccessChip,
+  ParkingFeeFilter,
+} from "../parking-facilities/index.js";
 import { StartPreference } from "./plan-input.js";
 
 /**
@@ -23,5 +27,19 @@ export const PlanLoopInput = z.object({
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
   startPreference: StartPreference.default("parking-waypoint"),
   userSuppliedStart: LngLat.optional(),
+  /**
+   * Pass-1 link cap, re-supplied for Pass 2 so the parking selection can
+   * apply the same "is this parking actually walkable?" rule the cluster
+   * discovery used (ADR-0011). Defaults to the same 1500 m as PlanInput.
+   */
+  maxLinkMeters: z.number().int().min(200).max(5000).default(1500),
+  /**
+   * Applies only when `startPreference === "osm-parking"`. See PlanInput
+   * for the full rationale on `permit` being opt-in.
+   */
+  osmParkingAccessFilter: z
+    .array(ParkingAccessChip)
+    .default(["yes", "customers"]),
+  osmParkingFeeFilter: ParkingFeeFilter.default("any"),
 });
 export type PlanLoopInput = z.infer<typeof PlanLoopInput>;

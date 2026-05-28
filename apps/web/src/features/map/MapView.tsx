@@ -46,6 +46,14 @@ export interface MapViewProps {
    * unmount. Use to grab a ref for imperative camera moves like flyTo.
    */
   onReady?: (map: maplibregl.Map | null) => void;
+  /**
+   * Fires on `moveend` (debounced) with the current center + zoom. Use
+   * to persist the viewport so a refresh restores the user's spot.
+   */
+  onViewportChange?: (viewport: {
+    center: [number, number];
+    zoom: number;
+  }) => void;
   children?: ReactNode;
 }
 
@@ -54,6 +62,7 @@ export function MapView({
   initialZoom = DEFAULT_ZOOM,
   onPickCenter,
   onReady,
+  onViewportChange,
   children,
 }: MapViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,6 +71,8 @@ export function MapView({
   onPickRef.current = onPickCenter;
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onViewportRef = useRef(onViewportChange);
+  onViewportRef.current = onViewportChange;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -92,14 +103,28 @@ export function MapView({
           "gctp-caches-circle",
           "gctp-parking-preview-hit",
           "gctp-cluster-centroids-circle",
+          "gctp-osm-parking-fill",
+          "gctp-osm-parking-point",
+          "gctp-osm-parking-label",
         ].filter((id) => map.getLayer(id)),
       });
       if (hits.length > 0) return;
       onPickRef.current?.([e.lngLat.lng, e.lngLat.lat]);
     };
 
+    // Persist the user's viewport on moveend so a refresh restores the
+    // same spot. moveend already fires after pan/zoom settle, so no
+    // extra debouncing needed.
+    const onMoveEnd = () => {
+      const c = map.getCenter();
+      onViewportRef.current?.({
+        center: [c.lng, c.lat],
+        zoom: map.getZoom(),
+      });
+    };
     map.on("load", () => {
       map.on("click", clickHandler);
+      map.on("moveend", onMoveEnd);
       setApi({ map, ready: true });
     });
     setApi({ map, ready: false });
@@ -116,6 +141,7 @@ export function MapView({
     return () => {
       ro.disconnect();
       map.off("click", clickHandler);
+      map.off("moveend", onMoveEnd);
       onReadyRef.current?.(null);
       map.remove();
       setApi(null);

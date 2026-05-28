@@ -11,6 +11,8 @@ import { RoutingService } from "../../../routing/routing.service.js";
 import { RoutingRepository } from "../../../routing/routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
 import { OsrmVersionService } from "../../../routing/osrm-version.service.js";
+import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
+import { pickOsmParking } from "../pick-osm-parking.js";
 import {
   CLUSTERING_STRATEGIES,
   prepareClusteringContext,
@@ -30,7 +32,9 @@ import {
 } from "./marginal-trim.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
-const TOP_N_CLUSTERS = 5;
+/** Default cut-off when PlanInput omits `topNClusters` (defensive; the
+ *  zod schema already supplies 5). */
+const DEFAULT_TOP_N_CLUSTERS = 5;
 /** Hard cap so a misconfigured request doesn't make the planner OOM. */
 const MAX_LOOP_CACHES = 50;
 
@@ -46,6 +50,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     private readonly routingRepo: RoutingRepository,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly osrmVersion: OsrmVersionService,
+    private readonly parkingFacilities: ParkingFacilitiesRepository,
   ) {}
 
   // ─── Pass 1: cluster discovery ────────────────────────────────────────────
@@ -233,7 +238,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     ).length;
 
     return {
-      candidates: validCandidates.slice(0, TOP_N_CLUSTERS),
+      candidates: validCandidates.slice(
+        0,
+        input.topNClusters ?? DEFAULT_TOP_N_CLUSTERS,
+      ),
       diagnostics: {
         epsilonMeters: strategy.epsilonMetersForDiagnostics(ctx),
         poolSize: ctx.pool.length,
@@ -516,6 +524,25 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           point: { type: "Point", coordinates: centroid },
           reason:
             "OSRM /nearest found no walkable road — using raw cluster centroid",
+        };
+      }
+      case "osm-parking": {
+        const osm = await pickOsmParking(
+          this.parkingFacilities,
+          this.osrm,
+          input,
+          cluster,
+          centroid,
+        );
+        if (osm) return osm;
+        // No walkable OSM parking inside maxLinkMeters — fall back to
+        // OSRM-nearest so the planner still produces a tour. The reason
+        // string makes the fallback visible in the UI.
+        return {
+          type: "osrm-nearest",
+          point: { type: "Point", coordinates: centroid },
+          reason:
+            "No walkable OSM amenity=parking within maxLinkMeters — fell back to cluster centroid",
         };
       }
       case "parking-waypoint":

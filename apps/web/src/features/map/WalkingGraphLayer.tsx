@@ -8,6 +8,7 @@ import type { WalkingGraphResponse } from "@gctp/shared/tours";
 import { fetchWalkingGraph } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
+import { bboxToCenterRadius, useViewportBbox } from "./useViewportBbox.js";
 
 const SOURCE_ID = "gctp-walking-graph";
 const EDGE_LAYER = "gctp-walking-graph-edges";
@@ -42,20 +43,30 @@ export function WalkingGraphLayer({
   onStatsChange,
 }: WalkingGraphLayerProps): null {
   const { map, ready } = useMap();
+  // Follow the viewport rather than the search radius — the walking
+  // graph is heavy (full OSRM /table over the bbox's caches) so we
+  // gate it to z12+ and snap to a moderately coarse grid so panning a
+  // little doesn't re-fetch a thousand edges.
+  const vpBbox = useViewportBbox({
+    minZoom: 12,
+    gridDeg: 0.03,
+    debounceMs: 400,
+  });
+  const cr = vpBbox ? bboxToCenterRadius(vpBbox) : null;
   const query = useQuery({
     queryKey: [
       "walking-graph",
-      params.center,
-      params.radiusM,
+      cr?.center,
+      cr?.radiusM,
       params.types,
       maxLinkMeters,
       distanceBudgetMeters,
     ],
-    enabled: enabled && ready,
+    enabled: enabled && ready && cr !== null,
     queryFn: () =>
       fetchWalkingGraph({
-        center: params.center,
-        radiusM: params.radiusM,
+        center: cr!.center,
+        radiusM: cr!.radiusM,
         hardFilters: {
           types: params.types.length > 0 ? params.types : undefined,
         },
@@ -77,6 +88,20 @@ export function WalkingGraphLayer({
         if (map.getLayer(id)) map.removeLayer(id);
       }
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+      return;
+    }
+    // Below the layer's minZoom the viewport bbox is null and we skip
+    // the fetch — but without clearing the source the previous edges
+    // keep rendering, looking like the graph survived the zoom-out.
+    // Push an empty FC so the canvas matches the (no-)fetch state.
+    if (cr === null) {
+      const existing = map.getSource(SOURCE_ID);
+      if (existing && "setData" in existing) {
+        (existing as maplibregl.GeoJSONSource).setData({
+          type: "FeatureCollection",
+          features: [],
+        });
+      }
       return;
     }
     const data = query.data;
@@ -183,7 +208,7 @@ export function WalkingGraphLayer({
         },
       });
     }
-  }, [map, ready, enabled, query.data]);
+  }, [map, ready, enabled, query.data, cr]);
 
   return null;
 }

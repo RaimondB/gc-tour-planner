@@ -13,6 +13,11 @@ import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import {
+  ParkingFacilitiesResponse,
+  type ParkingAccessChip,
+  type ParkingFeeFilter,
+} from "@gctp/shared/parking-facilities";
+import {
   ClusterCandidatesResponse,
   type ExplainClusterInput,
   ExplainClusterResponse,
@@ -95,6 +100,28 @@ export async function listLanduse(params: ListLanduseParams) {
   for (const k of params.kinds ?? []) search.append("kinds", k);
   const raw = await request<unknown>(`/landuse?${search.toString()}`);
   return LanduseResponse.parse(raw);
+}
+
+export interface ListParkingFacilitiesParams {
+  bbox: BoundingBox;
+  access?: readonly ParkingAccessChip[];
+  fee?: ParkingFeeFilter;
+}
+
+export async function listParkingFacilities(
+  params: ListParkingFacilitiesParams,
+) {
+  const search = new URLSearchParams();
+  search.set("minLng", String(params.bbox.minLng));
+  search.set("minLat", String(params.bbox.minLat));
+  search.set("maxLng", String(params.bbox.maxLng));
+  search.set("maxLat", String(params.bbox.maxLat));
+  for (const a of params.access ?? []) search.append("access", a);
+  if (params.fee && params.fee !== "any") search.set("fee", params.fee);
+  const raw = await request<unknown>(
+    `/parking-facilities?${search.toString()}`,
+  );
+  return ParkingFacilitiesResponse.parse(raw);
 }
 
 export interface UploadGpxResult {

@@ -6,8 +6,9 @@ import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
 import type { LanduseKind } from "@gctp/shared/landuse";
 import { listLanduse } from "../../lib/api.js";
-import { radiusBbox, type SearchParams } from "../../lib/search-params.js";
+import { type SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
+import { useViewportBbox } from "./useViewportBbox.js";
 
 const SOURCE_ID = "gctp-landuse";
 const FILL_LAYER = "gctp-landuse-fill";
@@ -33,27 +34,45 @@ const KIND_COLORS: Record<LanduseKind, string> = {
 };
 
 /**
- * Fetches and renders landuse polygons for the current search radius bbox.
- * Returns null when `params.showLanduse` is false — layers stay attached so
- * the next toggle-on doesn't re-fetch and re-paint from scratch, but the
- * paint is hidden via `visibility`.
+ * Fetches and renders landuse polygons for whatever's currently in the
+ * map viewport. Refetches on `moveend` (debounced + grid-snapped so
+ * small pans inside a tile don't trigger refetches). Because the
+ * server-side LOD (`ST_SimplifyPreserveTopology` tolerance + envelope
+ * area floor) scales with the bbox width, zooming in produces a
+ * smaller bbox → smaller tolerance → finer detail automatically.
+ *
+ * Returns null when `params.showLanduse` is false — layers stay attached
+ * so the next toggle-on doesn't re-fetch and re-paint from scratch, but
+ * the paint is hidden via `visibility`.
  */
 export function LanduseLayer({ params }: { params: SearchParams }): null {
   const { map, ready } = useMap();
 
-  const bbox = radiusBbox(params.center, params.radiusM);
+  // minZoom 8: at z7 widthDeg ≈ 2.8° which overshoots the server's
+  // MAX_DELTA_DEG=2.5° cap; z8 (~1.4° wide) fits comfortably and covers
+  // typical region-wide views over NL. The grid is 0.05° — ~5.5 km at
+  // lat 52°. Landuse polygons are large enough that a coarser grid
+  // than parking still gives smooth panning.
+  const bbox = useViewportBbox({
+    minZoom: 8,
+    gridDeg: 0.05,
+    debounceMs: 300,
+  });
   const query = useQuery({
     queryKey: ["landuse", bbox],
-    queryFn: () => listLanduse({ bbox }),
-    enabled: params.showLanduse,
+    queryFn: () => listLanduse({ bbox: bbox! }),
+    enabled: params.showLanduse && bbox !== null,
     placeholderData: (prev) => prev,
     staleTime: 60_000, // backend already caches for 30d; the client just dedupes within a session
   });
 
-  // Push features onto the map source.
+  // Push features onto the map source. When the viewport drops below
+  // `minZoom`, `bbox` becomes null and the query is gated off — without
+  // clearing the source the previously-fetched polygons would keep
+  // rendering, making the layer look like it survived the zoom-out.
   useEffect(() => {
     if (!ready) return;
-    const features = query.data?.features ?? [];
+    const features = bbox === null ? [] : query.data?.features ?? [];
     const fc: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
       features: features.map((f) => ({
@@ -102,7 +121,7 @@ export function LanduseLayer({ params }: { params: SearchParams }): null {
         firstLayerAbove(map),
       );
     }
-  }, [map, ready, query.data]);
+  }, [map, ready, query.data, bbox]);
 
   // Toggle visibility instead of removing layers on showLanduse change.
   useEffect(() => {

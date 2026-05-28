@@ -14,6 +14,12 @@ import type {
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import {
+  PARKING_ACCESS_CHIPS,
+  PARKING_FEE_FILTER,
+  type ParkingAccessChip,
+  type ParkingFeeFilter,
+} from "@gctp/shared/parking-facilities";
+import {
   discoverClusters,
   explainSelection,
   fetchParkingOptions,
@@ -45,6 +51,21 @@ export interface PlanSettings {
    * `PlanInput` — see `ClusteringStrategyName` for available options.
    */
   clusteringStrategy: ClusteringStrategyName;
+  /**
+   * How many ranked candidate clusters to ask the planner for. Default 5.
+   * Larger area + sparser caches → bump it to surface lower-scoring
+   * alternatives the planner would otherwise hide.
+   */
+  topNClusters: number;
+  /**
+   * OSM-parking access chips (ADR-0011). Applied to both the planner
+   * request when `startPreference === "osm-parking"` and to the
+   * `OsmParkingLayer` query so the rendered icons match the planner's
+   * candidate set.
+   */
+  osmParkingAccessFilter: readonly ParkingAccessChip[];
+  /** OSM-parking fee preference. `"any"` = no preference. */
+  osmParkingFeeFilter: ParkingFeeFilter;
 }
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
@@ -56,6 +77,11 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   timePerCacheMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "louvain",
+  topNClusters: 5,
+  // `permit` is opt-in per ADR-0011 — a permit-only lot you don't have a
+  // permit for is functionally private.
+  osmParkingAccessFilter: ["yes", "customers"],
+  osmParkingFeeFilter: "any",
 };
 
 const STRATEGY_OPTIONS: ReadonlyArray<readonly [ClusteringStrategyName, string]> = [
@@ -158,9 +184,12 @@ export function PlannerSidebar({
         },
         startPreference: settings.startPreference,
         clusteringStrategy: settings.clusteringStrategy,
+        topNClusters: settings.topNClusters,
         ...(settings.startPreference === "user-supplied-point"
           ? { userSuppliedStart: search.center }
           : {}),
+        osmParkingAccessFilter: [...settings.osmParkingAccessFilter],
+        osmParkingFeeFilter: settings.osmParkingFeeFilter,
       });
     },
     onSuccess: (res) => {
@@ -179,9 +208,12 @@ export function PlannerSidebar({
         distanceBudgetMeters: settings.distanceBudgetMeters,
         timePerCacheMinutes: settings.timePerCacheMinutes,
         startPreference: settings.startPreference,
+        maxLinkMeters: settings.maxLinkMeters,
         ...(settings.startPreference === "user-supplied-point"
           ? { userSuppliedStart: search.center }
           : {}),
+        osmParkingAccessFilter: [...settings.osmParkingAccessFilter],
+        osmParkingFeeFilter: settings.osmParkingFeeFilter,
       });
     },
     onSuccess: (res) => onResultChange(res),
@@ -296,6 +328,22 @@ export function PlannerSidebar({
               onSettingsChange({
                 ...settings,
                 minClusterSize: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Candidates to return: {settings.topNClusters}
+          <input
+            type="range"
+            min={1}
+            max={20}
+            step={1}
+            value={settings.topNClusters}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                topNClusters: Number(e.target.value),
               })
             }
           />
@@ -462,6 +510,7 @@ export function PlannerSidebar({
             ["parking-waypoint", "Cache-owner parking (PQ)"],
             ["osrm-nearest-road", "OSRM nearest road"],
             ["user-supplied-point", "Use current search center"],
+            ["osm-parking", "OSM amenity=parking (ADR-0011)"],
           ] as const
         ).map(([val, label]) => (
           <label key={val} className="checkbox">
@@ -476,6 +525,64 @@ export function PlannerSidebar({
             {label}
           </label>
         ))}
+        {settings.startPreference === "osm-parking" && (
+          <div className="osm-parking-filters" style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6 }}>
+              <span className="muted" style={{ marginRight: 8 }}>
+                Access
+              </span>
+              {PARKING_ACCESS_CHIPS.map((chip) => {
+                const on = settings.osmParkingAccessFilter.includes(chip);
+                return (
+                  <label
+                    key={chip}
+                    className="checkbox"
+                    style={{ display: "inline-block", marginRight: 6 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => {
+                        const next = on
+                          ? settings.osmParkingAccessFilter.filter(
+                              (c) => c !== chip,
+                            )
+                          : [...settings.osmParkingAccessFilter, chip];
+                        onSettingsChange({
+                          ...settings,
+                          osmParkingAccessFilter: next,
+                        });
+                      }}
+                    />
+                    {chip}
+                  </label>
+                );
+              })}
+            </div>
+            <div>
+              <span className="muted" style={{ marginRight: 8 }}>
+                Fee
+              </span>
+              {PARKING_FEE_FILTER.map((opt) => (
+                <label
+                  key={opt}
+                  className="checkbox"
+                  style={{ display: "inline-block", marginRight: 6 }}
+                >
+                  <input
+                    type="radio"
+                    name="osm-parking-fee"
+                    checked={settings.osmParkingFeeFilter === opt}
+                    onChange={() =>
+                      onSettingsChange({ ...settings, osmParkingFeeFilter: opt })
+                    }
+                  />
+                  {opt}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </fieldset>
 
       <div className="planner-actions">
@@ -903,5 +1010,7 @@ function labelForParking(t: PlanResult["parking"]["type"]): string {
       return "OSRM nearest road";
     case "user":
       return "User-supplied point";
+    case "osm":
+      return "OSM amenity=parking";
   }
 }

@@ -6,7 +6,9 @@ import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
 import { CachesService } from "../../../caches/caches.service.js";
 import { RoutingService } from "../../../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
+import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
 import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
+import { pickOsmParking } from "../pick-osm-parking.js";
 import {
   OverlapGrid,
   pickAndAccumulate,
@@ -55,6 +57,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     private readonly routing: RoutingService,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     @Inject(SOLVER_CLIENT) private readonly solver: SolverClient,
+    private readonly parkingFacilities: ParkingFacilitiesRepository,
   ) {}
 
   // ─── Pass 1: delegated to greedy ──────────────────────────────────────────
@@ -373,6 +376,22 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           point: { type: "Point", coordinates: centroid },
           reason:
             "OSRM /nearest found no walkable road — using raw cluster centroid",
+        };
+      }
+      case "osm-parking": {
+        const osm = await pickOsmParking(
+          this.parkingFacilities,
+          this.osrm,
+          input,
+          cluster,
+          centroid,
+        );
+        if (osm) return osm;
+        return {
+          type: "osrm-nearest",
+          point: { type: "Point", coordinates: centroid },
+          reason:
+            "No walkable OSM amenity=parking within maxLinkMeters — fell back to cluster centroid",
         };
       }
       case "parking-waypoint":
