@@ -346,8 +346,15 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // than they're worth — typically a cache stuck behind a single-bridge
     // barrier whose haversine distance looks reasonable but whose OSRM
     // walking route doubles back. See ./marginal-trim.ts for the why.
-    // No-op when no cache exceeds the threshold (the common case).
-    const trimThreshold = resolveMarginalTrimThreshold(distances);
+    //
+    // Threshold is the user-supplied `maxLinkMeters` (the same knob that
+    // bounds Pass 1 cluster linking): if visiting a cache adds more than
+    // that much walking over the skip distance, it's effectively not
+    // "on" the route anymore. The legacy env-based threshold
+    // (resolveMarginalTrimThreshold) is still imported for backward
+    // compat but not used here; that formula was median-derived and
+    // ignored the user's per-plan tolerance.
+    const trimThreshold = input.maxLinkMeters;
     const trim = trimMarginalCaches({
       orderedIds: initialOrderedIds,
       originalIds: connectedIds,
@@ -369,88 +376,231 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // a chance to pick a non-overlapping alternative against the polyline
     // accumulated so far. Stops the tour from walking the same main street
     // twice in dense village clusters. See ./loop-aware-legs.ts.
+    //
+    // Wrapped in a fringe-trim iteration: after every full leg-build pass,
+    // compute the actual marginal cost of each cache (its leg-in + leg-out
+    // minus the prev→next "skip" distance). If any cache's marginal
+    // exceeds `input.fringeTrimMeters`, drop it, re-run 2-opt on the
+    // survivors, and rebuild the legs from scratch. This is the "try
+    // alternatives first, only trim if they don't help" workflow — the
+    // pre-trim above operates on OSRM-primary distances, this one
+    // operates on the actual picked legs after the alternative-aware
+    // picker has had its say.
     const loopOpts = readLoopOptionsFromEnv();
-    const grid = new OverlapGrid(loopOpts.picker.gridMeters);
     const altCount = loopOpts.altCount;
-    const firstCoord = byId
-      .get(orderedIds[0]!)!
-      .location.coordinates as [number, number];
-    const lastCoord = byId
-      .get(orderedIds[orderedIds.length - 1]!)!
-      .location.coordinates as [number, number];
     const parkingCoord = parking.point.coordinates as [number, number];
-
-    // Parking → first cache. No accumulated overlap yet, so this is always
-    // the primary; running it through the picker is just for symmetry.
-    const parkingToFirst = await pickAndAccumulate({
-      from: parkingCoord,
-      to: firstCoord,
-      profile: PROFILE,
-      count: altCount,
-      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
-      grid,
-      options: loopOpts.picker,
-      logger: this.logger,
-      label: "parking→first",
-    });
-    if (!parkingToFirst) {
-      throw new NotFoundException(
-        "OSRM could not connect parking to the chosen loop — try a different start preference.",
-      );
+    const connectedIdToIdx = new Map<number, number>();
+    for (let i = 0; i < connectedIds.length; i += 1) {
+      connectedIdToIdx.set(connectedIds[i]!, i);
     }
+    const distAt = (a: number, b: number): number => {
+      const i = connectedIdToIdx.get(a);
+      const j = connectedIdToIdx.get(b);
+      if (i === undefined || j === undefined) return Number.POSITIVE_INFINITY;
+      const v = distances[i]?.[j];
+      return v === null || v === undefined ? Number.POSITIVE_INFINITY : v;
+    };
+    const parkingToCacheAt = (id: number): number => {
+      const i = connectedIdToIdx.get(id);
+      if (i === undefined) return Number.POSITIVE_INFINITY;
+      const v = parkingToCacheM[i];
+      return Number.isFinite(v ?? Number.POSITIVE_INFINITY)
+        ? (v as number)
+        : Number.POSITIVE_INFINITY;
+    };
+    const cacheToParkingAt = (id: number): number => {
+      const i = connectedIdToIdx.get(id);
+      if (i === undefined) return Number.POSITIVE_INFINITY;
+      const v = cacheToParkingM[i];
+      return Number.isFinite(v ?? Number.POSITIVE_INFINITY)
+        ? (v as number)
+        : Number.POSITIVE_INFINITY;
+    };
 
-    // Inter-cache legs. Each picks an alternative least-overlapping with
-    // the running polyline, so leg 2 prefers the side-street that avoids
-    // leg 1's main road, etc.
-    const interCacheLegs: Routing.Leg[] = [];
-    for (let i = 0; i < orderedIds.length - 1; i += 1) {
-      const fromId = orderedIds[i]!;
-      const toId = orderedIds[i + 1]!;
-      const fromC = byId.get(fromId)!.location.coordinates as [number, number];
-      const toC = byId.get(toId)!.location.coordinates as [number, number];
-      const picked = await pickAndAccumulate({
-        from: fromC,
-        to: toC,
+    const POST_TRIM_MAX_ITERS = 3;
+    let currentOrderedIds = orderedIds;
+    let parkingToFirst!: Routing.Leg;
+    let interCacheLegs!: Routing.Leg[];
+    let lastToParking!: Routing.Leg;
+    const postTrimDropped: number[] = [];
+
+    for (let trimIter = 0; trimIter <= POST_TRIM_MAX_ITERS; trimIter += 1) {
+      // Rebuild legs from scratch every iteration — the overlap grid
+      // needs to forget the previous attempt's polyline.
+      const grid = new OverlapGrid(loopOpts.picker.gridMeters);
+      const firstCoord = byId
+        .get(currentOrderedIds[0]!)!
+        .location.coordinates as [number, number];
+      const lastCoord = byId
+        .get(currentOrderedIds[currentOrderedIds.length - 1]!)!
+        .location.coordinates as [number, number];
+
+      // Parking → first cache.
+      const ptf = await pickAndAccumulate({
+        from: parkingCoord,
+        to: firstCoord,
         profile: PROFILE,
         count: altCount,
         fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
-        fetchVia: this.osrm.routeMulti.bind(this.osrm),
         grid,
         options: loopOpts.picker,
         logger: this.logger,
-        label: `leg ${i + 1}`,
+        label: `parking→first${trimIter > 0 ? ` (rebuild ${trimIter})` : ""}`,
       });
-      if (picked) {
-        interCacheLegs.push({
-          fromCacheId: fromId,
-          toCacheId: toId,
-          profile: PROFILE,
-          meters: picked.meters,
-          seconds: picked.seconds,
-          geometry: picked.geometry,
-        });
+      if (!ptf) {
+        throw new NotFoundException(
+          "OSRM could not connect parking to the chosen loop — try a different start preference.",
+        );
       }
+      parkingToFirst = {
+        fromCacheId: 0,
+        toCacheId: currentOrderedIds[0]!,
+        profile: PROFILE,
+        meters: ptf.meters,
+        seconds: ptf.seconds,
+        geometry: ptf.geometry,
+      };
+
+      // Inter-cache legs.
+      interCacheLegs = [];
+      for (let i = 0; i < currentOrderedIds.length - 1; i += 1) {
+        const fromId = currentOrderedIds[i]!;
+        const toId = currentOrderedIds[i + 1]!;
+        const fromC = byId.get(fromId)!.location.coordinates as [
+          number,
+          number,
+        ];
+        const toC = byId.get(toId)!.location.coordinates as [number, number];
+        const picked = await pickAndAccumulate({
+          from: fromC,
+          to: toC,
+          profile: PROFILE,
+          count: altCount,
+          fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+          fetchVia: this.osrm.routeMulti.bind(this.osrm),
+          grid,
+          options: loopOpts.picker,
+          logger: this.logger,
+          label: `leg ${i + 1}${trimIter > 0 ? ` (rebuild ${trimIter})` : ""}`,
+        });
+        if (picked) {
+          interCacheLegs.push({
+            fromCacheId: fromId,
+            toCacheId: toId,
+            profile: PROFILE,
+            meters: picked.meters,
+            seconds: picked.seconds,
+            geometry: picked.geometry,
+          });
+        }
+      }
+
+      // Last cache → parking.
+      const ltp = await pickAndAccumulate({
+        from: lastCoord,
+        to: parkingCoord,
+        profile: PROFILE,
+        count: altCount,
+        fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
+        grid,
+        options: loopOpts.picker,
+        logger: this.logger,
+        label: `last→parking${trimIter > 0 ? ` (rebuild ${trimIter})` : ""}`,
+      });
+      if (!ltp) {
+        throw new NotFoundException(
+          "OSRM could not connect parking to the chosen loop — try a different start preference.",
+        );
+      }
+      lastToParking = {
+        fromCacheId: currentOrderedIds[currentOrderedIds.length - 1]!,
+        toCacheId: 0,
+        profile: PROFILE,
+        meters: ltp.meters,
+        seconds: ltp.seconds,
+        geometry: ltp.geometry,
+      };
+
+      // Decide what counts as a "fringe". The intuitive definition is
+      // "you walked down a spur and back up the same way" — i.e., the
+      // cache's leg-in and leg-out share significant pavement. A long
+      // *coherent* loop detour (different streets in vs out) isn't a
+      // fringe even when it adds significant meters; the user explicitly
+      // wants those preserved. So instead of trimming on
+      // (legIn + legOut − skip), we trim on the redundant-walking
+      // estimate: how many meters of legOut overlap legIn (in either
+      // direction), measured via a small grid hash of legIn's coords.
+      if (
+        currentOrderedIds.length <= 2 ||
+        trimIter === POST_TRIM_MAX_ITERS
+      ) {
+        break;
+      }
+      const overlapGridMeters = loopOpts.picker.gridMeters;
+      const meanCoordSpacing = (leg: Routing.Leg): number => {
+        const n = leg.geometry.coordinates.length;
+        return n > 1 ? leg.meters / (n - 1) : leg.meters;
+      };
+      const redundantMeters = (legIn: Routing.Leg, legOut: Routing.Leg): number => {
+        const g = new OverlapGrid(overlapGridMeters);
+        g.addLine(legIn.geometry);
+        const hits = g.overlapHits(legOut.geometry);
+        return hits * meanCoordSpacing(legOut);
+      };
+
+      let worstId: number | undefined;
+      let worstRedundant = input.fringeTrimMeters;
+      for (let i = 0; i < currentOrderedIds.length; i += 1) {
+        const id = currentOrderedIds[i]!;
+        let legIn: Routing.Leg;
+        let legOut: Routing.Leg;
+        if (i === 0) {
+          legIn = parkingToFirst;
+          legOut = interCacheLegs[0]!;
+        } else if (i === currentOrderedIds.length - 1) {
+          legIn = interCacheLegs[i - 1]!;
+          legOut = lastToParking;
+        } else {
+          legIn = interCacheLegs[i - 1]!;
+          legOut = interCacheLegs[i]!;
+        }
+        const redundant = redundantMeters(legIn, legOut);
+        if (redundant > worstRedundant) {
+          worstRedundant = redundant;
+          worstId = id;
+        }
+      }
+      if (worstId === undefined) break;
+      const worstMarginal = worstRedundant; // used by debug log below
+
+      // Drop the worst, re-run 2-opt on survivors. The 2-opt restart
+      // matters because removing a node may make a previously-bad order
+      // suddenly optimal in a different rotation.
+      this.logger.debug(
+        `post-trim iter ${trimIter}: dropping cache ${worstId} (redundant ${Math.round(
+          worstMarginal,
+        )}m of overlap between leg-in/leg-out > fringeTrimMeters ${input.fringeTrimMeters}m); rebuilding legs`,
+      );
+      postTrimDropped.push(worstId);
+      const survivingIds = currentOrderedIds.filter((id) => id !== worstId);
+      const survivingIdxs = survivingIds
+        .map((id) => connectedIdToIdx.get(id))
+        .filter((i): i is number => i !== undefined);
+      const subDistances = survivingIdxs.map((srcIdx) =>
+        survivingIdxs.map((dstIdx) => {
+          const v = distances[srcIdx]?.[dstIdx];
+          return v === undefined || v === null ? null : v;
+        }),
+      );
+      // Start at the cache nearest to parking in the survivor set.
+      const survivingCaches = survivingIds.map((id) => byId.get(id)!);
+      const startIdx = nearestCacheIndexTo(survivingCaches, parkingCoord);
+      const { order: subOrder } = Tsp.solveTwoOpt(subDistances, startIdx);
+      currentOrderedIds = subOrder.map((i) => survivingIds[i]!);
     }
 
-    // Last cache → parking. Closes the loop; the picker still helps here
-    // because the return leg has the entire outbound polyline to compare
-    // against.
-    const lastToParking = await pickAndAccumulate({
-      from: lastCoord,
-      to: parkingCoord,
-      profile: PROFILE,
-      count: altCount,
-      fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
-      grid,
-      options: loopOpts.picker,
-      logger: this.logger,
-      label: "last→parking",
-    });
-    if (!lastToParking) {
-      throw new NotFoundException(
-        "OSRM could not connect parking to the chosen loop — try a different start preference.",
-      );
-    }
+    const orderedIdsFinal = currentOrderedIds;
+    droppedCacheIds.push(...postTrimDropped);
 
     const polyline = concatLineStrings([
       parkingToFirst.geometry,
@@ -463,10 +613,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const meters = parkingToFirst.meters + interMeters + lastToParking.meters;
     const seconds =
       parkingToFirst.seconds + interSeconds + lastToParking.seconds;
-    const visitMinutes = input.timePerCacheMinutes * orderedIds.length;
+    const visitMinutes = input.timePerCacheMinutes * orderedIdsFinal.length;
 
     return {
-      orderedCacheIds: orderedIds,
+      orderedCacheIds: orderedIdsFinal,
       droppedCacheIds,
       polyline,
       totals: {

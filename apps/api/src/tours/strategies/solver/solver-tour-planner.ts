@@ -192,7 +192,9 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     const trimDistances = matrix.legs.map((row) =>
       row.map((cell) => (cell ? cell.meters : null)),
     );
-    const trimThreshold = resolveMarginalTrimThreshold(trimDistances);
+    // Threshold = user-supplied maxLinkMeters (see greedy-tsp-planner.ts
+    // for the rationale).
+    const trimThreshold = input.maxLinkMeters;
     const trim = trimMarginalCaches({
       orderedIds: solverOrderedIds,
       originalIds: ids,
