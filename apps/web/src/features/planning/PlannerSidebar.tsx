@@ -58,6 +58,14 @@ export interface PlanSettings {
    */
   topNClusters: number;
   /**
+   * Post-leg-pick fringe-trim tolerance (m). Drives the Pass-2 trim
+   * that runs *after* the loop-aware leg picker has tried OSRM
+   * alternatives — caches whose actual in+out walking exceeds the
+   * skip-them route by more than this get dropped. Smaller = more
+   * aggressive fringe cleanup; larger = more permissive.
+   */
+  fringeTrimMeters: number;
+  /**
    * OSM-parking access chips (ADR-0011). Applied to both the planner
    * request when `startPreference === "osm-parking"` and to the
    * `OsmParkingLayer` query so the rendered icons match the planner's
@@ -78,6 +86,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   avgWalkingKmh: 5,
   clusteringStrategy: "louvain",
   topNClusters: 5,
+  fringeTrimMeters: 500,
   // `permit` is opt-in per ADR-0011 — a permit-only lot you don't have a
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
@@ -209,6 +218,7 @@ export function PlannerSidebar({
         timePerCacheMinutes: settings.timePerCacheMinutes,
         startPreference: settings.startPreference,
         maxLinkMeters: settings.maxLinkMeters,
+        fringeTrimMeters: settings.fringeTrimMeters,
         ...(settings.startPreference === "user-supplied-point"
           ? { userSuppliedStart: search.center }
           : {}),
@@ -344,6 +354,22 @@ export function PlannerSidebar({
               onSettingsChange({
                 ...settings,
                 topNClusters: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Fringe trim (m): {settings.fringeTrimMeters}
+          <input
+            type="range"
+            min={100}
+            max={3000}
+            step={50}
+            value={settings.fringeTrimMeters}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                fringeTrimMeters: Number(e.target.value),
               })
             }
           />

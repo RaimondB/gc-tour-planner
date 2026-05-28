@@ -34,6 +34,15 @@ export const PlanLoopInput = z.object({
    */
   maxLinkMeters: z.number().int().min(200).max(5000).default(1500),
   /**
+   * Post-leg-pick fringe trim threshold (m). After the loop-aware leg
+   * picker has had its chance to find a non-fringe alternative route,
+   * any cache whose `leg-in + leg-out - skip-distance` (i.e. the extra
+   * walking it costs to visit) exceeds this gets dropped and the legs
+   * are rebuilt on the smaller set. Separate from `maxLinkMeters` so the
+   * user can be aggressive about fringes without disturbing clustering.
+   */
+  fringeTrimMeters: z.number().int().min(100).max(3000).default(500),
+  /**
    * Applies only when `startPreference === "osm-parking"`. See PlanInput
    * for the full rationale on `permit` being opt-in.
    */
