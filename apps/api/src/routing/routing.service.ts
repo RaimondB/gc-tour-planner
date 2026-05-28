@@ -136,11 +136,16 @@ export class RoutingService {
     const cachedRows = await this.repo.findMatrixCells(pairs, profile, version);
     const cellKey = (from: number, to: number) => `${from}:${to}`;
     const cellMap = new Map<string, { meters: number; seconds: number }>();
+    // Pairs OSRM already declined to route on this extract. Stops the
+    // matrix from re-asking OSRM the same questions every plan; see the
+    // 1779640000000_route_legs_noroute migration. `getMatrix` is allowed
+    // to omit these cells from the returned matrix — callers already
+    // treat missing cells as +Infinity in TSP.
+    const noRouteSet = new Set<string>();
     for (const r of cachedRows) {
-      cellMap.set(cellKey(r.fromCacheId, r.toCacheId), {
-        meters: r.meters,
-        seconds: r.seconds,
-      });
+      const k = cellKey(r.fromCacheId, r.toCacheId);
+      if (r.noroute) noRouteSet.add(k);
+      else cellMap.set(k, { meters: r.meters, seconds: r.seconds });
     }
 
     // 2. Identify rows that are entirely cached vs need an OSRM /table call.
@@ -156,10 +161,19 @@ export class RoutingService {
       seconds: number;
     }> = [];
 
+    const toPersistNoRoute: Array<{
+      fromCacheId: number;
+      toCacheId: number;
+      profile: Routing.RoutingProfile;
+    }> = [];
+
     let osrmCalls = 0;
     for (const from of ids) {
       const missing = ids.filter(
-        (to) => to !== from && !cellMap.has(cellKey(from, to)),
+        (to) =>
+          to !== from &&
+          !cellMap.has(cellKey(from, to)) &&
+          !noRouteSet.has(cellKey(from, to)),
       );
       if (missing.length === 0) continue;
       osrmCalls += 1;
@@ -177,7 +191,15 @@ export class RoutingService {
       for (let j = 0; j < missing.length; j += 1) {
         const cell = row0[j + 1]; // skip diagonal (origin → origin)
         const to = missing[j]!;
-        if (!cell) continue;
+        if (!cell) {
+          noRouteSet.add(cellKey(from, to));
+          toPersistNoRoute.push({
+            fromCacheId: from,
+            toCacheId: to,
+            profile,
+          });
+          continue;
+        }
         const meters = round2(cell.meters);
         const seconds = round2(cell.seconds);
         cellMap.set(cellKey(from, to), { meters, seconds });
@@ -200,6 +222,9 @@ export class RoutingService {
       this.logger.debug(
         `getMatrix: full cache hit on ${ids.length}×${ids.length - 1} matrix`,
       );
+    }
+    if (toPersistNoRoute.length > 0) {
+      await this.repo.upsertNorouteCells(toPersistNoRoute, version);
     }
 
     // 3. Assemble the matrix in the caller's order. A `null` cell happens

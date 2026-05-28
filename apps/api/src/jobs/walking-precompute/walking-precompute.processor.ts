@@ -130,6 +130,9 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
         osrmVersion,
       );
       const cachedKey = (from: number, to: number) => `${from}:${to}`;
+      // Both real cells AND noroute markers count as resolved — re-asking
+      // OSRM about a known no-route pair is exactly what this job is
+      // meant to avoid.
       const cachedSet = new Set(
         alreadyCached.map((c) => cachedKey(c.fromCacheId, c.toCacheId)),
       );
@@ -155,6 +158,15 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
         meters: number;
         seconds: number;
       }> = [];
+      // Negative cache for pairs OSRM declines to route. Without
+      // persisting these, every cluster discovery re-asks OSRM the
+      // same questions and gets the same null answers — see
+      // 1779640000000_route_legs_noroute migration for context.
+      const toPersistNoRoute: Array<{
+        fromCacheId: number;
+        toCacheId: number;
+        profile: Routing.RoutingProfile;
+      }> = [];
 
       for (let i = 0; i < origins.length; i += chunkOrigins) {
         const batch = origins.slice(i, i + chunkOrigins);
@@ -175,7 +187,14 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
             if (!row0) return;
             for (let j = 0; j < dests.length; j += 1) {
               const cell = row0[j + 1]; // skip origin→origin diagonal
-              if (!cell) continue;
+              if (!cell) {
+                toPersistNoRoute.push({
+                  fromCacheId: originId,
+                  toCacheId: dests[j]!,
+                  profile: PROFILE,
+                });
+                continue;
+              }
               toPersist.push({
                 fromCacheId: originId,
                 toCacheId: dests[j]!,
@@ -190,6 +209,9 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
 
       if (toPersist.length > 0) {
         await this.routing.upsertMatrixCells(toPersist, osrmVersion);
+      }
+      if (toPersistNoRoute.length > 0) {
+        await this.routing.upsertNorouteCells(toPersistNoRoute, osrmVersion);
       }
 
       // 7. Eagerly populate `cache_landuse` for the in-scope caches'

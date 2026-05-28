@@ -158,11 +158,24 @@ export async function buildWalkingGraph(
     string,
     { meters: number; seconds: number }
   >();
+  // Negative cache: pairs we've already asked OSRM about and got a
+  // noroute response for. Without this, every cluster discovery
+  // re-asks OSRM for the same unreachable pairs because precompute
+  // can't store them in `route_legs` via the normal upsert path
+  // (meters NOT NULL on a noroute row violates the schema). The
+  // 1779640000000_route_legs_noroute migration added a 'noroute'
+  // sentinel source so we can record the negative result.
+  const cachedNoRoute = new Set<string>();
   for (const c of cached) {
-    cachedMap.set(cachedKey(c.fromCacheId, c.toCacheId), {
-      meters: c.meters,
-      seconds: c.seconds,
-    });
+    const key = cachedKey(c.fromCacheId, c.toCacheId);
+    if (c.noroute) {
+      cachedNoRoute.add(key);
+    } else {
+      cachedMap.set(key, {
+        meters: c.meters,
+        seconds: c.seconds,
+      });
+    }
   }
 
   // 2b. Fetch missing cells from OSRM, one /table per origin.
@@ -174,6 +187,11 @@ export async function buildWalkingGraph(
     meters: number;
     seconds: number;
   }> = [];
+  const toPersistNoRoute: Array<{
+    fromCacheId: number;
+    toCacheId: number;
+    profile: Routing.RoutingProfile;
+  }> = [];
 
   const origins = Array.from(candidatesByOrigin.keys());
   for (let i = 0; i < origins.length; i += concurrency) {
@@ -182,9 +200,13 @@ export async function buildWalkingGraph(
       batch.map(async (originId) => {
         const cands = candidatesByOrigin.get(originId)!;
         // Pure-cache hit fast path: nothing missing for this origin.
-        const missing = cands.filter(
-          (toId) => !cachedMap.has(cachedKey(originId, toId)),
-        );
+        const missing = cands.filter((toId) => {
+          const k = cachedKey(originId, toId);
+          // Skip pairs already in either cache — real ones AND known
+          // negatives. Both count as resolved for the purpose of
+          // bouncing the request back to OSRM.
+          return !cachedMap.has(k) && !cachedNoRoute.has(k);
+        });
         if (missing.length === 0) return;
 
         const originCoord = coordsById.get(originId);
@@ -203,7 +225,19 @@ export async function buildWalkingGraph(
         for (let j = 0; j < missing.length; j += 1) {
           const cell = row0[j + 1]; // skip diagonal (origin → origin)
           const toId = missing[j]!;
-          if (!cell) continue;
+          if (!cell) {
+            // OSRM said no route. Record the negative so the next
+            // discovery doesn't re-ask. Stamped with the current
+            // osrm_version so a fresh extract naturally invalidates
+            // these (a network edit might unblock the pair).
+            cachedNoRoute.add(cachedKey(originId, toId));
+            toPersistNoRoute.push({
+              fromCacheId: originId,
+              toCacheId: toId,
+              profile,
+            });
+            continue;
+          }
           // Reject suspicious zero-distance cells at write time so they never
           // pollute route_legs in the first place. Comes up when OSRM snaps
           // two distinct cache coords to the same road node — the matrix cell
@@ -246,6 +280,12 @@ export async function buildWalkingGraph(
       `walking-graph: persisting ${toPersist.length} new matrix cells to route_legs`,
     );
     await deps.routing.upsertMatrixCells(toPersist, osrmVersion);
+  }
+  if (toPersistNoRoute.length > 0) {
+    logger.debug(
+      `walking-graph: persisting ${toPersistNoRoute.length} noroute markers to route_legs`,
+    );
+    await deps.routing.upsertNorouteCells(toPersistNoRoute, osrmVersion);
   }
 
   // 3. Re-rank each origin's candidates by walking distance, drop anything

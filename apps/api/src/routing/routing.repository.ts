@@ -236,9 +236,67 @@ export class RoutingRepository {
   }
 
   /**
+   * Negative cache for cache pairs OSRM cannot route between. Without this
+   * row, every cluster discovery re-asks OSRM for the same unreachable
+   * pair (precompute can't store "no route exists" via upsertMatrixCells
+   * because meters NOT NULL). source='noroute' rows have meters/seconds/
+   * geom all NULL by the DB CHECK. INSERT … DO NOTHING — never overwrite
+   * a real route with a noroute marker; if a future extract gains a
+   * connecting edge, the upsertMatrixCells path will replace the marker
+   * via the osrm_version mismatch branch.
+   */
+  async upsertNorouteCells(
+    cells: readonly {
+      fromCacheId: number;
+      toCacheId: number;
+      profile: Routing.RoutingProfile;
+    }[],
+    osrmVersion: string,
+  ): Promise<void> {
+    if (cells.length === 0) return;
+    const CHUNK = 5_000;
+    for (let i = 0; i < cells.length; i += CHUNK) {
+      const slice = cells.slice(i, i + CHUNK);
+      await this.db
+        .insertInto("route_legs")
+        .values(
+          slice.map((c) => ({
+            from_cache_id: c.fromCacheId,
+            to_cache_id: c.toCacheId,
+            profile: c.profile,
+            meters: null,
+            seconds: null,
+            source: "noroute",
+            osrm_version: osrmVersion,
+            geom: null,
+          })),
+        )
+        // Same osrm-version-mismatch guard as upsertMatrixCells: across
+        // extracts the row gets re-evaluated; within an extract the
+        // earlier negative result stands.
+        .onConflict((oc) =>
+          oc
+            .columns(["from_cache_id", "to_cache_id", "profile"])
+            .doUpdateSet({
+              meters: (eb) => eb.ref("excluded.meters"),
+              seconds: (eb) => eb.ref("excluded.seconds"),
+              source: (eb) => eb.ref("excluded.source"),
+              geom: (eb) => eb.ref("excluded.geom"),
+              osrm_version: (eb) => eb.ref("excluded.osrm_version"),
+              fetched_at: sql<Date>`now()`,
+            })
+            .where(sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`),
+        )
+        .execute();
+    }
+  }
+
+  /**
    * Sparse matrix-cell lookup: meters + seconds for the given pairs, ignoring
-   * geometry. Returns rows for both 'table' and 'route' sources — a route row
-   * is a strict superset of what the sparse path needs.
+   * geometry. Returns rows for 'table', 'route', AND 'noroute' sources —
+   * a noroute row signals "OSRM was asked and said no" so the caller can
+   * skip the pair without re-querying. Noroute rows carry meters=0,
+   * seconds=0 and an explicit `noroute: true` flag so callers can branch.
    */
   async findMatrixCells(
     pairs: readonly { fromCacheId: number; toCacheId: number }[],
@@ -250,6 +308,7 @@ export class RoutingRepository {
       toCacheId: number;
       meters: number;
       seconds: number;
+      noroute: boolean;
     }>
   > {
     if (pairs.length === 0) return [];
@@ -260,7 +319,7 @@ export class RoutingRepository {
     );
     const rows = (await this.db
       .selectFrom("route_legs")
-      .select(["from_cache_id", "to_cache_id", "meters", "seconds"])
+      .select(["from_cache_id", "to_cache_id", "meters", "seconds", "source"])
       .where("profile", "=", profile)
       .where("osrm_version", "=", osrmVersion)
       .where("from_cache_id", "in", fromIds)
@@ -268,16 +327,18 @@ export class RoutingRepository {
       .execute()) as unknown as Array<{
       from_cache_id: string;
       to_cache_id: string;
-      meters: string;
-      seconds: string;
+      meters: string | null;
+      seconds: string | null;
+      source: string;
     }>;
     return rows
       .filter((r) => wanted.has(`${r.from_cache_id}:${r.to_cache_id}`))
       .map((r) => ({
         fromCacheId: Number(r.from_cache_id),
         toCacheId: Number(r.to_cache_id),
-        meters: Number(r.meters),
-        seconds: Number(r.seconds),
+        meters: r.source === "noroute" ? 0 : Number(r.meters),
+        seconds: r.source === "noroute" ? 0 : Number(r.seconds),
+        noroute: r.source === "noroute",
       }));
   }
 

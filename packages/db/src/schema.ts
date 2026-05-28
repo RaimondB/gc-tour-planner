@@ -156,11 +156,17 @@ export interface RouteLegsTable {
   to_cache_id: number;
   /** 'foot' (MVP). Other profiles deferred. */
   profile: string;
-  meters: ColumnType<string, string | number, string | number>;
-  seconds: ColumnType<string, string | number, string | number>;
+  /** NULL when `source = 'noroute'` (DB CHECK). Required for 'table' + 'route'. */
+  meters: ColumnType<string | null, string | number | null, string | number | null>;
+  seconds: ColumnType<string | null, string | number | null, string | number | null>;
   /**
-   * `'table'` = cell came from OSRM /table (sparse matrix; no geometry).
-   * `'route'` = cell came from OSRM /route (full LineString in `geom`).
+   * `'table'`   = cell came from OSRM /table (sparse matrix; no geometry).
+   * `'route'`   = cell came from OSRM /route (full LineString in `geom`).
+   * `'noroute'` = OSRM was asked but returned no route between the two
+   *               points. Acts as a negative cache so cluster discovery
+   *               doesn't re-ask OSRM for the same unreachable pair on
+   *               every run. meters/seconds/geom are all NULL on these
+   *               rows (DB CHECK).
    * Pass 2 upgrades a 'table' row to 'route' in place when it asks for getLeg.
    */
   source: string;
