@@ -62,7 +62,13 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
       };
     }
 
-    const radiusM = this.envInt("PLANNER_PRECOMPUTE_RADIUS_M", 3000);
+    // Match Pass-1 discovery's hard cap (clustering/context.ts:82 sets
+    // `radiusM: min(maxLinkMeters * 2, 4_000)`). At 3 000 m the precompute
+    // undershot any user choice of `maxLinkMeters > 1500`, so cluster
+    // discovery had to re-fetch the 3-4 km pairs from OSRM on every
+    // request. 4 000 m covers every reasonable slider value at the cost
+    // of a ~1.8× larger one-time precompute fanout.
+    const radiusM = this.envInt("PLANNER_PRECOMPUTE_RADIUS_M", 4000);
     const kTarget = this.envInt("PLANNER_KNN_K", 12);
     const kCandidates = Math.max(kTarget * 3, kTarget + 5);
     const chunkOrigins = this.envInt("PRECOMPUTE_OSRM_CHUNK_ORIGINS", 100);

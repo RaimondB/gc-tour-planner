@@ -167,7 +167,7 @@ retrigger-stale) and bull-board at `/admin/queues` (queue-level ops).
 
 | Env                              | Default | What it does |
 |---|---|---|
-| `PLANNER_PRECOMPUTE_RADIUS_M`    | `3000`  | Haversine cap for the affected-set scan + per-cache k-NN over-fetch. MUST match the runtime walking-graph default `min(maxLinkMeters*2, 4000)` so precompute and runtime agree on which pairs exist. |
+| `PLANNER_PRECOMPUTE_RADIUS_M`    | `4000`  | Haversine cap for the affected-set scan + per-cache k-NN over-fetch. Matches the runtime walking-graph hard cap `min(maxLinkMeters*2, 4000)` so precompute and runtime agree on which pairs exist for any user choice of `maxLinkMeters ≤ 2000`. Bumped from `3000` after observing /table fanout in cluster discovery when `maxLinkMeters > 1500` — at the cost of a ~1.8× larger precompute fanout per upload. |
 | `PRECOMPUTE_OSRM_CHUNK_ORIGINS`  | `100`   | Max OSRM `/table` origins per HTTP call. Higher = fewer round-trips, larger response payloads. Lower if OSRM CPU spikes. |
 | `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `state='fresh'` `cache_precompute_state` row is considered stale and eligible for retrigger-stale. |
 | `PRECOMPUTE_RETRIGGER_CHUNK`     | `50`    | Caches per retrigger-stale job. Bounds individual job runtime so the dashboard updates promptly during a sweep. |

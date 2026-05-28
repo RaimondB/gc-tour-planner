@@ -20,11 +20,11 @@ For the landuse-side daily replication, see the separate `landuse-replication` q
 
 Job payload: `{ ownerId: string; newCacheIds: number[]; reason: 'upload' | 'retrigger-stale' | 'retrigger-one' }`.
 
-1. **Resolve scope.** Fetch the new caches' locations. Find every existing cache within `PLANNER_PRECOMPUTE_RADIUS_M` (default 3000 m) of any new cache via `ST_DWithin(..., 3000)` — these are the "affected" caches. The in-scope set is `new ∪ affected`.
+1. **Resolve scope.** Fetch the new caches' locations. Find every existing cache within `PLANNER_PRECOMPUTE_RADIUS_M` (default 4000 m, aligned with the runtime walking-graph cap of `min(maxLinkMeters*2, 4000)`) of any new cache via `ST_DWithin(..., 4000)` — these are the "affected" caches. The in-scope set is `new ∪ affected`.
 
 2. **Mark in-scope as `in_progress`** in `cache_precompute_state` (kind='walking'). Single bulk UPSERT.
 
-3. **Fetch haversine neighbours per in-scope cache.** For each in-scope cache, find its top `k_candidates = max(PLANNER_KNN_K*3, PLANNER_KNN_K+5) = 36` nearest neighbours by haversine within 3 km via `<->` ordered PostGIS query. The 36 matches the runtime over-fetch in [walking-graph.ts](../../apps/api/src/tours/strategies/greedy/walking-graph.ts) exactly — no semantic drift.
+3. **Fetch haversine neighbours per in-scope cache.** For each in-scope cache, find its top `k_candidates = max(PLANNER_KNN_K*3, PLANNER_KNN_K+5) = 36` nearest neighbours by haversine within `PLANNER_PRECOMPUTE_RADIUS_M` (4 km default) via `<->` ordered PostGIS query. The 36 matches the runtime over-fetch in [walking-graph.ts](../../apps/api/src/tours/strategies/greedy/walking-graph.ts) exactly — no semantic drift.
 
 4. **De-dupe and chunk pair set.** Convert to a directed `(from, to)` set, de-dupe, sort. Chunk by origin: at most 100 origins per OSRM `/table` call. Each chunk is one HTTP request.
 
@@ -119,7 +119,7 @@ All read at job-pickup time, so changes apply on the next job — no rebuild.
 | Env                              | Default | Description                                                                                                  |
 | -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
 | `PLANNER_KNN_K`                  | `12`    | k for the walking graph. `k_candidates = max(K*3, K+5)` determines haversine over-fetch per cache.            |
-| `PLANNER_PRECOMPUTE_RADIUS_M`    | `3000`  | Haversine cap for the affected-set + neighbour search. Matches the runtime `min(maxLinkMeters*2, 4000)` default. |
+| `PLANNER_PRECOMPUTE_RADIUS_M`    | `4000`  | Haversine cap for the affected-set + neighbour search. Matches the runtime hard cap `min(maxLinkMeters*2, 4000)`. Was 3000 originally; bumped after observing /table fanout in discovery when `maxLinkMeters > 1500`. |
 | `LANDUSE_FORCE_REIMPORT`         | _unset_ | Set to `1` and recreate `osm2pgsql-import` to force a full re-import of `landuse_polygons`. See ADR-0009.       |
 | `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `fresh` row is considered stale and eligible for re-trigger by `/admin/precompute/retrigger-stale`. |
 | `PRECOMPUTE_OSRM_CHUNK_ORIGINS`  | `100`   | Max origins per `/table` call. Higher = fewer HTTP round-trips, larger response payloads.                    |
