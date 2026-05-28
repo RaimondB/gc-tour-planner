@@ -571,6 +571,10 @@ async function buildCachedCellMap(
   const rows = await routingRepo.findMatrixCells(pairs, "foot", osrmVersion);
   const out = new Map<string, { meters: number; seconds: number }>();
   for (const r of rows) {
+    // Skip noroute markers — the explain endpoint reports actual
+    // walking distances; a known-no-route pair carries no meters to
+    // surface, so we just omit it.
+    if (r.noroute) continue;
     out.set(`${r.fromCacheId}:${r.toCacheId}`, {
       meters: r.meters,
       seconds: r.seconds,
