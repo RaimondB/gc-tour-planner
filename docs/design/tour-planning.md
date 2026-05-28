@@ -18,11 +18,11 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
          + softConstraintScore * w_soft
          + budgetFit * w_budget
    ```
-   - `clusterDensity` = `count / MST_length_m`.
+   - `clusterDensity` = `count * 100 / MST_length_m` (caches per 100 m of MST — rescaled from raw caches/m so the term lands in roughly the same 0..1+ range as the other scoring axes; previously contributed ~0 and never moved the ranking).
    - `parkingPresence` = 1 if at least one cache in cluster has a `type='parking'` waypoint within 500 m, else 0.
    - `softConstraintScore` = sum of landuse + attribute + terrain/difficulty contributions across the cluster.
    - `budgetFit` = `exp(-((MST_length_m - distanceBudgetMeters) / distanceBudgetMeters)^2)` — Gaussian penalty for clusters too small or too large for the loop budget.
-5. Return top **N** clusters (N = 5). User picks; or the API auto-picks the top one if `autoPick=true`.
+5. Return top **N** clusters. `N = input.topNClusters` (sidebar slider, default 5, max 20). User picks; or the API auto-picks the top one if `autoPick=true`. Was a hardcoded constant; lifted to a per-request knob so a large search area can surface more alternatives without redeploys.
 
 ## Pass 2 — refined loop
 
@@ -32,12 +32,15 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
    - estimated time ≤ `timeBudgetMinutes` (if set), using `routing.getMatrix` averages.
 2. Build the OD distance matrix via `routing.getMatrix(admittedIds)` — **walking distance**, symmetric, memoized per cache pair.
 3. **TSP loop solver**: Nearest-Neighbor seed, then **2-opt** until no improving swap. Deterministic tie-breaks (lowest cache id wins). Lives in `packages/shared/src/tsp/two-opt.ts`.
-4. **Parking selection** by `startPreference`:
+4. **Pre-trim** — drop caches whose OSRM-primary marginal `(leg_in + leg_out − skip)` exceeds `input.maxLinkMeters`. Cheap; runs before any leg picking. Threshold migrated from the env-derived `resolveMarginalTrimThreshold` formula to the per-plan `maxLinkMeters` knob so both Pass-1 and Pass-2 trim respect the same user tolerance.
+5. **Parking selection** by `startPreference`:
    - `parking-waypoint`: pick the `additional_waypoint(type='parking')` nearest the cluster centroid; reason = "Cache-owner parking near cluster centroid".
    - `osrm-nearest-road`: OSRM `/nearest` on the cluster centroid.
    - `user-supplied-point`: use `userSuppliedStart` verbatim.
-5. Prepend + append the parking-to-loop leg (OSRM `/route`). Concatenate all leg geometries → tour polyline.
-6. Compose `PlanResult` with score breakdown.
+   - `osm-parking` (ADR-0011): query `parking_facilities` within `maxLinkMeters` of the centroid filtered by `osmParkingAccessFilter` + `osmParkingFeeFilter`, then OSRM-walk each candidate to the cluster's nearest cache and pick the shortest within the cap. Falls back to OSRM-nearest if nothing fits.
+6. **Loop-aware leg picker** (apps/api/src/tours/strategies/greedy/loop-aware-legs.ts): per leg, OSRM `routeAlternatives` (up to 1 + `PLANNER_LOOP_ALT_COUNT`) are scored against an `OverlapGrid` of already-walked coordinates; the least-overlap alternative wins, with a via-waypoint nudge fallback when overlap exceeds `PLANNER_LOOP_NUDGE_THRESHOLD`.
+7. **Post-leg-pick fringe trim** — the alternative-aware companion to the pre-trim. For each cache, compute the *retrace overlap* between leg-in and leg-out via the same `OverlapGrid` (25 m cells by default). If any cache's overlap exceeds `input.fringeTrimMeters` (default 500), drop the worst one, re-2-opt the survivors, rebuild legs from scratch. Capped at 3 iterations. Coherent loop detours have ~0 overlap and survive; true cul-de-sac spurs have overlap ≈ 2 × spur length and get trimmed. See FR-T8 in [../requirements/tour-planning.md](../requirements/tour-planning.md).
+8. Compose `PlanResult` with score breakdown + `droppedCacheIds` (union of pre-trim + post-trim drops; the UI renders these as gray-x markers).
 
 ## Why this works
 

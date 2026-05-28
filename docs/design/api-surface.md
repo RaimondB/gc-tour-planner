@@ -56,9 +56,23 @@ const PlanInput = z.object({
     loopCompactnessWeight: z.number().default(1),
   }),
   startPreference: z
-    .enum(["parking-waypoint", "osrm-nearest-road", "user-supplied-point"])
+    .enum([
+      "parking-waypoint",
+      "osrm-nearest-road",
+      "user-supplied-point",
+      "osm-parking", // ADR-0011
+    ])
     .default("parking-waypoint"),
   userSuppliedStart: z.tuple([z.number(), z.number()]).optional(),
+  // Applies only when startPreference="osm-parking". `permit` is opt-in.
+  osmParkingAccessFilter: z
+    .array(z.enum(["yes", "customers", "permit"]))
+    .default(["yes", "customers"]),
+  osmParkingFeeFilter: z.enum(["free", "paid", "any"]).default("any"),
+  // Pass-1 result cut-off (was a hardcoded constant; now per-request).
+  topNClusters: z.number().int().min(1).max(20).default(5),
+  // Pass-1 ε for cache-cache linking, also reused as Pass-2 trim cap.
+  maxLinkMeters: z.number().int().min(200).max(5000).default(1500),
 });
 
 const PlanLoopInput = z.object({
@@ -67,9 +81,22 @@ const PlanLoopInput = z.object({
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
   startPreference: z
-    .enum(["parking-waypoint", "osrm-nearest-road", "user-supplied-point"])
+    .enum([
+      "parking-waypoint",
+      "osrm-nearest-road",
+      "user-supplied-point",
+      "osm-parking",
+    ])
     .default("parking-waypoint"),
   userSuppliedStart: z.tuple([z.number(), z.number()]).optional(),
+  // Pre-trim cap (drops caches whose primary-route marginal exceeds it).
+  maxLinkMeters: z.number().int().min(200).max(5000).default(1500),
+  // Post-leg-pick fringe-trim threshold (see FR-T8 in requirements).
+  fringeTrimMeters: z.number().int().min(100).max(3000).default(500),
+  osmParkingAccessFilter: z
+    .array(z.enum(["yes", "customers", "permit"]))
+    .default(["yes", "customers"]),
+  osmParkingFeeFilter: z.enum(["free", "paid", "any"]).default("any"),
 });
 
 type ClusterCandidate = {
@@ -83,14 +110,58 @@ type ClusterCandidate = {
 
 type PlanResult = {
   orderedCacheIds: number[];
+  // Caches the planner deliberately removed for tour quality — pre-trim
+  // (maxLinkMeters) + post-leg-pick fringe trim (fringeTrimMeters,
+  // overlap-based). The UI renders these as gray-x markers so the user
+  // can see what was skipped.
+  droppedCacheIds: number[];
   polyline: GeoJsonLineString;
   totals: { meters: number; seconds: number; visitMinutes: number };
   parking: {
-    type: "pq" | "osrm-nearest" | "user";
+    type: "pq" | "osrm-nearest" | "user" | "osm";
     point: GeoJsonPoint;
     reason: string;
+    // Set when type === "osm" — identifies the source row in
+    // parking_facilities so the UI can correlate with the OsmParkingLayer.
+    osm?: {
+      osmId: number;
+      osmType: "N" | "W" | "R";
+      access: string | null;
+      fee: string | null;
+      name: string | null;
+    };
   };
   scoreBreakdown: Record<string, number>;
+};
+```
+
+## `GET /parking-facilities` (ADR-0011)
+
+Returns OSM `amenity=parking` features in a bbox, populated by the same osm2pgsql import that fills `landuse_polygons`. Mirrors `/landuse` shape — server-side LOD (`ST_SimplifyPreserveTopology` + envelope-area floor), same `MAX_DELTA_DEG = 2.5°` per-axis bbox cap. Unconditional server-side drop of `access=private`.
+
+```ts
+const ParkingFacilitiesQuery = z.object({
+  bbox: BoundingBox,
+  access: z.array(z.enum(["yes", "customers", "permit"])).optional(),
+  fee: z.enum(["free", "paid", "any"]).optional(),
+});
+
+type ParkingFacilityFeature = {
+  type: "Feature";
+  properties: {
+    osmId: number;
+    osmType: "N" | "W" | "R"; // osm2pgsql flex stores uppercase
+    access: string | null;
+    fee: string | null;
+    parkingType: string | null;
+    capacity: number | null;
+    maxstay: string | null;
+    supervised: string | null;
+    openingHours: string | null;
+    surface: string | null;
+    name: string | null;
+  };
+  geometry: GeoJsonPoint | GeoJsonAnyPolygon;
 };
 ```
 
