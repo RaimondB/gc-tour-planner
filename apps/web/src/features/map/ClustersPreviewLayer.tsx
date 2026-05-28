@@ -106,6 +106,20 @@ export function ClustersPreviewLayer({
         paint: { "text-color": "#ffffff" },
       });
     }
+
+    // Force the centroid + label to the top of the style every time the
+    // candidates change. `addLayer` without a `beforeId` only puts them
+    // on top *at the time of the call* — any layer mounted later in
+    // App.tsx (TourLayer, ParkingPreviewLayer, walking-graph debug,
+    // etc.) gets stacked above and steals the click target. Calling
+    // `moveLayer(id)` with no second arg pops the layer to the very
+    // top; label after circle so the number renders above the disc.
+    if (map.getLayer(CENTROIDS_LAYER)) {
+      map.moveLayer(CENTROIDS_LAYER);
+    }
+    if (map.getLayer(CENTROIDS_LABEL_LAYER)) {
+      map.moveLayer(CENTROIDS_LABEL_LAYER);
+    }
   }, [map, ready, candidates, focusedClusterId]);
 
   // --- Preview lines + emphasized cache markers, for every cluster ------
