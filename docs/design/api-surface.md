@@ -135,6 +135,25 @@ type PlanResult = {
 };
 ```
 
+## `GET /landuse-profiles` (M5-β)
+
+Returns the saved landuse-weighted scoring profiles visible to the caller — system profiles (`owner_id IS NULL`) plus the user's own. The planner's `landuseMatch` term reads the chosen profile's `kinds` array via `LanduseProfilesRepository.findById(ownerId, profileId)`; if the id isn't visible to the caller the term zeroes out (silent fallback so cross-tenant id-guessing is harmless).
+
+```ts
+type LanduseProfile = {
+  id: string;
+  ownerId: string | null;       // null = system profile
+  name: string;
+  description: string | null;
+  kinds: LanduseKind[];          // subset of LANDUSE_KINDS
+  createdAt: string;             // ISO
+};
+
+type LanduseProfilesResponse = { profiles: LanduseProfile[] };
+```
+
+System seeds shipped with the migration: `Forest-heavy`, `Urban`, `Balanced`. Per-user create/delete UI is deferred — the backend column shape supports `owner_id`, just no endpoints yet.
+
 ## `GET /parking-facilities` (ADR-0011)
 
 Returns OSM `amenity=parking` features in a bbox, populated by the same osm2pgsql import that fills `landuse_polygons`. Mirrors `/landuse` shape — server-side LOD (`ST_SimplifyPreserveTopology` + envelope-area floor), same `MAX_DELTA_DEG = 2.5°` per-axis bbox cap. Unconditional server-side drop of `access=private`.

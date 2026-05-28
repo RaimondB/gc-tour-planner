@@ -24,6 +24,10 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
    - `budgetFit` = `exp(-((MST_length_m - distanceBudgetMeters) / distanceBudgetMeters)^2)` — Gaussian penalty for clusters too small or too large for the loop budget.
 5. Return top **N** clusters. `N = input.topNClusters` (sidebar slider, default 5, max 20). User picks; or the API auto-picks the top one if `autoPick=true`. Was a hardcoded constant; lifted to a per-request knob so a large search area can surface more alternatives without redeploys.
 
+### Landuse profile resolution (M5-β)
+
+`softPreferences.landuseProfileId` (UUID) is resolved by `LanduseProfilesRepository.findById(ownerId, profileId)` — the call applies the system-or-own filter, so cross-tenant id guessing silently returns nothing instead of leaking another user's profile. The repository returns the JSONB `kinds` array directly; the scoring pass passes it as `preferredLanduseKinds` to `scoreCluster`, where `landuseMatch = fraction-of-cluster-caches-with-cache_landuse-row-in-preferred-kinds × landuseWeight`. When the id is unknown or unset, `kinds = []`, `landuseMatch = 0`, and the term contributes nothing. Three seeded system profiles (Forest-heavy, Urban, Balanced) ship with the migration; per-user profile create/delete is a follow-up.
+
 ## Pass 2 — refined loop
 
 1. Greedy admission: take the top-scoring cluster, sort its caches by `softScore` desc, admit one by one as long as:

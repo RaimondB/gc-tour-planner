@@ -231,6 +231,25 @@ export interface CachePrecomputeStateView {
   missing: boolean;
 }
 
+/**
+ * Saved landuse-weighted scoring profiles (M5-β). The planner reads the
+ * `kinds` array and credits any cache sitting inside a `landuse_polygons`
+ * row of one of those kinds. `owner_id IS NULL` rows are system profiles
+ * visible to every user; non-null are per-user.
+ *
+ * Schema declared in
+ * `packages/db/migrations/1779630000000_landuse_profiles.sql`.
+ */
+export interface LanduseProfilesTable {
+  id: string;
+  owner_id: string | null;
+  name: string;
+  description: string | null;
+  /** JSON array of canonical kind strings (validated app-side). */
+  kinds: string[];
+  created_at: Date;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
@@ -241,6 +260,7 @@ export interface Database {
   landuse_polygons: LandusePolygonsTable;
   parking_facilities: ParkingFacilitiesTable;
   landuse_import_meta: LanduseImportMetaTable;
+  landuse_profiles: LanduseProfilesTable;
   route_legs: RouteLegsTable;
   cache_landuse: CacheLanduseTable;
   cache_precompute_state: CachePrecomputeStateTable;

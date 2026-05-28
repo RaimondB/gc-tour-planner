@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
 import type { CacheDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
@@ -23,6 +26,7 @@ import {
   discoverClusters,
   explainSelection,
   fetchParkingOptions,
+  listLanduseProfiles,
   planLoop,
   purgeBogusWalkingCells,
   testOsrmRoute,
@@ -66,6 +70,12 @@ export interface PlanSettings {
    */
   fringeTrimMeters: number;
   /**
+   * Saved landuse-weighted scoring profile (M5-β). `undefined` ⇒ no
+   * landuse term in the cluster score. Resolved server-side against
+   * `GET /landuse-profiles` (system + own profiles visible to the user).
+   */
+  landuseProfileId: string | undefined;
+  /**
    * OSM-parking access chips (ADR-0011). Applied to both the planner
    * request when `startPreference === "osm-parking"` and to the
    * `OsmParkingLayer` query so the rendered icons match the planner's
@@ -87,6 +97,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   clusteringStrategy: "louvain",
   topNClusters: 5,
   fringeTrimMeters: 500,
+  landuseProfileId: undefined,
   // `permit` is opt-in per ADR-0011 — a permit-only lot you don't have a
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
@@ -157,6 +168,11 @@ export function PlannerSidebar({
   onTestRouteChange,
 }: PlannerSidebarProps) {
   const queryClient = useQueryClient();
+  const landuseProfilesQuery = useQuery({
+    queryKey: ["landuse-profiles"],
+    queryFn: listLanduseProfiles,
+    staleTime: 5 * 60_000, // profile list rarely changes mid-session
+  });
   const purgeBogusMutation = useMutation({
     mutationFn: async () => {
       return purgeBogusWalkingCells({
@@ -190,6 +206,9 @@ export function PlannerSidebar({
         softPreferences: {
           clusterDensityWeight: 1,
           loopCompactnessWeight: 1,
+          ...(settings.landuseProfileId
+            ? { landuseProfileId: settings.landuseProfileId }
+            : {}),
         },
         startPreference: settings.startPreference,
         clusteringStrategy: settings.clusteringStrategy,
@@ -440,6 +459,42 @@ export function PlannerSidebar({
             {label}
           </label>
         ))}
+      </fieldset>
+
+      <fieldset className="field">
+        <legend>Landuse preference</legend>
+        <label className="select">
+          <select
+            value={settings.landuseProfileId ?? ""}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                landuseProfileId:
+                  e.target.value === "" ? undefined : e.target.value,
+              })
+            }
+          >
+            <option value="">(no preference)</option>
+            {(landuseProfilesQuery.data?.profiles ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.ownerId === null ? "" : " (mine)"}
+              </option>
+            ))}
+          </select>
+        </label>
+        {settings.landuseProfileId &&
+          landuseProfilesQuery.data?.profiles.find(
+            (p) => p.id === settings.landuseProfileId,
+          ) && (
+            <p className="muted" style={{ marginTop: 4 }}>
+              {
+                landuseProfilesQuery.data.profiles.find(
+                  (p) => p.id === settings.landuseProfileId,
+                )?.description
+              }
+            </p>
+          )}
       </fieldset>
 
       <fieldset className="field">

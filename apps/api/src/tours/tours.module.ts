@@ -9,6 +9,8 @@ import { CachesRepository } from "../caches/caches.repository.js";
 import { CachesService } from "../caches/caches.service.js";
 import { CacheLanduseRepository } from "../caches/cache-landuse.repository.js";
 import { OsmModule } from "../osm/osm.module.js";
+import { LanduseProfilesModule } from "../landuse-profiles/landuse-profiles.module.js";
+import { LanduseProfilesRepository } from "../landuse-profiles/landuse-profiles.repository.js";
 import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
@@ -51,6 +53,7 @@ const tourPlannerProvider: Provider = {
     osrmVersion: OsrmVersionService,
     solver: SolverClient,
     parkingFacilities: ParkingFacilitiesRepository,
+    landuseProfiles: LanduseProfilesRepository,
   ) => {
     const greedy = new GreedyTspPlanner(
       caches,
@@ -61,6 +64,7 @@ const tourPlannerProvider: Provider = {
       osrm,
       osrmVersion,
       parkingFacilities,
+      landuseProfiles,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
@@ -89,11 +93,12 @@ const tourPlannerProvider: Provider = {
     OsrmVersionService,
     SOLVER_CLIENT,
     ParkingFacilitiesRepository,
+    LanduseProfilesRepository,
   ],
 };
 
 @Module({
-  imports: [CachesModule, RoutingModule, OsmModule],
+  imports: [CachesModule, RoutingModule, OsmModule, LanduseProfilesModule],
   controllers: [ToursController],
   providers: [
     ToursService,

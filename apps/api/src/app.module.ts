@@ -10,6 +10,7 @@ import { CachesModule } from "./caches/caches.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { LanduseProfilesModule } from "./landuse-profiles/landuse-profiles.module.js";
 import { OsmModule } from "./osm/osm.module.js";
 import { WalkingPrecomputeModule } from "./jobs/walking-precompute/walking-precompute.module.js";
 import { PrecomputeStateModule } from "./precompute-state/precompute-state.module.js";
@@ -28,6 +29,7 @@ import { ToursModule } from "./tours/tours.module.js";
     GpxModule,
     CachesModule,
     OsmModule,
+    LanduseProfilesModule,
     RoutingModule,
     ToursModule,
     WalkingPrecomputeModule,
