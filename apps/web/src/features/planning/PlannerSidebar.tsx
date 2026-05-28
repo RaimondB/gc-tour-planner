@@ -76,6 +76,13 @@ export interface PlanSettings {
    */
   landuseProfileId: string | undefined;
   /**
+   * Multiplier on the cluster's `landuseMatch` term (0..5, default 1).
+   * `parkingPresence` and `budgetFit` are both 0..1, so a weight of 1
+   * gives landuse a roughly equal voice; bump to 3-5 when profile match
+   * should dominate the ranking.
+   */
+  landuseWeight: number;
+  /**
    * OSM-parking access chips (ADR-0011). Applied to both the planner
    * request when `startPreference === "osm-parking"` and to the
    * `OsmParkingLayer` query so the rendered icons match the planner's
@@ -98,6 +105,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   topNClusters: 5,
   fringeTrimMeters: 500,
   landuseProfileId: undefined,
+  landuseWeight: 1,
   // `permit` is opt-in per ADR-0011 — a permit-only lot you don't have a
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
@@ -206,6 +214,7 @@ export function PlannerSidebar({
         softPreferences: {
           clusterDensityWeight: 1,
           loopCompactnessWeight: 1,
+          landuseWeight: settings.landuseWeight,
           ...(settings.landuseProfileId
             ? { landuseProfileId: settings.landuseProfileId }
             : {}),
@@ -495,6 +504,22 @@ export function PlannerSidebar({
               }
             </p>
           )}
+        <label>
+          Landuse weight: {settings.landuseWeight.toFixed(1)}
+          <input
+            type="range"
+            min={0}
+            max={5}
+            step={0.5}
+            value={settings.landuseWeight}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                landuseWeight: Number(e.target.value),
+              })
+            }
+          />
+        </label>
       </fieldset>
 
       <fieldset className="field">
@@ -733,6 +758,14 @@ export function PlannerSidebar({
                   <span className="cluster-mst">
                     MST {(c.mstLengthMeters / 1000).toFixed(2)} km
                   </span>
+                  {c.estimatedTourMeters > 0 && (
+                    <span
+                      className="cluster-est-tour"
+                      title="Estimated tour length (NN+2-opt × 1.4 haversine→walking). Pass-2 produces the real OSRM-routed value."
+                    >
+                      est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
+                    </span>
+                  )}
                   <span className="cluster-score">
                     score {c.score.toFixed(3)}
                   </span>
