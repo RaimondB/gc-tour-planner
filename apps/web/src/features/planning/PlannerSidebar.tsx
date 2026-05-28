@@ -31,6 +31,7 @@ import {
   purgeBogusWalkingCells,
   testOsrmRoute,
 } from "../../lib/api.js";
+import { planToGpxRoute, planToGpxTrack } from "../../lib/gpx-export.js";
 import { useQueryClient } from "@tanstack/react-query";
 import type { SearchParams } from "../../lib/search-params.js";
 
@@ -821,6 +822,7 @@ export function PlannerSidebar({
         <PlanResultPanel
           result={result}
           avgWalkingKmh={settings.avgWalkingKmh}
+          caches={caches}
         />
       )}
     </aside>
@@ -830,9 +832,11 @@ export function PlannerSidebar({
 function PlanResultPanel({
   result,
   avgWalkingKmh,
+  caches,
 }: {
   result: PlanResult;
   avgWalkingKmh: number;
+  caches: readonly CacheDTO[] | undefined;
 }) {
   const km = result.totals.meters / 1000;
   // Convert distance → walking minutes at the user's pace. OSRM's own seconds
@@ -877,6 +881,26 @@ function PlanResultPanel({
   const downloadPlan = () => downloadJson(result, "plan");
   const downloadParkingOptions = () => {
     if (parkingQuery.data) downloadJson(parkingQuery.data, "parking-options");
+  };
+  // GPX flavours — see lib/gpx-export.ts for the why of two modes.
+  // Garmin file extension is .gpx regardless; the content header in
+  // the file tells the device whether to treat it as a track or a
+  // route.
+  const downloadGpx = (mode: "track" | "route") => {
+    const text =
+      mode === "track"
+        ? planToGpxTrack(result, caches)
+        : planToGpxRoute(result, caches);
+    const blob = new Blob([text], { type: "application/gpx+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.href = url;
+    a.download = `gctp-tour-${mode}-${ts}.gpx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -934,6 +958,20 @@ function PlanResultPanel({
           title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
         >
           Download parking options JSON
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadGpx("track")}
+          title="Download as a GPX track — the Garmin follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
+        >
+          Download GPX track
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadGpx("route")}
+          title="Download as a GPX route — the Garmin treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
+        >
+          Download GPX route
         </button>
       </div>
     </div>
