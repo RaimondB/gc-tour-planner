@@ -9,7 +9,11 @@ import { CachesRepository } from "../../../caches/caches.repository.js";
 import { CacheLanduseRepository } from "../../../caches/cache-landuse.repository.js";
 import { RoutingService } from "../../../routing/routing.service.js";
 import { RoutingRepository } from "../../../routing/routing.repository.js";
-import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
+import {
+  OSRM_CLIENT,
+  type OsrmClient,
+  type OsrmLeg,
+} from "../../../routing/osrm.client.js";
 import { OsrmVersionService } from "../../../routing/osrm-version.service.js";
 import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
 import { LanduseProfilesRepository } from "../../../landuse-profiles/landuse-profiles.repository.js";
@@ -441,9 +445,16 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     const POST_TRIM_MAX_ITERS = 3;
     let currentOrderedIds = orderedIds;
-    let parkingToFirst!: Routing.Leg;
-    let interCacheLegs!: Routing.Leg[];
-    let lastToParking!: Routing.Leg;
+    // Routing.Leg + the per-leg alternatives the picker considered, so
+    // we can surface them in PlanResult.legs for the manual-edit UI
+    // without paying for OSRM again.
+    type LegWithAlternatives = Routing.Leg & {
+      alternatives: OsrmLeg[];
+      selectedIndex: number;
+    };
+    let parkingToFirst!: LegWithAlternatives;
+    let interCacheLegs!: LegWithAlternatives[];
+    let lastToParking!: LegWithAlternatives;
     const postTrimDropped: number[] = [];
 
     for (let trimIter = 0; trimIter <= POST_TRIM_MAX_ITERS; trimIter += 1) {
@@ -478,9 +489,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         fromCacheId: 0,
         toCacheId: currentOrderedIds[0]!,
         profile: PROFILE,
-        meters: ptf.meters,
-        seconds: ptf.seconds,
-        geometry: ptf.geometry,
+        meters: ptf.picked.meters,
+        seconds: ptf.picked.seconds,
+        geometry: ptf.picked.geometry,
+        alternatives: ptf.alternatives,
+        selectedIndex: ptf.selectedIndex,
       };
 
       // Inter-cache legs.
@@ -510,9 +523,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
             fromCacheId: fromId,
             toCacheId: toId,
             profile: PROFILE,
-            meters: picked.meters,
-            seconds: picked.seconds,
-            geometry: picked.geometry,
+            meters: picked.picked.meters,
+            seconds: picked.picked.seconds,
+            geometry: picked.picked.geometry,
+            alternatives: picked.alternatives,
+            selectedIndex: picked.selectedIndex,
           });
         }
       }
@@ -538,9 +553,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         fromCacheId: currentOrderedIds[currentOrderedIds.length - 1]!,
         toCacheId: 0,
         profile: PROFILE,
-        meters: ltp.meters,
-        seconds: ltp.seconds,
-        geometry: ltp.geometry,
+        meters: ltp.picked.meters,
+        seconds: ltp.picked.seconds,
+        geometry: ltp.picked.geometry,
+        alternatives: ltp.alternatives,
+        selectedIndex: ltp.selectedIndex,
       };
 
       // Decide what counts as a "fringe". The intuitive definition is
@@ -637,6 +654,31 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       parkingToFirst.seconds + interSeconds + lastToParking.seconds;
     const visitMinutes = input.timePerCacheMinutes * orderedIdsFinal.length;
 
+    // Project the in-memory legs into the wire shape PlanResult.legs[]
+    // expects. Parking endpoints use the sentinel cache id 0. Each leg
+    // carries every alternative the picker considered + the index of
+    // the selected one, so the manual-edit UI can offer leg-route
+    // swaps without re-querying OSRM.
+    const allLegs: LegWithAlternatives[] = [
+      parkingToFirst,
+      ...interCacheLegs,
+      lastToParking,
+    ];
+    const legs: Tours.PlanLeg[] = allLegs.map((l, idx) => ({
+      index: idx,
+      fromCacheId: l.fromCacheId,
+      toCacheId: l.toCacheId,
+      meters: round2(l.meters),
+      seconds: round2(l.seconds),
+      geometry: l.geometry,
+      alternatives: l.alternatives.map((a) => ({
+        meters: round2(a.meters),
+        seconds: round2(a.seconds),
+        geometry: a.geometry,
+      })),
+      selectedAlternativeIndex: l.selectedIndex,
+    }));
+
     return {
       orderedCacheIds: orderedIdsFinal,
       droppedCacheIds,
@@ -656,6 +698,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         marginalTrimDroppedCount: droppedCacheIds.length,
         marginalTrimSavedMeters: round2(trim.savedMeters),
       },
+      legs,
     };
   }
 

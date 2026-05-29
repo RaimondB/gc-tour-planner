@@ -278,6 +278,64 @@ export async function testOsrmRoute(
 }
 
 /**
+ * Live OSRM probe for `from → via → to` — powers the draggable via-point
+ * edit UI. Bypasses `route_legs` (every drag position is unique, so the
+ * cache would never hit) and bypasses the route_legs SAVE path (we don't
+ * want to pollute the cache with a key=(from,to) row whose stored
+ * geometry depends on an ephemeral via position the next caller won't
+ * know about).
+ *
+ * Returns `route: null` when OSRM responds NoRoute — the UI keeps the
+ * previous-successful geometry on screen and tints the marker so the
+ * user can see they've dragged into an unrouteable spot.
+ */
+export async function viaRoute(
+  ownerId: string,
+  input: Tours.ViaRouteInput,
+  deps: { caches: CachesService; osrm: OsrmClient },
+): Promise<Tours.ViaRouteResponse> {
+  const rows = await deps.caches.findByIds(ownerId, [
+    input.fromCacheId,
+    input.toCacheId,
+  ]);
+  const from = rows.find((c) => c.id === input.fromCacheId);
+  const to = rows.find((c) => c.id === input.toCacheId);
+  if (!from || !to) {
+    throw new Error(
+      `Caches not found for this user: ${[
+        from ? null : input.fromCacheId,
+        to ? null : input.toCacheId,
+      ]
+        .filter(Boolean)
+        .join(", ")}`,
+    );
+  }
+  const fromCoord: [number, number] = [
+    from.location.coordinates[0]!,
+    from.location.coordinates[1]!,
+  ];
+  const toCoord: [number, number] = [
+    to.location.coordinates[0]!,
+    to.location.coordinates[1]!,
+  ];
+  const via: [number, number] = [input.via[0], input.via[1]];
+  const route = await deps.osrm.routeMulti([fromCoord, via, toCoord], "foot");
+  return {
+    fromCacheId: from.id,
+    toCacheId: to.id,
+    fromCode: from.code,
+    toCode: to.code,
+    route: route
+      ? {
+          meters: round2(route.meters),
+          seconds: round2(route.seconds),
+          geometry: route.geometry,
+        }
+      : null,
+  };
+}
+
+/**
  * Delete stale `route_legs` rows with bogus zero-ish walking distance for the
  * caches currently in the search area's pool. Forces a refetch from OSRM on
  * the next planner pass. Returns the count of rows deleted.

@@ -53,6 +53,33 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 - NN+2-opt is exact-enough for the small N (≤ 50) we cap at; no need for OR-Tools yet.
 - All randomness avoided so the same inputs produce the same output — easy to test, easy to reason about.
 
+## Manual edits — leg geometry swap (FR-T11)
+
+After Pass 2 finishes, the planner attaches a per-leg array to `PlanResult.legs`. Each entry has `index`, `fromCacheId`/`toCacheId` (0 = parking sentinel), the picker's chosen `meters`/`seconds`/`geometry`, plus `alternatives[]` — every OSRM `routeAlternatives` candidate the loop-aware picker received, including the chosen one at `selectedAlternativeIndex`. No extra OSRM calls happen — the picker had to fetch these to score them anyway; we just surface them to the client instead of dropping the non-winning candidates on the floor.
+
+On the client, `PlannerSidebar` keeps `legPicks: Record<legIndex, alternativeIndex>` in `localStorage`, keyed by a stable `planSignature(result)` (FNV-1a over `orderedCacheIds` + parking coords rounded to 5 decimals ≈ 1 m). This makes the picks **per-plan**:
+
+- Reload the page → picks come back (same signature).
+- Replan the same cluster → picks restored (signature unchanged).
+- Replan a different cluster → no picks applied (different signature). Old picks stay in storage so coming back to the original plan still finds them.
+
+`TourLayer` builds its displayed polyline from `legs.map(l => l.alternatives[picks[l.index] ?? l.selectedAlternativeIndex].geometry)`, and `PlanResultPanel` re-aggregates totals from the picked alternatives' `meters`/`seconds`. The GPX **track** export honours the override via a new optional `overridePolyline` arg to `planToGpxTrack`; the GPX **route** export is unchanged (route points are the cache list, not leg geometry). The JSON export attaches a `manualEdits` field — `{ planSignature, editedTotals, legPicks: [{ legIndex, originalAlternativeIndex, pickedAlternativeIndex, savedMeters, savedSeconds }] }` — so an offline analyser can see *which* OSRM alternatives the picker chose and *which* the human preferred. That's the input we want for tuning the loop-aware picker's overlap + via-waypoint heuristics in a future round.
+
+Solver path emits `legs: []` (the Timefold sidecar doesn't currently fetch OSRM alternatives), and the edit-mode toggle is disabled in the UI for those plans.
+
+### Live-drag via-waypoint
+
+`POST /tours/legs/via-route` (`ViaRouteInput { fromCacheId, toCacheId, via: [lng,lat] }`) calls `osrm.routeMulti([from, via, to], "foot")` and returns the routed leg. The route is **not** persisted to `route_legs` — every drag position is unique so the cache would never hit, and we don't want to pollute `(from, to)` keys with geometry that depends on an ephemeral via.
+
+Client side (`LegViaPointLayer`):
+- Trailing-edge throttle at ~60 ms; at most one request in flight at a time; an `AbortController` cancels stale in-flights so the latest cursor position always wins.
+- Marker dragging is wired to MapLibre's `mousedown` (with `dragPan.disable()`) → `mousemove` → `mouseup` pattern; a window-level `mouseup` listener catches the case where the user releases over the sidebar.
+- Initial position seeded at the arclength-midpoint of whichever geometry the leg is currently displaying (planner pick or applied user alt).
+- On dragend, the final OSRM response is committed to `legPicks[legIndex] = { kind: "via", via, meters, seconds, geometry }`. The geometry is persisted in `localStorage` so reloading restores the line without re-hitting OSRM; the via coord is kept so the user can "Re-grab via-point" to refine without starting over.
+- NoRoute responses keep the last-good preview on screen and tint the marker red. Transient fetch failures fall back to the last successful preview and commit that.
+
+The `resolvePick(leg, legPicks[i])` helper in `apps/web/src/lib/persistent-state.ts` is the single source of truth for "what geometry should this leg render as" — the `TourLayer`, `editedPolyline` (used for GPX track export), and JSON export all go through it, so via-picks and alt-picks are interchangeable from every consumer's perspective.
+
 ## Future strategy — `SolverTourPlanner` (M5+, not MVP)
 
 Lives behind the same `TourPlannerStrategy` interface (see [ADR-0002](../adr/0002-planner-strategy-interface.md)). Recommended engines, in order:

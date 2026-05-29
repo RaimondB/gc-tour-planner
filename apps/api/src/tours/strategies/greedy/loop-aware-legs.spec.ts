@@ -164,7 +164,7 @@ describe("pickAndAccumulate via-waypoint nudge", () => {
       grid,
     });
 
-    expect(chosen).toBe(nudgedAlt);
+    expect(chosen?.picked).toBe(nudgedAlt);
     // Default nudge sweep: 1 fraction × 2 offsets × 2 sides = 4 fetches.
     expect(fetchVia).toHaveBeenCalledTimes(4);
   });
@@ -191,7 +191,7 @@ describe("pickAndAccumulate via-waypoint nudge", () => {
       grid,
     });
 
-    expect(chosen).toBe(primary);
+    expect(chosen?.picked).toBe(primary);
   });
 
   it("skips the nudge for legs under 150 m", async () => {

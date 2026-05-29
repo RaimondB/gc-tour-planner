@@ -121,11 +121,18 @@ export function planToGpxTrack(
   result: PlanResult,
   caches: readonly CacheDTO[] | undefined,
   name = "gc-tour-planner — track",
+  /**
+   * When the user has applied manual leg-route swaps the displayed
+   * polyline differs from `result.polyline` (which is what the planner
+   * picked). Pass the edited concatenation here so the GPX track
+   * matches what's drawn on the map.
+   */
+  overridePolyline?: PlanResult["polyline"],
 ): string {
   const cacheById = new Map<number, CacheDTO>();
   for (const c of caches ?? []) cacheById.set(c.id, c);
   const stops = buildStops(result, cacheById);
-  const trkpts = result.polyline.coordinates
+  const trkpts = (overridePolyline ?? result.polyline).coordinates
     .map(
       ([lng, lat]) =>
         `<trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}"/>`,

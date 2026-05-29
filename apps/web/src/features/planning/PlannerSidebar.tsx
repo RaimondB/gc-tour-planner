@@ -32,6 +32,11 @@ import {
   testOsrmRoute,
 } from "../../lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "../../lib/gpx-export.js";
+import {
+  type LegPicks,
+  planSignature,
+  resolvePick,
+} from "../../lib/persistent-state.js";
 import { useQueryClient } from "@tanstack/react-query";
 import type { SearchParams } from "../../lib/search-params.js";
 
@@ -151,6 +156,25 @@ export interface PlannerSidebarProps {
   /** Last live OSRM /route probe — rendered as a green polyline on the map. */
   testRoute: TestRouteResponse | null;
   onTestRouteChange: (next: TestRouteResponse | null) => void;
+  // ── Manual plan-edit mode (FR-E2..E5) ───────────────────────────────
+  /** True when the user is editing per-leg geometry; map shows hit layer. */
+  editMode: boolean;
+  onEditModeChange: (next: boolean) => void;
+  /** Leg the panel is currently editing (matches TourLayer's highlight). */
+  selectedLegIndex: number | null;
+  onSelectedLegChange: (next: number | null) => void;
+  /** Alternative being previewed on the map (dashed blue overlay). */
+  previewAlternativeIndex: number | null;
+  onPreviewAlternativeChange: (next: number | null) => void;
+  /** legIndex → user-picked alternative or via-dragged geometry. */
+  legPicks: LegPicks;
+  onLegPicksChange: (next: LegPicks | ((prev: LegPicks) => LegPicks)) => void;
+  /** Set to the leg currently being via-dragged on the map; null otherwise. */
+  viaDragLegIndex: number | null;
+  /** Begin a via-drag for `legIndex` seeded at `position` (typically the leg's midpoint). */
+  onStartViaDrag: (legIndex: number, position: [number, number]) => void;
+  /** Tear the via marker down. The persisted via-pick (if any) stays. */
+  onCancelViaDrag: () => void;
 }
 
 export function PlannerSidebar({
@@ -175,6 +199,17 @@ export function PlannerSidebar({
   walkingGraphStats,
   testRoute,
   onTestRouteChange,
+  editMode,
+  onEditModeChange,
+  selectedLegIndex,
+  onSelectedLegChange,
+  previewAlternativeIndex,
+  onPreviewAlternativeChange,
+  legPicks,
+  onLegPicksChange,
+  viaDragLegIndex,
+  onStartViaDrag,
+  onCancelViaDrag,
 }: PlannerSidebarProps) {
   const queryClient = useQueryClient();
   const landuseProfilesQuery = useQuery({
@@ -823,6 +858,17 @@ export function PlannerSidebar({
           result={result}
           avgWalkingKmh={settings.avgWalkingKmh}
           caches={caches}
+          editMode={editMode}
+          onEditModeChange={onEditModeChange}
+          selectedLegIndex={selectedLegIndex}
+          onSelectedLegChange={onSelectedLegChange}
+          previewAlternativeIndex={previewAlternativeIndex}
+          onPreviewAlternativeChange={onPreviewAlternativeChange}
+          legPicks={legPicks}
+          onLegPicksChange={onLegPicksChange}
+          viaDragLegIndex={viaDragLegIndex}
+          onStartViaDrag={onStartViaDrag}
+          onCancelViaDrag={onCancelViaDrag}
         />
       )}
     </aside>
@@ -833,12 +879,66 @@ function PlanResultPanel({
   result,
   avgWalkingKmh,
   caches,
+  editMode,
+  onEditModeChange,
+  selectedLegIndex,
+  onSelectedLegChange,
+  previewAlternativeIndex,
+  onPreviewAlternativeChange,
+  legPicks,
+  onLegPicksChange,
+  viaDragLegIndex,
+  onStartViaDrag,
+  onCancelViaDrag,
 }: {
   result: PlanResult;
   avgWalkingKmh: number;
   caches: readonly CacheDTO[] | undefined;
+  editMode: boolean;
+  onEditModeChange: (next: boolean) => void;
+  selectedLegIndex: number | null;
+  onSelectedLegChange: (next: number | null) => void;
+  previewAlternativeIndex: number | null;
+  onPreviewAlternativeChange: (next: number | null) => void;
+  legPicks: LegPicks;
+  onLegPicksChange: (next: LegPicks | ((prev: LegPicks) => LegPicks)) => void;
+  viaDragLegIndex: number | null;
+  onStartViaDrag: (legIndex: number, position: [number, number]) => void;
+  onCancelViaDrag: () => void;
 }) {
-  const km = result.totals.meters / 1000;
+  // ── Edited totals + polyline ────────────────────────────────────────
+  // When the user has picked alternative legs (alt-swap or dragged via),
+  // the displayed totals and download polyline reflect the picks. With
+  // no picks the values fall back to the planner's. Computed up front
+  // so the same numbers feed the headline + downloads + JSON export
+  // below. `resolvePick` handles the alt-vs-via union.
+  const hasEdits = Object.keys(legPicks).length > 0;
+  const editedLegMetrics = hasEdits
+    ? result.legs.reduce(
+        (acc, leg) => {
+          const r = resolvePick(leg, legPicks[leg.index]);
+          acc.meters += r.meters;
+          acc.seconds += r.seconds;
+          return acc;
+        },
+        { meters: 0, seconds: 0 },
+      )
+    : { meters: result.totals.meters, seconds: result.totals.seconds };
+  const editedPolyline: PlanResult["polyline"] =
+    hasEdits && result.legs.length > 0
+      ? {
+          type: "LineString",
+          coordinates: result.legs.flatMap((leg, i) => {
+            const r = resolvePick(leg, legPicks[leg.index]);
+            const coords = r.geometry.coordinates;
+            // Drop the leading coord on inner legs so the joined line
+            // doesn't carry the duplicated junction vertex (same trick
+            // concatLineStrings uses on the backend).
+            return i === 0 ? coords : coords.slice(1);
+          }),
+        }
+      : result.polyline;
+  const km = editedLegMetrics.meters / 1000;
   // Convert distance → walking minutes at the user's pace. OSRM's own seconds
   // were profile-default (~5 km/h) — we ignore them so the user sees their
   // own pace's totals without having to re-run /tours/plan.
@@ -878,7 +978,60 @@ function PlanResultPanel({
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
-  const downloadPlan = () => downloadJson(result, "plan");
+  const downloadPlan = () => {
+    // Attach the user's leg-route swaps so an offline analyser can see
+    // *which* OSRM alternatives the planner picked and *which* the
+    // human preferred — input for tuning the loop-aware picker. Empty
+    // `legPicks` ⇒ no `manualEdits` field, keeping the JSON minimal
+    // for the common "no edits" case.
+    const hasManualEdits = Object.keys(legPicks).length > 0;
+    if (!hasManualEdits) {
+      downloadJson(result, "plan");
+      return;
+    }
+    const editsDetail = result.legs
+      .filter((leg) => legPicks[leg.index] !== undefined)
+      .map((leg) => {
+        const pick = legPicks[leg.index]!;
+        const original = leg.alternatives[leg.selectedAlternativeIndex];
+        const chosen = resolvePick(leg, pick);
+        const base = {
+          legIndex: leg.index,
+          fromCacheId: leg.fromCacheId,
+          toCacheId: leg.toCacheId,
+          originalAlternativeIndex: leg.selectedAlternativeIndex,
+          savedMeters: (original?.meters ?? 0) - chosen.meters,
+          savedSeconds: (original?.seconds ?? 0) - chosen.seconds,
+        };
+        if (pick.kind === "via") {
+          // Via-dragged geometry isn't one of the picker's
+          // alternatives; capture the coord + the routed geometry so
+          // an offline analyser can replay the OSRM request.
+          return {
+            ...base,
+            kind: "via" as const,
+            via: pick.via,
+            pickedMeters: chosen.meters,
+            pickedSeconds: chosen.seconds,
+            geometry: chosen.geometry,
+          };
+        }
+        return {
+          ...base,
+          kind: "alt" as const,
+          pickedAlternativeIndex: pick.altIndex,
+        };
+      });
+    const payload = {
+      ...result,
+      manualEdits: {
+        planSignature: planSignature(result),
+        editedTotals: editedLegMetrics,
+        legPicks: editsDetail,
+      },
+    };
+    downloadJson(payload, "plan");
+  };
   const downloadParkingOptions = () => {
     if (parkingQuery.data) downloadJson(parkingQuery.data, "parking-options");
   };
@@ -889,7 +1042,12 @@ function PlanResultPanel({
   const downloadGpx = (mode: "track" | "route") => {
     const text =
       mode === "track"
-        ? planToGpxTrack(result, caches)
+        ? planToGpxTrack(
+            result,
+            caches,
+            undefined,
+            hasEdits ? editedPolyline : undefined,
+          )
         : planToGpxRoute(result, caches);
     const blob = new Blob([text], { type: "application/gpx+xml" });
     const url = URL.createObjectURL(blob);
@@ -943,6 +1101,96 @@ function PlanResultPanel({
           </li>
         ))}
       </ul>
+
+      {/* ── Edit mode (FR-E2..E5) ─────────────────────────────────────
+          Toggling on splits the tour line into clickable per-leg
+          features (in TourLayer); clicking a leg opens the
+          LegAlternativesPanel below. Solver-path plans expose no
+          alternatives — the UI degrades to a hint. */}
+      <div className="field" style={{ marginTop: 8 }}>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={editMode}
+            onChange={(e) => {
+              onEditModeChange(e.target.checked);
+              if (!e.target.checked) {
+                onSelectedLegChange(null);
+                onPreviewAlternativeChange(null);
+              }
+            }}
+            disabled={result.legs.length === 0}
+            title={
+              result.legs.length === 0
+                ? "This plan has no per-leg alternatives (solver path)."
+                : "Click a leg on the map to swap its geometry for an OSRM alternative."
+            }
+          />
+          Edit tour (click a leg to swap geometry)
+        </label>
+        {hasEdits && (
+          <div className="cluster-lab-hint">
+            {Object.keys(legPicks).length} leg
+            {Object.keys(legPicks).length === 1 ? "" : "s"} edited.{" "}
+            <button
+              type="button"
+              onClick={() => {
+                onLegPicksChange({});
+                onPreviewAlternativeChange(null);
+              }}
+            >
+              Reset edits
+            </button>
+          </div>
+        )}
+      </div>
+
+      {editMode && selectedLegIndex !== null && result.legs[selectedLegIndex] && (
+        <LegAlternativesPanel
+          leg={result.legs[selectedLegIndex]!}
+          pick={legPicks[selectedLegIndex]}
+          previewAlternativeIndex={previewAlternativeIndex}
+          onPreviewAlternativeChange={onPreviewAlternativeChange}
+          onApplyAlt={(altIndex) => {
+            onLegPicksChange((prev) => ({
+              ...prev,
+              [selectedLegIndex]: { kind: "alt", altIndex },
+            }));
+            onPreviewAlternativeChange(null);
+            // Switching to an alt-pick retires any active via marker
+            // on the same leg — the geometries diverge.
+            if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
+          }}
+          onResetLeg={() => {
+            onLegPicksChange((prev) => {
+              const { [selectedLegIndex]: _drop, ...rest } = prev;
+              return rest;
+            });
+            onPreviewAlternativeChange(null);
+            if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
+          }}
+          onClose={() => {
+            onSelectedLegChange(null);
+            onPreviewAlternativeChange(null);
+          }}
+          caches={caches}
+          viaDragActive={viaDragLegIndex === selectedLegIndex}
+          onStartViaDrag={() => {
+            // Seed the marker at the arclength-midpoint of the
+            // currently-displayed leg geometry — the user can drag
+            // from there. resolvePick handles whether the user has
+            // already applied an alt or a via.
+            const r = resolvePick(
+              result.legs[selectedLegIndex]!,
+              legPicks[selectedLegIndex],
+            );
+            const mid = midpoint(r.geometry.coordinates);
+            if (mid) onStartViaDrag(selectedLegIndex, mid);
+          }}
+          onCancelViaDrag={onCancelViaDrag}
+        />
+      )}
+
       <div className="planner-actions">
         <button
           type="button"
@@ -976,6 +1224,203 @@ function PlanResultPanel({
       </div>
     </div>
   );
+}
+
+/**
+ * Per-leg alternatives panel — listed under PlanResultPanel when the
+ * user clicks a leg on the map in edit mode. Three ways to override
+ * the leg geometry:
+ *
+ *   1. Pick one of the OSRM alternatives the loop-aware picker
+ *      already considered (no extra OSRM cost).
+ *   2. Drop a draggable via-waypoint on the map; OSRM routes the
+ *      leg through it. Throttled OSRM probes during drag, persisted
+ *      `{ kind: "via", … }` pick on dragend.
+ *   3. Reset to the planner's pick.
+ *
+ * Applied picks persist by `planSignature` so reload + replan-same
+ * cluster restores them; replan-different-cluster doesn't apply.
+ */
+function LegAlternativesPanel({
+  leg,
+  pick,
+  previewAlternativeIndex,
+  onPreviewAlternativeChange,
+  onApplyAlt,
+  onResetLeg,
+  onClose,
+  caches,
+  viaDragActive,
+  onStartViaDrag,
+  onCancelViaDrag,
+}: {
+  leg: NonNullable<PlanResult["legs"][number]>;
+  /** Currently-applied pick (undefined = planner pick). */
+  pick: LegPicks[number] | undefined;
+  previewAlternativeIndex: number | null;
+  onPreviewAlternativeChange: (next: number | null) => void;
+  onApplyAlt: (altIndex: number) => void;
+  onResetLeg: () => void;
+  onClose: () => void;
+  caches: readonly CacheDTO[] | undefined;
+  /** True while this leg is the one being via-dragged on the map. */
+  viaDragActive: boolean;
+  onStartViaDrag: () => void;
+  onCancelViaDrag: () => void;
+}) {
+  const cacheById = new Map<number, CacheDTO>();
+  for (const c of caches ?? []) cacheById.set(c.id, c);
+  const label = (id: number): string => {
+    if (id === 0) return "Parking";
+    const c = cacheById.get(id);
+    return c ? c.code : `cache-${id}`;
+  };
+
+  const isViaPick = pick?.kind === "via";
+  const pickedAltIndex =
+    pick?.kind === "alt" ? pick.altIndex : leg.selectedAlternativeIndex;
+  const hasOverride =
+    isViaPick || pickedAltIndex !== leg.selectedAlternativeIndex;
+  const sortedAlts = leg.alternatives
+    .map((alt, idx) => ({ alt, idx }))
+    .sort((a, b) => a.alt.meters - b.alt.meters);
+
+  return (
+    <div className="plan-leg-panel">
+      <h4>
+        Leg #{leg.index + 1}: {label(leg.fromCacheId)} → {label(leg.toCacheId)}
+      </h4>
+      {isViaPick && pick && (
+        <div className="cluster-lab-hint">
+          Via-routed through ({pick.via[1].toFixed(5)},{" "}
+          {pick.via[0].toFixed(5)}) — {(pick.meters / 1000).toFixed(2)} km,{" "}
+          {Math.round(pick.seconds / 60)} min.
+        </div>
+      )}
+      {leg.alternatives.length <= 1 ? (
+        <p className="muted">
+          Only one OSRM alternative for this leg — pick a via-point instead.
+        </p>
+      ) : (
+        <ul className="leg-alternatives">
+          {sortedAlts.map(({ alt, idx }) => {
+            const isPicked = !isViaPick && idx === pickedAltIndex;
+            const isOriginal = idx === leg.selectedAlternativeIndex;
+            const isPreview = idx === previewAlternativeIndex;
+            return (
+              <li
+                key={idx}
+                className={[
+                  "leg-alt",
+                  isPicked ? "picked" : "",
+                  isPreview ? "previewing" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onMouseEnter={() => onPreviewAlternativeChange(idx)}
+                onMouseLeave={() => {
+                  if (previewAlternativeIndex === idx)
+                    onPreviewAlternativeChange(null);
+                }}
+                onFocus={() => onPreviewAlternativeChange(idx)}
+                tabIndex={0}
+              >
+                <div className="leg-alt-head">
+                  <strong>{(alt.meters / 1000).toFixed(2)} km</strong>{" "}
+                  <small>({Math.round(alt.seconds / 60)} min)</small>
+                  {isOriginal && (
+                    <span className="chip" title="OSRM-picker chose this">
+                      planner
+                    </span>
+                  )}
+                  {isPicked && !isOriginal && (
+                    <span className="chip" title="Your override">
+                      applied
+                    </span>
+                  )}
+                </div>
+                <div className="leg-alt-actions">
+                  <button
+                    type="button"
+                    disabled={isPicked}
+                    onClick={() => onApplyAlt(idx)}
+                  >
+                    {isPicked ? "Applied" : "Apply"}
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="planner-actions">
+        {viaDragActive ? (
+          <button
+            type="button"
+            onClick={onCancelViaDrag}
+            title="Hide the draggable via-point marker. The current via-pick (if applied) stays in effect."
+          >
+            Hide via-point
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onStartViaDrag}
+            title="Drop a draggable waypoint on the leg's midpoint. Drag it around the map and watch OSRM reroute the leg live; release to commit."
+          >
+            {isViaPick ? "Re-grab via-point" : "Add via-point"}
+          </button>
+        )}
+        {hasOverride && (
+          <button type="button" onClick={onResetLeg}>
+            Reset this leg
+          </button>
+        )}
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Approximate the midpoint of a polyline by arclength — the point at
+ * half the total length. Used to seed the via-marker so the user starts
+ * with the marker on the leg and drags from there.
+ */
+function midpoint(
+  coords: ReadonlyArray<readonly [number, number]>,
+): [number, number] | null {
+  if (coords.length === 0) return null;
+  if (coords.length === 1) return [coords[0]![0], coords[0]![1]];
+  let total = 0;
+  const segLens: number[] = [];
+  for (let i = 1; i < coords.length; i += 1) {
+    const a = coords[i - 1]!;
+    const b = coords[i]!;
+    // Equirectangular m/deg — fine for short legs. Same approximation
+    // the planner uses internally.
+    const dx = (b[0] - a[0]) * Math.cos(((a[1] + b[1]) / 2) * (Math.PI / 180));
+    const dy = b[1] - a[1];
+    const d = Math.sqrt(dx * dx + dy * dy);
+    segLens.push(d);
+    total += d;
+  }
+  const half = total / 2;
+  let acc = 0;
+  for (let i = 0; i < segLens.length; i += 1) {
+    const next = acc + segLens[i]!;
+    if (next >= half) {
+      const t = segLens[i]! > 0 ? (half - acc) / segLens[i]! : 0;
+      const a = coords[i]!;
+      const b = coords[i + 1]!;
+      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    }
+    acc = next;
+  }
+  const last = coords[coords.length - 1]!;
+  return [last[0], last[1]];
 }
 
 function minutes(m: number): string {

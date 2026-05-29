@@ -271,9 +271,9 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           fromCacheId: fromId,
           toCacheId: toId,
           profile: PROFILE,
-          meters: picked.meters,
-          seconds: picked.seconds,
-          geometry: picked.geometry,
+          meters: picked.picked.meters,
+          seconds: picked.picked.seconds,
+          geometry: picked.picked.geometry,
         });
       }
     }
@@ -296,16 +296,19 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     }
 
     const polyline = concatLineStrings([
-      parkingToFirst.geometry,
+      parkingToFirst.picked.geometry,
       ...interCacheLegs.map((l) => l.geometry),
-      lastToParking.geometry,
+      lastToParking.picked.geometry,
     ]);
 
     const interMeters = sum(interCacheLegs.map((l) => l.meters));
     const interSeconds = sum(interCacheLegs.map((l) => l.seconds));
-    const meters = parkingToFirst.meters + interMeters + lastToParking.meters;
+    const meters =
+      parkingToFirst.picked.meters + interMeters + lastToParking.picked.meters;
     const seconds =
-      parkingToFirst.seconds + interSeconds + lastToParking.seconds;
+      parkingToFirst.picked.seconds +
+      interSeconds +
+      lastToParking.picked.seconds;
     const visitMinutes = input.timePerCacheMinutes * orderedIds.length;
 
     return {
@@ -323,13 +326,18 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         solverTotalSeconds: round2(response.totalSeconds),
         tspLoopMeters: round2(meters),
         parkingDetourMeters: round2(
-          parkingToFirst.meters + lastToParking.meters,
+          parkingToFirst.picked.meters + lastToParking.picked.meters,
         ),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         visitedCount: response.visitedCount,
         marginalTrimDroppedCount: droppedCacheIds.length,
         marginalTrimSavedMeters: round2(trim.savedMeters),
       },
+      // Solver path doesn't expose per-leg alternatives — the sidecar
+      // returns the final visit order, and Pass 2 here only fetches the
+      // chosen route per leg. Edit-mode UI shows "no alternatives" for
+      // solver-planned tours.
+      legs: [],
     };
   }
 
