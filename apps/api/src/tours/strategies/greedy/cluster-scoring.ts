@@ -91,6 +91,25 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     : 0;
   breakdown.parkingPresence = parkingPresence;
 
+  // Loop shape: detect linear-chain clusters that require retracing
+  // the same path twice (walk to one end and back). The TSP/MST ratio
+  // is the classic geometric signal — close to 1.0 for a circular blob
+  // (you can short-cut between neighbours), close to 2.0 for a string
+  // of points along a line (you must traverse every MST edge twice on
+  // a closed loop). Our `estimatedTourMeters` carries a 1.4×
+  // haversine→walking inflation while MST is raw haversine, so the
+  // natural thresholds shift: ratio = 1.4 ≈ compact ideal, ratio = 2.8
+  // ≈ pure linear chain. Score is a linear ramp between those.
+  if (input.estimatedTourMeters > 0 && mstLengthMeters > 0) {
+    const ratio = input.estimatedTourMeters / mstLengthMeters;
+    const COMPACT_RATIO = 1.4;
+    const CHAIN_RATIO = 2.8;
+    const t = (CHAIN_RATIO - ratio) / (CHAIN_RATIO - COMPACT_RATIO);
+    breakdown.loopShape = Math.max(0, Math.min(1, t));
+  } else {
+    breakdown.loopShape = 0;
+  }
+
   // Budget fit: Gaussian peak when the estimated TSP closed loop matches
   // the user's distance budget. Uses `estimatedTourMeters` (NN+2-opt on
   // the cluster's distance lookup) rather than MST — MST is a lower
