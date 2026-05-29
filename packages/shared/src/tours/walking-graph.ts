@@ -90,6 +90,38 @@ export const TestRouteResponse = z.object({
 });
 export type TestRouteResponse = z.infer<typeof TestRouteResponse>;
 
+/**
+ * Ask OSRM for a foot route between two of the user's caches that passes
+ * through an arbitrary `via` waypoint. Powers the live-drag via-point edit
+ * mode: the client throttles requests as the marker drags, and renders the
+ * returned geometry as the leg's polyline.
+ *
+ * Bypasses `route_legs` because every drag position is unique — the cache
+ * would never hit.
+ */
+export const ViaRouteInput = z.object({
+  fromCacheId: z.number().int().positive(),
+  toCacheId: z.number().int().positive(),
+  via: LngLat,
+});
+export type ViaRouteInput = z.infer<typeof ViaRouteInput>;
+
+export const ViaRouteResponse = z.object({
+  fromCacheId: z.number().int().positive(),
+  toCacheId: z.number().int().positive(),
+  fromCode: z.string(),
+  toCode: z.string(),
+  /** OSRM's reply. `null` when OSRM says NoRoute for `from→via→to`. */
+  route: z
+    .object({
+      meters: z.number().nonnegative(),
+      seconds: z.number().nonnegative(),
+      geometry: GeoJsonLineString,
+    })
+    .nullable(),
+});
+export type ViaRouteResponse = z.infer<typeof ViaRouteResponse>;
+
 export const WalkingGraphResponse = z.object({
   nodes: z.array(WalkingGraphNode),
   edges: z.array(WalkingGraphEdge),

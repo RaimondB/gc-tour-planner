@@ -74,6 +74,26 @@ export class ToursController {
     return this.service.testOsrmRoute(user.id, parsed.data);
   }
 
+  @Post("legs/via-route")
+  @ApiOperation({
+    summary:
+      "Live OSRM foot-route `from → via → to` for the draggable via-point edit UI. Bypasses route_legs and is not persisted; the client throttles requests during drag.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: "Via-routed leg, or null route when OSRM reports NoRoute.",
+  })
+  async viaRoute(
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ): Promise<Tours.ViaRouteResponse> {
+    const parsed = Tours.ViaRouteInput.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+    return this.service.viaRoute(user.id, parsed.data);
+  }
+
   @Post("walking-graph/purge-bogus")
   @ApiOperation({
     summary:

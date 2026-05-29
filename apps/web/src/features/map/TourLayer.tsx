@@ -5,12 +5,20 @@ import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
 import type { CacheDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
+import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
 import { useMap } from "./MapContext.js";
 
 const TOUR_SOURCE = "gctp-tour";
 const TOUR_LAYER = "gctp-tour-line";
 const TOUR_HALO_LAYER = "gctp-tour-halo";
 const TOUR_ARROW_LAYER = "gctp-tour-arrows";
+/**
+ * Invisible wide-stroke hit-layer, only added when edit mode is on.
+ * Lives at the top of the stack so clicks land before bubbling down to
+ * the basemap. Each feature carries `legIndex` so the click handler
+ * can report which leg was hit.
+ */
+const TOUR_HIT_LAYER = "gctp-tour-hit";
 const PARKING_SOURCE = "gctp-tour-parking";
 const PARKING_LAYER = "gctp-tour-parking-circle";
 const PARKING_LABEL_LAYER = "gctp-tour-parking-label";
@@ -45,9 +53,24 @@ const SYMBOL_FONT: string[] = ["Noto Sans Bold"];
 export function TourLayer({
   result,
   caches,
+  editMode = false,
+  legPicks,
+  selectedLegIndex = null,
+  onLegSelect,
 }: {
   result: PlanResult | null;
   caches: readonly CacheDTO[] | undefined;
+  /** When true, splits the tour into per-leg clickable features. */
+  editMode?: boolean;
+  /**
+   * Map of legIndex → user-picked alternative index. Overrides the
+   * planner-picked geometry when set. Unset legs keep the planner pick.
+   */
+  legPicks?: Readonly<LegPicks>;
+  /** Index of the leg the panel is editing (highlighted on the map). */
+  selectedLegIndex?: number | null;
+  /** Fires when the user clicks a leg in edit mode. `null` clears. */
+  onLegSelect?: (legIndex: number | null) => void;
 }): null {
   const { map, ready } = useMap();
 
@@ -65,17 +88,41 @@ export function TourLayer({
       );
     }
 
+    // Build the tour FC per-leg when leg breakdown is available. This
+    // serves two purposes simultaneously:
+    //  1. Edit mode can attach a layer-bound click handler keyed on
+    //     `legIndex` — one click → exactly one leg identified.
+    //  2. `legPicks` can override individual legs' geometry without
+    //     re-running the planner.
+    // For strategies that don't populate `legs` (the solver path) we
+    // fall back to the single concatenated polyline.
+    const legs = result?.legs ?? [];
     const tourFc: GeoJSON.FeatureCollection = result
-      ? {
-          type: "FeatureCollection",
-          features: [
-            {
-              type: "Feature",
-              geometry: result.polyline,
-              properties: {},
-            },
-          ],
-        }
+      ? legs.length > 0
+        ? {
+            type: "FeatureCollection",
+            features: legs.map((leg) => {
+              const r = resolvePick(leg, legPicks?.[leg.index]);
+              return {
+                type: "Feature",
+                geometry: r.geometry,
+                properties: {
+                  legIndex: leg.index,
+                  selected: leg.index === selectedLegIndex ? 1 : 0,
+                },
+              };
+            }),
+          }
+        : {
+            type: "FeatureCollection",
+            features: [
+              {
+                type: "Feature",
+                geometry: result.polyline,
+                properties: { legIndex: -1, selected: 0 },
+              },
+            ],
+          }
       : { type: "FeatureCollection", features: [] };
 
     const parkingFc: GeoJSON.FeatureCollection = result
@@ -190,7 +237,14 @@ export function TourLayer({
       source: TOUR_SOURCE,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
-        "line-color": "#d84315",
+        // Selected leg renders amber so the user sees what the panel
+        // is currently editing without having to track the leg number.
+        "line-color": [
+          "case",
+          ["==", ["get", "selected"], 1],
+          "#ffb300",
+          "#d84315",
+        ],
         "line-width": [
           "interpolate",
           ["linear"],
@@ -325,6 +379,26 @@ export function TourLayer({
       },
     });
 
+    // Hit layer for edit-mode clicks. Wide invisible stroke so the
+    // click target is forgiving even at low zoom. Added/removed based
+    // on `editMode` so the cursor doesn't show as pointer when edits
+    // are disabled.
+    if (editMode && legs.length > 0) {
+      addLayerSafe(TOUR_HIT_LAYER, {
+        id: TOUR_HIT_LAYER,
+        type: "line",
+        source: TOUR_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#000000",
+          "line-opacity": 0,
+          "line-width": 14,
+        },
+      });
+    } else if (map.getLayer(TOUR_HIT_LAYER)) {
+      map.removeLayer(TOUR_HIT_LAYER);
+    }
+
     // Some MapLibre builds don't schedule a redraw after addLayer+setData
     // when the map is in a quiescent state — the layer is in the style
     // but the canvas keeps showing the pre-update frame until the next
@@ -333,7 +407,43 @@ export function TourLayer({
     // visit pins + dropped-cache badges appear immediately after the
     // plan response lands.
     map.triggerRepaint();
-  }, [map, ready, result, caches]);
+  }, [map, ready, result, caches, editMode, legPicks, selectedLegIndex]);
+
+  // Edit-mode click handler. Bound separately so the layer-create
+  // effect can re-run without rebinding the listener. `useMap`'s `ready`
+  // gate plus the layer-existence guard keep it resilient to lifecycle
+  // races (hit layer removed when editMode flips off).
+  useEffect(() => {
+    if (!ready) return;
+    if (!editMode || !onLegSelect) return;
+    const onClick = (
+      e: maplibregl.MapMouseEvent & {
+        features?: maplibregl.MapGeoJSONFeature[];
+      },
+    ) => {
+      const f = e.features?.[0];
+      if (!f) return;
+      const idx = (f.properties as { legIndex?: number }).legIndex;
+      if (typeof idx === "number" && idx >= 0) {
+        onLegSelect(idx);
+      }
+    };
+    const onEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const onLeave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+    map.on("click", TOUR_HIT_LAYER, onClick);
+    map.on("mouseenter", TOUR_HIT_LAYER, onEnter);
+    map.on("mouseleave", TOUR_HIT_LAYER, onLeave);
+    return () => {
+      map.off("click", TOUR_HIT_LAYER, onClick);
+      map.off("mouseenter", TOUR_HIT_LAYER, onEnter);
+      map.off("mouseleave", TOUR_HIT_LAYER, onLeave);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [map, ready, editMode, onLegSelect]);
 
   // Auto-fit the camera to the polyline whenever a new tour is planned.
   useEffect(() => {

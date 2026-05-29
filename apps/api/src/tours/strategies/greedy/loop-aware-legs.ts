@@ -386,8 +386,24 @@ function scoreLeg(
 /**
  * Helper for callers that just want the "fetch alternatives → pick best →
  * (optional via-waypoint nudge) → extend grid" loop, with logging.
- * Returns the chosen leg or `null` on disconnect.
+ *
+ * Returns `null` on disconnect, otherwise a `PickAndAccumulateResult`:
+ *   - `picked`         — the leg that was scored best and added to the grid
+ *   - `alternatives`   — every candidate considered (OSRM's primary + extras,
+ *                        plus the picked via-nudge if a nudge won)
+ *   - `selectedIndex`  — index of `picked` inside `alternatives`
+ *
+ * The caller uses `picked` for the polyline + totals (same shape as before)
+ * and surfaces `alternatives` + `selectedIndex` in `PlanResult.legs[]` so
+ * the manual-edit UI can offer leg-route swaps without a second OSRM round
+ * trip.
  */
+export interface PickAndAccumulateResult {
+  picked: OsrmLeg;
+  alternatives: OsrmLeg[];
+  selectedIndex: number;
+}
+
 export async function pickAndAccumulate(args: {
   from: [number, number];
   to: [number, number];
@@ -410,7 +426,7 @@ export async function pickAndAccumulate(args: {
   options?: LoopAwarePickerOptions;
   logger?: Logger;
   label?: string;
-}): Promise<OsrmLeg | null> {
+}): Promise<PickAndAccumulateResult | null> {
   const opts = args.options ?? DEFAULT_LOOP_PICKER_OPTIONS;
   const alternatives = await args.fetchAlternatives(
     args.from,
@@ -493,6 +509,18 @@ export async function pickAndAccumulate(args: {
   }
 
   args.grid.addLine(chosen.geometry);
+
+  // Build the surfaced alternative list. OSRM's primary + extras come
+  // through verbatim; if the via-nudge won, append it at the end so the
+  // UI can re-pick it later without another OSRM request. selectedIndex
+  // always points at the actually-chosen leg.
+  const surfacedAlternatives =
+    chosenSource === "nudge" ? [...alternatives, chosen] : alternatives;
+  const selectedIndex =
+    chosenSource === "nudge"
+      ? surfacedAlternatives.length - 1
+      : pick.chosenIndex;
+
   if (args.logger) {
     const nudgeNote = nudgeAttempted
       ? `; tried ${nudgeCandidatesFetched} via-nudge(s)`
@@ -519,5 +547,9 @@ export async function pickAndAccumulate(args: {
       );
     }
   }
-  return chosen;
+  return {
+    picked: chosen,
+    alternatives: surfacedAlternatives,
+    selectedIndex,
+  };
 }

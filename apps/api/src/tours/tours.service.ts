@@ -17,6 +17,7 @@ import {
   buildWalkingGraphResponse,
   purgeBogusWalkingCells,
   testOsrmRoute,
+  viaRoute,
 } from "./strategies/greedy/clustering/walking-graph-debug.js";
 
 const PREFETCH_PROFILE = "foot" as const;
@@ -316,6 +317,21 @@ export class ToursService {
     input: Tours.TestRouteInput,
   ): Promise<Tours.TestRouteResponse> {
     return testOsrmRoute(ownerId, input, {
+      caches: this.caches,
+      osrm: this.osrm,
+    });
+  }
+
+  /**
+   * Live OSRM `from → via → to` foot-route — powers the draggable
+   * via-point edit UI. Bypasses `route_legs` (every drag position is
+   * unique). Throttling is the client's responsibility.
+   */
+  viaRoute(
+    ownerId: string,
+    input: Tours.ViaRouteInput,
+  ): Promise<Tours.ViaRouteResponse> {
+    return viaRoute(ownerId, input, {
       caches: this.caches,
       osrm: this.osrm,
     });

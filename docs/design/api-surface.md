@@ -132,6 +132,56 @@ type PlanResult = {
     };
   };
   scoreBreakdown: Record<string, number>;
+  // Per-leg breakdown + every OSRM alternative the loop-aware picker
+  // received. Empty for solver-path plans (no alternatives surfaced).
+  // The web client uses this to power FR-T11 manual leg-route swaps;
+  // the wire `polyline` above remains the concatenation of the
+  // picker's chosen alternatives for back-compat with older clients.
+  legs: PlanLeg[];
+};
+
+type PlanLeg = {
+  // 0 = parking → first cache, 1..n-2 = inter-cache, n-1 = last → parking.
+  index: number;
+  // Sentinel 0 for the parking endpoints; otherwise the cache id.
+  fromCacheId: number;
+  toCacheId: number;
+  // The alternative the picker chose — its meters/seconds/geometry.
+  meters: number;
+  seconds: number;
+  geometry: GeoJsonLineString;
+  alternatives: PlanLegAlternative[];
+  selectedAlternativeIndex: number; // index into alternatives[]
+};
+
+type PlanLegAlternative = {
+  meters: number;
+  seconds: number;
+  geometry: GeoJsonLineString;
+};
+```
+
+## `POST /tours/legs/via-route` (FR-T11.1)
+
+Live OSRM `from → via → to` foot route — powers the draggable via-waypoint edit UI. Bypasses `route_legs` (every drag position is unique) and is not persisted; the client throttles + cancels requests during drag.
+
+```ts
+type ViaRouteInput = {
+  fromCacheId: number;
+  toCacheId: number;
+  via: [lng: number, lat: number];
+};
+
+type ViaRouteResponse = {
+  fromCacheId: number;
+  toCacheId: number;
+  fromCode: string;
+  toCode: string;
+  route: {
+    meters: number;
+    seconds: number;
+    geometry: GeoJsonLineString;
+  } | null; // null when OSRM responds NoRoute for from→via→to
 };
 ```
 

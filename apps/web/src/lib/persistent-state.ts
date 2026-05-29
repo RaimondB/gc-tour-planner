@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState } from "react";
+import type { GeoJsonLineString } from "@gctp/shared/geo";
+import type { PlanResult } from "@gctp/shared/tours";
 
 const PREFIX = "gctp:";
 
@@ -67,4 +69,105 @@ function loadOrDefault<T>(fullKey: string, initial: T): T {
   } catch {
     return initial;
   }
+}
+
+/**
+ * Stable 8-char hex signature for a planned tour. Used to key
+ * `localStorage` entries that hold the user's manual leg-route edits
+ * — when a new plan with a different signature arrives we want
+ * yesterday's edits left alone in storage, not silently re-applied to
+ * a different cluster.
+ *
+ * Inputs: the visit-order cache ids + the parking coordinates rounded
+ * to 5 decimal places (~1 m). Identical math to the planner's
+ * `stableClusterId` so signatures match what the planner could in
+ * future ship server-side. FNV-1a 32-bit.
+ */
+export function planSignature(result: PlanResult): string {
+  let h = 0x811c9dc5;
+  const eat = (v: number): void => {
+    let x = v | 0;
+    for (let b = 0; b < 4; b += 1) {
+      h ^= x & 0xff;
+      h = Math.imul(h, 0x01000193);
+      x >>>= 8;
+    }
+  };
+  for (const id of result.orderedCacheIds) eat(id);
+  // Round parking to 5 decimals (~1 m) so floating-point noise doesn't
+  // bust the signature for an otherwise-identical plan.
+  const [lng, lat] = result.parking.point.coordinates;
+  eat(Math.round((lng ?? 0) * 1e5));
+  eat(Math.round((lat ?? 0) * 1e5));
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+// ── Per-leg pick (FR-T11) ────────────────────────────────────────────
+//
+// Two kinds of edit are persisted per leg:
+//
+//   * `alt`  — user picked one of the OSRM alternatives the loop-aware
+//              picker already considered (no extra OSRM cost).
+//   * `via`  — user dragged a via-waypoint on the map; we store the
+//              final via coord + the OSRM `from → via → to` geometry.
+//              The geometry is persisted so reloading restores the line
+//              without re-hitting OSRM; the via coord is kept so the
+//              user can re-grab and refine the marker.
+//
+// The union is open: legPicks for an arbitrary localStorage entry may
+// also contain an `undefined` slot. Resolve via `resolvePick` so call
+// sites stay tidy and never have to repeat the fallback dance.
+
+export interface LegPickAlt {
+  kind: "alt";
+  altIndex: number;
+}
+
+export interface LegPickVia {
+  kind: "via";
+  via: [number, number];
+  meters: number;
+  seconds: number;
+  geometry: GeoJsonLineString;
+}
+
+export type LegPick = LegPickAlt | LegPickVia;
+
+export type LegPicks = Record<number, LegPick>;
+
+/**
+ * Resolve a per-leg pick into the actual geometry + meters/seconds the
+ * UI should render and aggregate. Defensive against:
+ *  - missing pick (no edit applied → planner's selected alternative)
+ *  - legacy stored values (a bare number from the pre-via shape →
+ *    treated as an `alt` pick)
+ *  - out-of-range `altIndex` (falls back to the first alternative)
+ *  - solver-path legs with `alternatives: []` (returns the planner's
+ *    chosen meters/seconds from the leg envelope).
+ */
+export function resolvePick(
+  leg: {
+    meters: number;
+    seconds: number;
+    geometry: GeoJsonLineString;
+    alternatives: readonly { meters: number; seconds: number; geometry: GeoJsonLineString }[];
+    selectedAlternativeIndex: number;
+  },
+  pick: LegPick | number | undefined,
+): { meters: number; seconds: number; geometry: GeoJsonLineString } {
+  if (pick && typeof pick === "object" && pick.kind === "via") {
+    return { meters: pick.meters, seconds: pick.seconds, geometry: pick.geometry };
+  }
+  const idx =
+    pick && typeof pick === "object" && pick.kind === "alt"
+      ? pick.altIndex
+      : typeof pick === "number"
+        ? pick
+        : leg.selectedAlternativeIndex;
+  const alt = leg.alternatives[idx] ?? leg.alternatives[0];
+  if (alt) return { meters: alt.meters, seconds: alt.seconds, geometry: alt.geometry };
+  // Solver path — no alternatives surfaced. Use the leg envelope's own
+  // meters/seconds/geometry, which `PlanResult.legs` carries verbatim
+  // for the chosen pick.
+  return { meters: leg.meters, seconds: leg.seconds, geometry: leg.geometry };
 }

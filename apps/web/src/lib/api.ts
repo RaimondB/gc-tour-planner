@@ -31,6 +31,8 @@ import {
   PurgeBogusResponse,
   type TestRouteInput,
   TestRouteResponse,
+  type ViaRouteInput,
+  ViaRouteResponse,
   type WalkingGraphInput,
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
@@ -218,6 +220,25 @@ export async function testOsrmRoute(input: TestRouteInput) {
     body: JSON.stringify(input),
   });
   return TestRouteResponse.parse(raw);
+}
+
+/**
+ * Live OSRM `from → via → to` foot route. Throttle on the caller side
+ * during a drag interaction and pass an `AbortSignal` so out-of-order
+ * responses can be cancelled — the latest dragged position is the only
+ * one that should ultimately paint.
+ */
+export async function fetchViaRoute(
+  input: ViaRouteInput,
+  signal?: AbortSignal,
+) {
+  const raw = await request<unknown>("/tours/legs/via-route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+  return ViaRouteResponse.parse(raw);
 }
 
 export async function purgeBogusWalkingCells(input: PurgeBogusInput) {
