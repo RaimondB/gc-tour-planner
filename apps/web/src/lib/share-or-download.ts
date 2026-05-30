@@ -76,14 +76,21 @@ function pickShareMimeType({
   if (typeof navigator === "undefined") return null;
   if (typeof navigator.share !== "function") return null;
   if (typeof navigator.canShare !== "function") return null;
+  const tried: { mime: string; ok: boolean; err?: string }[] = [];
   for (const candidate of [mimeType, ...SHARE_FALLBACK_MIME_TYPES]) {
     try {
       const probe = new File([""], filename, { type: candidate });
-      if (navigator.canShare({ files: [probe] })) return candidate;
-    } catch {
-      // try next
+      const ok = navigator.canShare({ files: [probe] });
+      tried.push({ mime: candidate, ok });
+      if (ok) {
+        console.info("[share] using mime:", candidate, "for", filename);
+        return candidate;
+      }
+    } catch (err) {
+      tried.push({ mime: candidate, ok: false, err: String(err) });
     }
   }
+  console.warn("[share] no allowed mime for", filename, "— tried:", tried);
   return null;
 }
 
