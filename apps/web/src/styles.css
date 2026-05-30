@@ -688,6 +688,16 @@ body,
   color: #1f2937;
 }
 
+/* --- Floating "Plan this cluster" button (FR-UX1, mobile-only) ------- */
+
+/* Hidden by default — the in-drawer "Plan this loop" row buttons are
+   the desktop affordance. Surfaced on phone when the user focused a
+   cluster on the map but doesn't want to re-open the drawer just to
+   start the plan. The media query at the bottom flips display:flex. */
+.map-plan-fab {
+  display: none;
+}
+
 /* --- Responsive: mobile drawer (FR-UX1 phase C) --------------------- */
 
 /* The grid switches to a single column at ≤ 768 px so the map fills
@@ -781,5 +791,36 @@ body,
      drawer on a 400 px viewport made no sense). */
   .tools-drawer {
     width: 100vw;
+  }
+
+  /* Floating "Plan cluster #N" button — bottom-centre of the map,
+     thumb-reachable. Surfaces after the user focuses a cluster on
+     the map; tapping it starts the plan without re-opening the
+     drawer. Auto-hides when the cluster turns into the planned
+     tour (focusedClusterId clears on plan-success). */
+  .map-plan-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    background: #d84315;
+    color: white;
+    border: none;
+    border-radius: 999px;
+    padding: 0.85rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+    z-index: 80;
+    min-height: 44px;
+    cursor: pointer;
+  }
+
+  .map-plan-fab:disabled {
+    background: #9ca3af;
+    cursor: progress;
   }
 }

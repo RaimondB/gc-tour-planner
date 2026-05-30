@@ -3,13 +3,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
   PlanResult,
 } from "@gctp/shared/tours";
-import { listCaches } from "./lib/api.js";
+import { listCaches, planLoop } from "./lib/api.js";
 import {
   type LegPicks,
   planSignature,
@@ -191,6 +191,37 @@ export default function App(): JSX.Element {
 
   const cancelViaDrag = useCallback(() => setViaDrag(null), []);
 
+  // ── Plan-loop mutation lifted here (FR-UX1 polish) ─────────────────
+  // Was local to PlannerSidebar; lifting it lets the map FAB
+  // (rendered outside the sidebar) trigger the same plan request as
+  // the in-drawer "Plan this loop" buttons. PlannerSidebar consumes
+  // `planCluster` + `planPending` / `planPendingClusterId` props to
+  // drive its row buttons.
+  const planMutation = useMutation({
+    mutationFn: async (cluster: ClusterCandidate) => {
+      setChosenClusterId(cluster.clusterId);
+      return planLoop({
+        cacheIds: cluster.cacheIds,
+        distanceBudgetMeters: planSettings.distanceBudgetMeters,
+        timePerCacheMinutes: planSettings.timePerCacheMinutes,
+        toolBonusMinutes: planSettings.toolBonusMinutes,
+        startPreference: planSettings.startPreference,
+        maxLinkMeters: planSettings.maxLinkMeters,
+        fringeTrimMeters: planSettings.fringeTrimMeters,
+        ...(planSettings.startPreference === "user-supplied-point"
+          ? { userSuppliedStart: params.center }
+          : {}),
+        osmParkingAccessFilter: [...planSettings.osmParkingAccessFilter],
+        osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
+      });
+    },
+    onSuccess: (res) => setPlanResult(res),
+  });
+  const planCluster = useCallback(
+    (cluster: ClusterCandidate) => planMutation.mutate(cluster),
+    [planMutation],
+  );
+
   // Mirror query at App level so the sidebar can show the count without
   // CachesLayer having to lift it up. Same queryKey → same cache entry, no
   // double fetch.
@@ -239,6 +270,25 @@ export default function App(): JSX.Element {
     setParams((prev) => ({ ...prev, center: lngLat }));
   }, []);
 
+  // ── Cluster FAB (mobile-only "Plan this" on the map) ───────────────
+  // When the drawer is closed (mobile) the user can't reach the
+  // "Plan this loop" row buttons. After focusing a cluster centroid
+  // on the map, we surface a floating button to start planning it
+  // without re-opening the drawer. Hidden on desktop via CSS.
+  const focusedClusterForFab = useMemo<{
+    cluster: ClusterCandidate;
+    rank: number;
+  } | null>(() => {
+    if (!focusedClusterId || !clusters) return null;
+    const idx = clusters.findIndex((c) => c.clusterId === focusedClusterId);
+    if (idx < 0) return null;
+    // The cluster we just planned is already represented by the
+    // TourLayer + Tour tab; surfacing a "Plan this" button for it
+    // again would be redundant.
+    if (clusters[idx]!.clusterId === chosenClusterId && planResult) return null;
+    return { cluster: clusters[idx]!, rank: idx + 1 };
+  }, [focusedClusterId, clusters, chosenClusterId, planResult]);
+
   // ── Tab state derivations + map fit helpers (FR-UX1) ───────────────
   // Hoisted above the JSX so the effects below can read `caches`
   // (previously these lived next to the tab JSX; the auto-fits need
@@ -251,11 +301,9 @@ export default function App(): JSX.Element {
       if (tab === "plan" && !planTabEnabled) return;
       if (tab === "tour" && !tourTabEnabled) return;
       setActiveTab(tab);
-      // On mobile the drawer covers the map; the user picked a tab
-      // — they're done with the drawer for the moment. Closing it
-      // gets them back to the map view immediately. Desktop ignores
-      // this (the drawer state isn't visible at ≥ 768 px).
-      setSidebarOpen(false);
+      // Leave the drawer open — the user picked a tab to interact with
+      // it, not to dismiss the drawer. Hamburger + backdrop tap remain
+      // the explicit close paths.
     },
     [planTabEnabled, tourTabEnabled, setActiveTab],
   );
@@ -467,6 +515,12 @@ export default function App(): JSX.Element {
                 onStartViaDrag={startViaDrag}
                 onCancelViaDrag={cancelViaDrag}
                 hideResultPanel
+                onPlanCluster={planCluster}
+                planPending={planMutation.isPending}
+                planPendingClusterId={
+                  planMutation.isPending ? chosenClusterId : null
+                }
+                planError={(planMutation.error as Error) ?? null}
               />
             )}
             {activeTab === "tour" &&
@@ -584,6 +638,18 @@ export default function App(): JSX.Element {
             <TestRouteLayer result={testRoute} />
             <ZoomDebugBadge />
           </MapView>
+          {focusedClusterForFab && (
+            <button
+              type="button"
+              className="map-plan-fab"
+              onClick={() => planCluster(focusedClusterForFab.cluster)}
+              disabled={planMutation.isPending}
+            >
+              {planMutation.isPending
+                ? "Planning…"
+                : `Plan cluster #${focusedClusterForFab.rank} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
+            </button>
+          )}
         </main>
       </div>
 

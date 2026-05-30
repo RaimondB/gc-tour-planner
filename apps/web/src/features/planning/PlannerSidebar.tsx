@@ -27,7 +27,6 @@ import {
   explainSelection,
   fetchParkingOptions,
   listLanduseProfiles,
-  planLoop,
   purgeBogusWalkingCells,
   testOsrmRoute,
 } from "../../lib/api.js";
@@ -198,6 +197,18 @@ export interface PlannerSidebarProps {
    * to the Tools drawer behind the cog icon).
    */
   hideDebugOverlays?: boolean;
+  /**
+   * Plan-mutation wiring lifted to App.tsx so the map FAB can trigger
+   * the same plan request as the in-drawer candidate rows. PlannerSidebar
+   * no longer owns the mutation — it just calls this callback and reads
+   * the pending status to drive its row buttons.
+   */
+  onPlanCluster: (cluster: ClusterCandidate) => void;
+  planPending: boolean;
+  /** Cluster id currently being planned (null when idle). */
+  planPendingClusterId: string | null;
+  /** Last plan error to surface inline. `null` when there's no error. */
+  planError: Error | null;
 }
 
 export function PlannerSidebar({
@@ -236,6 +247,10 @@ export function PlannerSidebar({
   hideResultPanel = false,
   hideClusterLab = false,
   hideDebugOverlays = false,
+  onPlanCluster,
+  planPending,
+  planPendingClusterId,
+  planError,
 }: PlannerSidebarProps) {
   const landuseProfilesQuery = useQuery({
     queryKey: ["landuse-profiles"],
@@ -278,27 +293,6 @@ export function PlannerSidebar({
       onChosenClusterChange(null);
       onResultChange(null);
     },
-  });
-
-  const planMutation = useMutation({
-    mutationFn: async (cluster: ClusterCandidate) => {
-      onChosenClusterChange(cluster.clusterId);
-      return planLoop({
-        cacheIds: cluster.cacheIds,
-        distanceBudgetMeters: settings.distanceBudgetMeters,
-        timePerCacheMinutes: settings.timePerCacheMinutes,
-        toolBonusMinutes: settings.toolBonusMinutes,
-        startPreference: settings.startPreference,
-        maxLinkMeters: settings.maxLinkMeters,
-        fringeTrimMeters: settings.fringeTrimMeters,
-        ...(settings.startPreference === "user-supplied-point"
-          ? { userSuppliedStart: search.center }
-          : {}),
-        osmParkingAccessFilter: [...settings.osmParkingAccessFilter],
-        osmParkingFeeFilter: settings.osmParkingFeeFilter,
-      });
-    },
-    onSuccess: (res) => onResultChange(res),
   });
 
   const clearAll = () => {
@@ -763,10 +757,10 @@ export function PlannerSidebar({
                 <div className="cluster-row-actions">
                   <button
                     type="button"
-                    onClick={() => planMutation.mutate(c)}
-                    disabled={planMutation.isPending}
+                    onClick={() => onPlanCluster(c)}
+                    disabled={planPending}
                   >
-                    {planMutation.isPending && c.clusterId === chosenClusterId
+                    {planPending && c.clusterId === planPendingClusterId
                       ? "Planning…"
                       : "Plan this loop"}
                   </button>
@@ -796,10 +790,8 @@ export function PlannerSidebar({
       )}
 
 
-      {planMutation.error && (
-        <div className="planner-error">
-          {(planMutation.error as Error).message}
-        </div>
+      {planError && (
+        <div className="planner-error">{planError.message}</div>
       )}
 
       {result && !hideResultPanel && (
