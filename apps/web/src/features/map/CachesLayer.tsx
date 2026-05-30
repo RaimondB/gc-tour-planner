@@ -14,6 +14,7 @@ import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
 
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
+const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const PARKING_SOURCE = "gctp-parking";
 const PARKING_LAYER = "gctp-parking-circle";
 
@@ -41,6 +42,8 @@ interface CacheProps {
   color: string;
   foundByMe: number; // 0/1 — MapLibre filter expressions don't accept booleans
   selected: number; // 0/1 — same MapLibre-filter caveat
+  /** 1 when the cache owner has temporarily disabled it (FR-I10). */
+  disabled: number;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -105,6 +108,7 @@ export function CachesLayer({
         color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
         foundByMe: c.foundByMe ? 1 : 0,
         selected: selectedCacheIds?.has(c.id) ? 1 : 0,
+        disabled: c.disabled ? 1 : 0,
       },
     }));
 
@@ -135,14 +139,55 @@ export function CachesLayer({
           "circle-color": ["get", "color"],
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
-          // Dim found caches so the unfound ones pop without being hidden.
-          "circle-opacity": ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-          "circle-stroke-opacity": [
-            "case",
-            ["==", ["get", "foundByMe"], 1],
-            0.35,
-            1,
+          // Two independent dims compose:
+          //   * found-by-me → 0.35 (won't disappear, but recedes)
+          //   * disabled    → 0.50 (geocaching.com convention for
+          //                    temp-disabled). Combining both gives
+          //                    ~0.18 which is still visible.
+          "circle-opacity": [
+            "*",
+            ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
+            ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
           ],
+          "circle-stroke-opacity": [
+            "*",
+            ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
+            ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
+          ],
+        },
+      });
+    }
+    // "Z" overlay on disabled caches — matches the visual language
+    // geocaching.com uses (zzz = sleeping). Plain ASCII so it
+    // renders in every glyph source. Only shown when the marker is
+    // big enough for the letter to read (≥ zoom 11).
+    if (!map.getLayer(CACHES_DISABLED_LABEL_LAYER)) {
+      map.addLayer({
+        id: CACHES_DISABLED_LABEL_LAYER,
+        type: "symbol",
+        source: CACHES_SOURCE,
+        minzoom: 11,
+        filter: ["==", ["get", "disabled"], 1],
+        layout: {
+          "text-field": "Z",
+          "text-font": ["Noto Sans Bold"],
+          "text-size": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            11,
+            8,
+            14,
+            12,
+          ],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+          "text-anchor": "center",
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#000000",
+          "text-halo-width": 1.4,
         },
       });
     }

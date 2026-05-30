@@ -5,6 +5,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { AdminLanduseModule } from "./admin/landuse/admin-landuse.module.js";
 import { AdminPrecomputeModule } from "./admin/precompute/admin-precompute.module.js";
+import { AdminUploadsModule } from "./admin/uploads/admin-uploads.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { CachesModule } from "./caches/caches.module.js";
 import { DatabaseModule } from "./database/database.module.js";
@@ -35,6 +36,7 @@ import { ToursModule } from "./tours/tours.module.js";
     WalkingPrecomputeModule,
     AdminPrecomputeModule,
     AdminLanduseModule,
+    AdminUploadsModule,
   ],
 })
 export class AppModule {}

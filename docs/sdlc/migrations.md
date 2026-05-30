@@ -23,6 +23,12 @@ Plain SQL via [`node-pg-migrate`](https://github.com/salsita/node-pg-migrate), s
 5. Update [packages/db/src/schema.ts](../../packages/db/src/schema.ts) if a hand-written type lives there.
 6. Document the affected query in the matching [design](../design/index.md) doc — e.g. spatial indexes for a new geometry column go in [design/data-model.md](../design/data-model.md) "Spatial helpers".
 
+## How migrations get applied
+
+- **Dev (`pnpm dev`):** [scripts/dev.sh](../../scripts/dev.sh) calls `pnpm --filter @gctp/db migrate:up` after Postgres becomes healthy, before launching api/web on the host.
+- **UAT (`cd infra && docker compose up --build -d`):** the one-shot `migrate` compose service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) bind-mounts `packages/db/migrations` and runs `node-pg-migrate up`, exiting 0. `api`, `jobs`, and `osm2pgsql-import` declare `depends_on: migrate: service_completed_successfully`, so they block until the schema is current. No manual migrate step on the host.
+- **To force a re-run** (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
+
 ## PostGIS specifics
 
 - Geometry columns: prefer `GEOGRAPHY(Point, 4326)` over `GEOMETRY(...)` unless you specifically need planar math. Geography handles wraparound and gives meters from `ST_DWithin` / `ST_DistanceSphere` for free.

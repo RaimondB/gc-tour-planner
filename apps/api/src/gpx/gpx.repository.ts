@@ -7,11 +7,27 @@ import type { Database } from "@gctp/db";
 import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../database/database.tokens.js";
 
+export type CacheUpsertOutcome = "new" | "updated" | "stale";
+
 export interface UpsertCachesResult {
+  /** Count of rows actually written (new + updated); excludes `stale`. */
   insertedOrUpdated: number;
   waypointsInserted: number;
-  /** Map of cache code → DB row id for every cache touched by this upload. */
+  /**
+   * Cache code → DB row id for every cache present in the upload,
+   * whether it was newly written, updated, or skipped as stale. The
+   * service uses this map for downstream tasks (precompute enqueue,
+   * mark-as-found) that operate on the user's *current* caches, not
+   * just the ones we wrote in this transaction.
+   */
   cacheIdByCode: ReadonlyMap<string, number>;
+  /**
+   * Per-code outcome — drives the upload-response stats (`new` vs
+   * `updated` vs `stale`). Stale = an existing row's
+   * `source_exported_at` is newer than the incoming PQ, so the
+   * upsert was a no-op for that cache (FR-I10 staleness guard).
+   */
+  outcome: ReadonlyMap<string, CacheUpsertOutcome>;
 }
 
 @Injectable()
@@ -30,20 +46,81 @@ export class GpxRepository {
     ownerId: string,
     caches: readonly ParsedCache[],
     waypoints: readonly ParsedWaypoint[],
+    /**
+     * The PQ's `<gpx><time>` (FR-I10) — when Groundspeak generated the
+     * file. Each upsert tags the touched row with this value; existing
+     * rows with a newer `source_exported_at` are left alone (stale
+     * skip). `null` means "we don't know when this was exported" and
+     * the staleness check degrades to "always allow update".
+     */
+    exportedAt: Date | null,
   ): Promise<UpsertCachesResult> {
     if (caches.length === 0 && waypoints.length === 0) {
       return {
         insertedOrUpdated: 0,
         waypointsInserted: 0,
         cacheIdByCode: new Map(),
+        outcome: new Map(),
       };
     }
 
     return this.db.transaction().execute(async (tx) => {
       let insertedOrUpdated = 0;
       const cacheIdByCode = new Map<string, number>();
+      const outcome = new Map<string, CacheUpsertOutcome>();
+
+      // Bulk-fetch existing rows so the staleness guard can be applied
+      // per-cache without per-iteration round-trips. Source is always
+      // 'gpx' here — different sources (OKAPI, GC.com) get their own
+      // upsert paths.
+      const incomingCodes = caches.map((c) => c.sourceId);
+      const existingRows =
+        incomingCodes.length > 0
+          ? await tx
+              .selectFrom("caches")
+              .select(["id", "source_id", "source_exported_at"])
+              .where("owner_id", "=", ownerId)
+              .where("source", "=", "gpx")
+              .where("source_id", "in", incomingCodes)
+              .execute()
+          : [];
+      const existingBySourceId = new Map<
+        string,
+        { id: number; exportedAt: Date | null }
+      >();
+      for (const r of existingRows) {
+        existingBySourceId.set(r.source_id, {
+          id: Number(r.id),
+          exportedAt: r.source_exported_at,
+        });
+      }
 
       for (const c of caches) {
+        const existing = existingBySourceId.get(c.sourceId);
+
+        // Staleness decision:
+        //   * No existing row → new (insert).
+        //   * Existing row has no exportedAt or incoming has no
+        //     exportedAt → update (we have no way to compare ages;
+        //     fall back to "incoming wins" to preserve pre-PR2
+        //     behaviour).
+        //   * Incoming exportedAt < existing exportedAt → stale (skip).
+        //     Equal exportedAt counts as "update" — re-running the
+        //     same PQ should be a no-op data-wise but refresh
+        //     `last_seen_at`.
+        const isStale =
+          existing !== undefined &&
+          existing.exportedAt !== null &&
+          exportedAt !== null &&
+          exportedAt < existing.exportedAt;
+
+        if (isStale) {
+          cacheIdByCode.set(c.code, existing.id);
+          outcome.set(c.code, "stale");
+          continue;
+        }
+
+        const isNew = existing === undefined;
         const row = await tx
           .insertInto("caches")
           .values({
@@ -58,6 +135,8 @@ export class GpxRepository {
             terrain: c.terrain,
             size: c.size,
             archived: c.archived,
+            disabled: c.disabled,
+            source_exported_at: exportedAt,
             raw: sql<string>`'{}'::jsonb`,
           })
           .onConflict((oc) =>
@@ -74,6 +153,8 @@ export class GpxRepository {
                 terrain: (eb) => eb.ref("excluded.terrain"),
                 size: (eb) => eb.ref("excluded.size"),
                 archived: (eb) => eb.ref("excluded.archived"),
+                disabled: (eb) => eb.ref("excluded.disabled"),
+                source_exported_at: (eb) => eb.ref("excluded.source_exported_at"),
                 last_seen_at: sql<Date>`now()`,
               }),
           )
@@ -81,6 +162,7 @@ export class GpxRepository {
           .executeTakeFirstOrThrow();
 
         cacheIdByCode.set(c.code, Number(row.id));
+        outcome.set(c.code, isNew ? "new" : "updated");
         insertedOrUpdated += 1;
 
         // Replace attributes for this cache.
@@ -164,7 +246,7 @@ export class GpxRepository {
         waypointsInserted = matchedWaypoints.length;
       }
 
-      return { insertedOrUpdated, waypointsInserted, cacheIdByCode };
+      return { insertedOrUpdated, waypointsInserted, cacheIdByCode, outcome };
     });
   }
 
@@ -193,24 +275,114 @@ export class GpxRepository {
     return inserted.length;
   }
 
-  async recordUpload(
+  /**
+   * Insert a new upload row in the `received` state — before parsing, so
+   * the row exists when we write the raw file (which uses the row id as
+   * filename). The parse path then transitions the row to `parsed` or
+   * `failed` via the dedicated helpers below.
+   */
+  async insertReceivedUpload(
     ownerId: string,
     filename: string,
-    parsedCount: number,
-    status: "parsed" | "failed",
-    error: string | null,
   ): Promise<string> {
     const row = await this.db
       .insertInto("gpx_uploads")
       .values({
         owner_id: ownerId,
         filename,
-        parsed_count: parsedCount,
-        status,
-        error,
+        parsed_count: 0,
+        status: "received",
+        error: null,
       })
       .returning("id")
       .executeTakeFirstOrThrow();
     return row.id;
+  }
+
+  /** Record the raw-file metadata once the gzipped XML is on disk. */
+  markRawStored(
+    uploadId: string,
+    sizeBytes: number,
+    sha256: string,
+  ): Promise<void> {
+    return this.db
+      .updateTable("gpx_uploads")
+      .set({
+        raw_size_bytes: BigInt(sizeBytes),
+        raw_sha256: sha256,
+      })
+      .where("id", "=", uploadId)
+      .execute()
+      .then(() => undefined);
+  }
+
+  /**
+   * Transition `received` → `parsed` with the final caches-upserted
+   * count + the PQ's `<gpx><time>` (FR-I10). `exportedAt` is `null`
+   * when the GPX had no top-level time element.
+   */
+  markParsed(
+    uploadId: string,
+    parsedCount: number,
+    exportedAt: Date | null,
+  ): Promise<void> {
+    return this.db
+      .updateTable("gpx_uploads")
+      .set({
+        status: "parsed",
+        parsed_count: parsedCount,
+        error: null,
+        exported_at: exportedAt,
+      })
+      .where("id", "=", uploadId)
+      .execute()
+      .then(() => undefined);
+  }
+
+  /**
+   * Transition to `failed` with the parser's error message. We keep the
+   * raw file on disk so a future parser fix can be re-applied via the
+   * reprocess endpoint without asking the user to re-upload.
+   */
+  markFailed(uploadId: string, error: string): Promise<void> {
+    return this.db
+      .updateTable("gpx_uploads")
+      .set({
+        status: "failed",
+        error,
+      })
+      .where("id", "=", uploadId)
+      .execute()
+      .then(() => undefined);
+  }
+
+  /**
+   * Look up an upload's owner + raw-storage metadata for the reprocess
+   * path. Returns `null` if the upload doesn't exist for this owner —
+   * intentionally indistinguishable from "exists but belongs to someone
+   * else" so a cross-tenant id probe leaks no information.
+   */
+  async findUploadByOwner(
+    uploadId: string,
+    ownerId: string,
+  ): Promise<{
+    id: string;
+    filename: string;
+    rawSizeBytes: bigint | null;
+    rawSha256: string | null;
+  } | null> {
+    const row = await this.db
+      .selectFrom("gpx_uploads")
+      .select(["id", "filename", "raw_size_bytes", "raw_sha256"])
+      .where("id", "=", uploadId)
+      .where("owner_id", "=", ownerId)
+      .executeTakeFirst();
+    if (!row) return null;
+    return {
+      id: row.id,
+      filename: row.filename,
+      rawSizeBytes: row.raw_size_bytes,
+      rawSha256: row.raw_sha256,
+    };
   }
 }

@@ -23,6 +23,19 @@ export interface FindCachesParams {
    * guarantee that.
    */
   contexts?: readonly string[];
+  /**
+   * Include caches the owner has temporarily disabled (FR-I10).
+   * Default false — `listCaches` excludes them so the planner never
+   * picks one as a visit target. The filter sidebar's "Show disabled"
+   * chip flips this to true; the map then renders them at 50 %
+   * opacity with a "Z" overlay.
+   */
+  includeDisabled?: boolean;
+  /**
+   * Include archived caches. Default false. No UI today; reserved
+   * for a future debug overlay (archived caches are normally noise).
+   */
+  includeArchived?: boolean;
 }
 
 interface CacheRow {
@@ -38,6 +51,7 @@ interface CacheRow {
   terrain: string | null;
   size: string | null;
   archived: boolean;
+  disabled: boolean;
   attribute_ids: number[];
   parking_lngs: number[];
   parking_lats: number[];
@@ -66,6 +80,7 @@ export class CachesRepository {
         "c.terrain",
         "c.size",
         "c.archived",
+        "c.disabled",
         eb
           .selectFrom("cache_attributes as a")
           .whereRef("a.cache_id", "=", "c.id")
@@ -116,6 +131,17 @@ export class CachesRepository {
       .where(
         sql<boolean>`ST_DWithin(c.location, ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography, ${p.radiusM})`,
       );
+
+    // FR-I10 default filter: hide archived + disabled unless the
+    // caller asked otherwise. The partial index
+    // `caches_owner_active_idx (owner_id) WHERE NOT archived AND NOT disabled`
+    // supports this hot path.
+    if (!p.includeArchived) {
+      q = q.where("c.archived", "=", false);
+    }
+    if (!p.includeDisabled) {
+      q = q.where("c.disabled", "=", false);
+    }
 
     if (p.excludeFound) {
       q = q.where((eb) =>
@@ -199,6 +225,7 @@ export class CachesRepository {
         terrain: r.terrain === null ? null : Number(r.terrain),
         size: r.size,
         archived: r.archived,
+        disabled: r.disabled,
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),
@@ -258,6 +285,7 @@ export class CachesRepository {
         "c.terrain",
         "c.size",
         "c.archived",
+        "c.disabled",
         eb
           .selectFrom("cache_attributes as a")
           .whereRef("a.cache_id", "=", "c.id")
@@ -330,6 +358,7 @@ export class CachesRepository {
         terrain: r.terrain === null ? null : Number(r.terrain),
         size: r.size,
         archived: r.archived,
+        disabled: r.disabled,
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),

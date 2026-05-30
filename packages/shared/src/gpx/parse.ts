@@ -33,9 +33,14 @@ export function parseGpx(xml: string): ParsedGpx {
   });
 
   const doc = parser.parse(xml) as {
-    gpx?: { wpt?: GpxWpt[] };
+    gpx?: { wpt?: GpxWpt[]; time?: string | number };
   };
   const wpts = doc.gpx?.wpt ?? [];
+  // Top-level `<gpx><time>` is Groundspeak's PQ generation timestamp
+  // (e.g. "2026-05-24T08:05:56.3784912Z"). We surface it on
+  // `ParsedGpx.exportedAt` so the upsert path can apply the staleness
+  // guard. Normalize to RFC3339 string; null when missing or unparseable.
+  const exportedAt = normalizeTimestamp(doc.gpx?.time);
 
   const caches: ParsedCache[] = [];
   const waypoints: ParsedWaypoint[] = [];
@@ -78,7 +83,23 @@ export function parseGpx(xml: string): ParsedGpx {
     });
   }
 
-  return { caches, waypoints, warnings };
+  return { caches, waypoints, warnings, exportedAt };
+}
+
+/**
+ * Convert a Groundspeak `<time>` value to an RFC-3339 string with
+ * timezone offset, or null if the input is missing or unparseable.
+ * Groundspeak emits values like `2026-05-24T08:05:56.3784912Z` (UTC,
+ * sub-microsecond precision) and `2022-02-01T00:00:00` (naive). The
+ * naive form is treated as UTC by JS Date — fine for our use (we only
+ * compare for ordering).
+ */
+function normalizeTimestamp(raw: string | number | undefined): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const s = String(raw);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 /* --- internal helpers --------------------------------------------------- */
@@ -169,6 +190,21 @@ function toParsedCache(
     typeof archivedAttr === "boolean"
       ? archivedAttr
       : String(archivedAttr ?? "").toLowerCase() === "true";
+  // Groundspeak distinguishes available=false from archived=true:
+  //   - archived=true: cache is permanently gone (delete-it gone).
+  //   - available=false + archived=false: temporarily disabled by the
+  //     owner (typically for maintenance). May come back.
+  // We map the temp-disabled case to `disabled=true`. An archived
+  // cache is also "not available" but we report it under archived;
+  // disabled stays false to keep the booleans orthogonal in the UI.
+  const availableAttr = gs["@_available"];
+  const available =
+    availableAttr === undefined
+      ? true
+      : typeof availableAttr === "boolean"
+        ? availableAttr
+        : String(availableAttr).toLowerCase() === "true";
+  const disabled = !available && !archived;
 
   const attributes = (
     gs["groundspeak:attributes"]?.["groundspeak:attribute"] ?? []
@@ -189,6 +225,7 @@ function toParsedCache(
     terrain: numOrNull(gs["groundspeak:terrain"]),
     size: textOrNull(gs["groundspeak:container"]),
     archived,
+    disabled,
     attributes,
   };
 }

@@ -57,6 +57,12 @@ export const CacheDTO = z.object({
   terrain: z.number().min(1).max(5).nullable(),
   size: z.string().nullable(),
   archived: z.boolean(),
+  /**
+   * Temporarily disabled by the cache owner (FR-I10). Distinct from
+   * archived. The map renders disabled markers at 50 % opacity with a
+   * "Z" overlay; archived caches are excluded by default.
+   */
+  disabled: z.boolean(),
   attributeIds: z.array(z.number().int()),
   parkingPoints: z.array(LngLat),
   /** True if the current user has logged a find for this cache. */
@@ -72,6 +78,16 @@ export const CachesQuery = z.object({
   contexts: z.array(z.string()).optional(),
   /** When true, omit caches the current user has logged as found. */
   excludeFound: z.boolean().optional(),
+  /**
+   * When true, include caches the owner has temporarily disabled (FR-I10).
+   * Default false — the filter sidebar's "Show disabled" chip flips this.
+   */
+  includeDisabled: z.boolean().optional(),
+  /**
+   * When true, include archived caches. Default false. No UI surfaces
+   * this today; reserved for future debug toggle.
+   */
+  includeArchived: z.boolean().optional(),
 });
 export type CachesQuery = z.infer<typeof CachesQuery>;
 

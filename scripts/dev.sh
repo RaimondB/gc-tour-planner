@@ -60,6 +60,11 @@ POSTGRES_PORT_DEV="${POSTGRES_PORT_DEV:-15432}"
 VALKEY_PORT_DEV="${VALKEY_PORT_DEV:-16379}"
 API_PORT_DEV="${API_PORT_DEV:-3030}"
 WEB_PORT_DEV="${WEB_PORT_DEV:-5173}"
+# Raw GPX uploads (gzipped, one per upload id). Dev keeps them on the
+# host under ./data/uploads/ so they survive `pnpm dev:down` AND survive
+# a `git clean` (data/ is in .gitignore). Override in dev.env if you
+# want to point at a shared spot.
+UPLOADS_DIR_DEV="${UPLOADS_DIR_DEV:-$ROOT/data/uploads}"
 # Dev shares UAT's OSRM (read-only HTTP, no data risk; second instance
 # OOMs the host). Override if your UAT runs OSRM on a non-default port,
 # or if you've manually started a dev-only OSRM somewhere else.
@@ -96,6 +101,8 @@ echo "→ Starting dev infra (project=$DEV_PROJECT)"
 echo "  postgres   localhost:$POSTGRES_PORT_DEV  ($POSTGRES_DB_DEV)"
 echo "  valkey     localhost:$VALKEY_PORT_DEV"
 echo "  osrm       $OSRM_URL_DEV  (shared with UAT — read-only)"
+echo "  uploads    $UPLOADS_DIR_DEV"
+mkdir -p "$UPLOADS_DIR_DEV"
 
 # Bring up postgres + valkey synchronously — api needs them at boot.
 # OSRM is not a dev container; we point at UAT's already-running instance.
@@ -165,6 +172,7 @@ DATABASE_URL="$HOST_DB_URL" \
 VALKEY_URL="$HOST_VALKEY_URL" \
 OSRM_URL="$HOST_OSRM_URL" \
 API_PORT="$API_PORT_DEV" \
+UPLOADS_DIR="$UPLOADS_DIR_DEV" \
 JWT_SECRET="${JWT_SECRET:-dev-secret-change-me}" \
 TOUR_PLANNER="${TOUR_PLANNER:-greedy}" \
 LOG_LEVEL="${LOG_LEVEL:-info}" \

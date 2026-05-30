@@ -184,6 +184,7 @@ export default function App(): JSX.Element {
         types: params.types.length > 0 ? params.types : undefined,
         excludeFound: params.excludeFound || undefined,
         contexts: params.contexts.length > 0 ? params.contexts : undefined,
+        includeDisabled: params.includeDisabled || undefined,
       }),
     placeholderData: (prev) => prev,
   });

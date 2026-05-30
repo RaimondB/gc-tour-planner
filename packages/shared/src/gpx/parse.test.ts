@@ -26,6 +26,7 @@ describe("parseGpx", () => {
     expect(traditional?.terrain).toBe(2);
     expect(traditional?.size).toBe("Small");
     expect(traditional?.archived).toBe(false);
+    expect(traditional?.disabled).toBe(false);
     expect(traditional?.location).toEqual([5.1214, 52.0907]);
     expect(traditional?.attributes).toEqual([
       { id: 6, positive: true },
@@ -73,6 +74,50 @@ describe("parseGpx", () => {
       "GC8ZQ1F",
       "GC95W19",
     ]);
+  });
+
+  it("captures the top-level <gpx><time> as exportedAt (ISO string, UTC)", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0">
+        <time>2026-05-24T08:05:56.3784912Z</time>
+      </gpx>`;
+    const result = parseGpx(xml);
+    expect(result.exportedAt).toBe("2026-05-24T08:05:56.378Z");
+  });
+
+  it("yields exportedAt=null when the GPX has no top-level <time>", () => {
+    expect(parseGpx(gpxText).exportedAt).toBeNull();
+  });
+
+  it("derives disabled from available='False' (with archived='False')", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        <wpt lat="52.0" lon="5.0">
+          <name>GC1DIS1</name>
+          <groundspeak:cache id="1" available="False" archived="False">
+            <groundspeak:name>Down for maintenance</groundspeak:name>
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+        <wpt lat="52.0" lon="5.0">
+          <name>GC1ARC1</name>
+          <groundspeak:cache id="2" available="False" archived="True">
+            <groundspeak:name>Permanently gone</groundspeak:name>
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    const result = parseGpx(xml);
+    const dis = result.caches.find((c) => c.code === "GC1DIS1");
+    const arc = result.caches.find((c) => c.code === "GC1ARC1");
+    // Temp-disabled: disabled=true, archived=false.
+    expect(dis?.disabled).toBe(true);
+    expect(dis?.archived).toBe(false);
+    // Archived ones report under archived only — the booleans stay
+    // orthogonal so the UI can render exactly one badge per cache.
+    expect(arc?.disabled).toBe(false);
+    expect(arc?.archived).toBe(true);
   });
 
   it("warns on caches with no waypoints and ignores wpts missing coordinates", () => {

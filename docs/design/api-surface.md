@@ -13,6 +13,10 @@ const CachesQuery = z.object({
     .array(z.array(z.object({ id: z.number(), positive: z.boolean() })))
     .optional(),
   contexts: z.array(z.string()).optional(), // landuse kinds to filter to (hard)
+  excludeFound: z.boolean().optional(),     // hide caches the user has logged
+  // FR-I10: defaults exclude archived + disabled. Flip to include.
+  includeDisabled: z.boolean().optional(),  // 50% opacity + Z overlay on map
+  includeArchived: z.boolean().optional(),  // no UI today; debug only
 });
 type CachesResponse = {
   caches: CacheDTO[];
@@ -22,7 +26,37 @@ type CachesResponse = {
 
 ## `POST /gpx/upload`
 
-Multipart upload. Returns `{ uploadId, parsedCount }`. Parsing is synchronous for small files (< 5 MB); large files are queued to `jobs/gpx-parse` and the client polls `GET /gpx/uploads/:id`.
+Multipart upload. Returns:
+
+```ts
+type UploadGpxResult = {
+  uploadId: string;
+  cachesUpserted: number;        // new + updated (excludes stale)
+  waypointsInserted: number;
+  findsRecorded: number;
+  warnings: string[];
+  stats: {                       // FR-I11
+    total: number;               // distinct caches in the file
+    byType: Record<string, number>; // Traditional: 423, Multi: 12, …
+    disabled: number;            // available="False", archived="False"
+    archived: number;            // archived="True"
+    new: number;                 // upsert: inserted
+    updated: number;             // upsert: overwrote existing
+    stale: number;               // upsert: skipped (incoming exportedAt < existing)
+    exportedAt: string | null;   // top-level <gpx><time>
+  };
+};
+```
+
+Side effects:
+- **FR-I9**: raw `.gpx` bytes gzipped and persisted to `{UPLOADS_DIR}/{uploadId}.gpx.gz` before parse. Status transitions: `received` → (`parsed` | `failed`). The raw file is kept on the failed path too so a parser fix can be replayed.
+- **FR-I10**: every upserted row's `source_exported_at` is set to the PQ's `<gpx><time>`. The upsert's staleness guard compares incoming vs. existing — older PQs are skipped (counted under `stats.stale`).
+
+Parsing is synchronous for small files (< 5 MB); large files are queued to `jobs/gpx-parse` and the client polls `GET /gpx/uploads/:id` (M3+).
+
+## `POST /admin/uploads/:id/reprocess`
+
+Re-runs the GPX parser against the stored raw bytes for an upload and re-upserts. Used after the parser learns about a new field — e.g. once the upcoming `disabled` parsing lands, replaying yesterday's uploads back-fills the column. Body: optional `{ markAsFound?: boolean }`. Returns the same shape as `POST /gpx/upload`. Per-owner isolation: cross-tenant ids return 404. Uploads predating FR-I9 (raw_size_bytes IS NULL) return 400 with a "no raw bytes stored" message.
 
 ## `POST /tours/clusters` + `POST /tours/plan`
 

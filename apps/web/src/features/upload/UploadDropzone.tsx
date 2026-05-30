@@ -75,23 +75,7 @@ export function UploadDropzone(): JSX.Element {
               : "Drop a GPX here or click to choose"}
         </div>
         {mutation.isSuccess && (
-          <div className="dropzone__success">
-            {mutation.data.cachesUpserted} caches,{" "}
-            {mutation.data.waypointsInserted} waypoints
-            {mutation.data.findsRecorded > 0 && (
-              <>, {mutation.data.findsRecorded} new finds</>
-            )}
-            {mutation.data.warnings.length > 0 && (
-              <details>
-                <summary>{mutation.data.warnings.length} warning(s)</summary>
-                <ul>
-                  {mutation.data.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </div>
+          <UploadSummary result={mutation.data} />
         )}
         {mutation.isError && (
           <div className="dropzone__error">
@@ -113,6 +97,69 @@ export function UploadDropzone(): JSX.Element {
         />
         Upload as &ldquo;My Finds&rdquo; (mark each cache as found)
       </label>
+    </div>
+  );
+}
+
+/**
+ * "What just happened" summary rendered after a successful upload.
+ * Breaks down the FR-I11 stats into something a user can read at a
+ * glance: total + per-type + new/updated/stale + disabled/archived.
+ */
+function UploadSummary({ result }: { result: UploadGpxResult }): JSX.Element {
+  const { stats, waypointsInserted, findsRecorded, warnings } = result;
+  // Sort cache types by count desc so the dominant types lead.
+  const typeRows = Object.entries(stats.byType).sort(
+    ([, a], [, b]) => b - a,
+  );
+  return (
+    <div className="dropzone__success">
+      <strong>{stats.total} caches</strong> ({stats.new} new, {stats.updated}{" "}
+      updated
+      {stats.stale > 0 && (
+        <>
+          ,{" "}
+          <span
+            title="Existing rows were newer than this PQ's export timestamp — skipped to avoid overwriting fresher data."
+            style={{ color: "#ff6f00" }}
+          >
+            {stats.stale} stale-skipped
+          </span>
+        </>
+      )}
+      ){waypointsInserted > 0 && <>, {waypointsInserted} waypoints</>}
+      {findsRecorded > 0 && <>, {findsRecorded} new finds</>}
+      {(stats.disabled > 0 || stats.archived > 0) && (
+        <div className="muted" style={{ marginTop: 4 }}>
+          {stats.disabled > 0 && <>{stats.disabled} temporarily disabled</>}
+          {stats.disabled > 0 && stats.archived > 0 && <> · </>}
+          {stats.archived > 0 && <>{stats.archived} archived</>}
+        </div>
+      )}
+      {typeRows.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          {typeRows.map(([type, count]) => (
+            <span key={type} className="chip" style={{ marginRight: 4 }}>
+              {type}: {count}
+            </span>
+          ))}
+        </div>
+      )}
+      {stats.exportedAt && (
+        <div className="muted" style={{ marginTop: 4, fontSize: "0.85em" }}>
+          PQ generated {new Date(stats.exportedAt).toLocaleString()}
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <details style={{ marginTop: 4 }}>
+          <summary>{warnings.length} warning(s)</summary>
+          <ul>
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

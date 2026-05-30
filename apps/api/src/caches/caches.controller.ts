@@ -67,6 +67,20 @@ export class CachesController {
     description:
       "Hard-filter on OSM landuse kinds; cache must lie inside at least one cached polygon of the requested kinds. Warm /landuse for the same bbox first.",
   })
+  @ApiQuery({
+    name: "includeDisabled",
+    required: false,
+    type: Boolean,
+    description:
+      "When true, include caches the owner has temporarily disabled (FR-I10). Default false — these are hidden.",
+  })
+  @ApiQuery({
+    name: "includeArchived",
+    required: false,
+    type: Boolean,
+    description:
+      "When true, include archived caches (FR-I10). Default false. No UI today; reserved for debug.",
+  })
   @ApiResponse({
     status: 200,
     description: "Caches plus a coarse grid clusterHint.",
@@ -80,6 +94,8 @@ export class CachesController {
     @Query("attributes") attributesRaw?: string,
     @Query("excludeFound") excludeFoundRaw?: string,
     @Query("contexts") contextsRaw?: string | string[],
+    @Query("includeDisabled") includeDisabledRaw?: string,
+    @Query("includeArchived") includeArchivedRaw?: string,
   ): Promise<Caches.CachesResponse> {
     const types =
       typesRaw === undefined
@@ -102,6 +118,10 @@ export class CachesController {
       }
     }
     const excludeFound = excludeFoundRaw === "true" || excludeFoundRaw === "1";
+    const includeDisabled =
+      includeDisabledRaw === "true" || includeDisabledRaw === "1";
+    const includeArchived =
+      includeArchivedRaw === "true" || includeArchivedRaw === "1";
 
     const parsed = Caches.CachesQuery.safeParse({
       center: [Number(lng), Number(lat)],
@@ -110,6 +130,8 @@ export class CachesController {
       attributes,
       excludeFound,
       contexts,
+      includeDisabled,
+      includeArchived,
     });
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.flatten());

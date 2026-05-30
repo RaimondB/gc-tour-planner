@@ -21,6 +21,14 @@ export const ParsedCache = z.object({
   terrain: z.number().min(1).max(5).nullable(),
   size: z.string().nullable(),
   archived: z.boolean(),
+  /**
+   * Temporarily disabled by the cache owner (Groundspeak GPX:
+   * `available="False"` while `archived="False"`). Distinct from
+   * archived — disabled caches may come back; archived ones are
+   * permanently gone. The map renders disabled with a "Z" overlay
+   * (matching the geocaching.com convention) at 50 % opacity.
+   */
+  disabled: z.boolean(),
   attributes: z.array(ParsedAttribute),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
@@ -34,9 +42,45 @@ export const ParsedWaypoint = z.object({
 });
 export type ParsedWaypoint = z.infer<typeof ParsedWaypoint>;
 
+/**
+ * Per-upload statistics surfaced on the upload response (FR-I11).
+ * Drives the "what just happened" summary block the web dropzone
+ * shows after a successful upload.
+ */
+export const UploadStats = z.object({
+  /** Distinct cache count from the upload (sum of all `byType` values). */
+  total: z.number().int().nonnegative(),
+  /** Counts per cache type (Traditional / Multi / Mystery / …). Keys are CacheType strings. */
+  byType: z.record(z.string(), z.number().int().nonnegative()),
+  /** Caches whose `available="False"` (temporarily disabled by the owner). */
+  disabled: z.number().int().nonnegative(),
+  /** Caches whose `archived="True"` (permanently gone). */
+  archived: z.number().int().nonnegative(),
+  /** Inserted: this upload created the row. */
+  new: z.number().int().nonnegative(),
+  /** Updated: an existing row was overwritten with this upload's values. */
+  updated: z.number().int().nonnegative(),
+  /**
+   * Skipped: an existing row had a newer `source_exported_at` than
+   * this upload's `<gpx><time>`, so the upsert was a no-op for it
+   * (FR-I10 staleness guard).
+   */
+  stale: z.number().int().nonnegative(),
+  /** PQ generation timestamp from `<gpx><time>`; null if absent. */
+  exportedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type UploadStats = z.infer<typeof UploadStats>;
+
 export const ParsedGpx = z.object({
   caches: z.array(ParsedCache),
   waypoints: z.array(ParsedWaypoint),
   warnings: z.array(z.string()),
+  /**
+   * The `<gpx><time>` of the source file — when Groundspeak generated
+   * the Pocket Query. `null` when the GPX had no top-level `<time>`
+   * (rare; tolerable — staleness guard treats null as "always allow").
+   * The upsert path copies this onto each cache's `source_exported_at`.
+   */
+  exportedAt: z.string().datetime({ offset: true }).nullable(),
 });
 export type ParsedGpx = z.infer<typeof ParsedGpx>;

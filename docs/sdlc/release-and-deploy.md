@@ -37,7 +37,7 @@ The dev stack runs in its own compose project with its own state. The one delibe
 | API host port | 3000 (internal) / behind shared reverse proxy | 3030 | no |
 | Web host port | behind shared reverse proxy | 5173 | no |
 | Postgres database | `gctp` | `gctp_dev` | no |
-| Volumes | `pgdata`, `valkey-data`, `osrm-data` | `pgdata-dev`, `valkey-data-dev` | no |
+| Volumes | `pgdata`, `valkey-data`, `osrm-data`, `gctp-uploads` | `pgdata-dev`, `valkey-data-dev` (uploads on host: `./data/uploads/`) | no |
 | shared reverse proxy labels | yes | no | n/a |
 
 Wiping dev state (`docker compose -p gctp-dev -f infra/docker-compose.dev.yml down -v`) can never touch UAT postgres or UAT valkey. OSRM is shared but stateless from the consumer's perspective — dev cache cells in `route_legs` are stamped `osrm_version='unknown'` (the dev api can't read UAT's `/osrm-meta/osrm-version.txt` from the host) and stay cleanly namespaced from UAT's version-stamped cells.
@@ -56,6 +56,8 @@ A single UAT instance runs at https://app.example.com, served from a host behind
 2. `git pull` the gc-tour-planner repo.
 3. `cd infra && docker compose up --build -d` — shared reverse proxy picks up the new containers via labels (see [infra/docker-compose.yml](../../infra/docker-compose.yml)).
 4. `docker compose logs -f api web` for the first minute to confirm the stack is healthy.
+
+DB migrations apply automatically as part of step 3: the one-shot `migrate` service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) runs `node-pg-migrate up` against the live Postgres and exits 0; `api`, `jobs`, and `osm2pgsql-import` all `depends_on: migrate: service_completed_successfully`, so they wait until the schema is at the latest revision. No host-side migrate command is needed. To re-run migrations explicitly (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
 
 OSRM preprocessing (first boot, ~10 min for a country extract) runs in the `osrm` service via `infra/osrm/bootstrap.sh`. Subsequent boots reuse `osrm-data`. Landuse polygons are populated by a parallel one-shot `osm2pgsql-import` service into the existing Postgres (see [ADR-0009](../adr/0009-osm2pgsql-replaces-overpass.md)).
 
@@ -81,7 +83,7 @@ Per [docs/architecture/background-and-deploy.md](../architecture/background-and-
 
 - `NODE_ENV=production` (currently UAT uses `NODE_ENV=uat` so the AuthModule pre-M6 dev-user middleware stays active).
 - TLS via shared reverse proxy + Let's Encrypt (already the case for UAT).
-- Backups on the `pgdata` and `osrm-data` volumes (not yet automated).
+- Backups on `pgdata`, `osrm-data`, and `gctp-uploads` (not yet automated). Losing `gctp-uploads` is not catastrophic — the parsed cache data lives in Postgres — but it removes the ability to re-run `POST /admin/uploads/:id/reprocess` against historical uploads, so users would have to re-upload their PQs to back-fill any new parsed field.
 - Per-host resource limits (CPU/mem) on `mem_limit` in compose for the API and web services.
 
 ## When something breaks in UAT

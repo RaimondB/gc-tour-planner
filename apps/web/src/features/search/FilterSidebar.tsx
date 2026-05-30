@@ -165,6 +165,25 @@ export function FilterSidebar({
       </fieldset>
 
       <fieldset className="field">
+        <legend>Availability</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={value.includeDisabled}
+            onChange={(e) =>
+              onChange({ ...value, includeDisabled: e.target.checked })
+            }
+          />
+          Include temporarily-disabled caches
+        </label>
+        <small>
+          Disabled caches are temporarily out of service (owner maintenance).
+          Hidden by default; when shown they render at 50 % opacity with a
+          &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
+        </small>
+      </fieldset>
+
+      <fieldset className="field">
         <legend>Landuse context</legend>
         <label className="checkbox">
           <input

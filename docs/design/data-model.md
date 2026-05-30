@@ -31,12 +31,27 @@ CREATE TABLE caches (
   terrain      NUMERIC(2,1),
   size         TEXT,
   archived     BOOLEAN NOT NULL DEFAULT FALSE,
+  -- FR-I10: temp-disabled by owner (Groundspeak: available="False"
+  -- with archived="False"). Distinct from archived. Map renders at
+  -- 50 % opacity with a "Z" overlay when shown.
+  disabled     BOOLEAN NOT NULL DEFAULT FALSE,
   last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- FR-I10 staleness guard: the <gpx><time> of the upload that last
+  -- wrote this row. NULL = pre-PR2 (provenance unknown, guard treats
+  -- as "always allow update").
+  source_exported_at TIMESTAMPTZ,
   raw          JSONB NOT NULL DEFAULT '{}'::jsonb,
   UNIQUE (source, source_id, owner_id)
 );
 CREATE INDEX caches_location_gist ON caches USING GIST (location);
 CREATE INDEX caches_owner_idx ON caches (owner_id);
+-- Partial index supporting the listCaches default WHERE clause
+-- (NOT archived AND NOT disabled). Combines with caches_location_gist
+-- in a BitmapAnd for the spatial part. Empty for owners whose caches
+-- are all archived/disabled — tiny on the common case.
+CREATE INDEX caches_owner_active_idx
+  ON caches (owner_id)
+  WHERE NOT archived AND NOT disabled;
 
 CREATE TABLE cache_attributes (
   cache_id BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
@@ -124,12 +139,23 @@ CREATE TABLE tours (
 CREATE INDEX tours_owner_idx ON tours (owner_id);
 
 CREATE TABLE gpx_uploads (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  filename     TEXT NOT NULL,
-  parsed_count INT NOT NULL DEFAULT 0,
-  status       TEXT NOT NULL,                                 -- 'pending', 'parsed', 'failed'
-  uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  filename       TEXT NOT NULL,
+  parsed_count   INT NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL,                                 -- 'received', 'parsed', 'failed'
+  error          TEXT,
+  uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Raw GPX bytes preservation (migration 1779650000000). NULL when
+  -- no raw file is stored (rows predating the feature, or storage
+  -- failure path). When set, the gzipped XML lives at
+  -- `{UPLOADS_DIR}/{id}.gpx.gz` — see docker volume `gctp-uploads`.
+  raw_size_bytes BIGINT,
+  raw_sha256     TEXT,
+  -- FR-I10: top-level <gpx><time> of the PQ (when Groundspeak
+  -- generated it). NULL if absent. Copied onto each upserted cache's
+  -- source_exported_at so the staleness guard can compare.
+  exported_at    TIMESTAMPTZ
 );
 
 CREATE TABLE landuse_profiles (                                -- M5-β

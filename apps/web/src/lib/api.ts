@@ -72,6 +72,10 @@ export interface ListCachesParams {
   attributes?: CachesQuery["attributes"];
   excludeFound?: boolean;
   contexts?: readonly LanduseKind[];
+  /** FR-I10 — include caches the owner has temporarily disabled. Default false. */
+  includeDisabled?: boolean;
+  /** FR-I10 — include archived caches. Default false. */
+  includeArchived?: boolean;
 }
 
 export async function listCaches(params: ListCachesParams) {
@@ -85,6 +89,8 @@ export async function listCaches(params: ListCachesParams) {
   }
   if (params.excludeFound) search.set("excludeFound", "true");
   for (const c of params.contexts ?? []) search.append("contexts", c);
+  if (params.includeDisabled) search.set("includeDisabled", "true");
+  if (params.includeArchived) search.set("includeArchived", "true");
   const raw = await request<unknown>(`/caches?${search.toString()}`);
   return CachesResponse.parse(raw);
 }
@@ -138,6 +144,17 @@ export interface UploadGpxResult {
   waypointsInserted: number;
   findsRecorded: number;
   warnings: string[];
+  /** FR-I11 — per-upload summary. */
+  stats: {
+    total: number;
+    byType: Record<string, number>;
+    disabled: number;
+    archived: number;
+    new: number;
+    updated: number;
+    stale: number;
+    exportedAt: string | null;
+  };
 }
 
 export interface UploadGpxOptions {

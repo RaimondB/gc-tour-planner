@@ -21,6 +21,8 @@ export class CachesService {
       attributeGroups: q.attributes,
       excludeFound: q.excludeFound,
       contexts: q.contexts,
+      includeDisabled: q.includeDisabled,
+      includeArchived: q.includeArchived,
     });
 
     // clustersHint is a coarse grid bucket count; the real cluster discovery

@@ -44,6 +44,19 @@ export interface CachesTable {
   >;
   size: string | null;
   archived: ColumnType<boolean, boolean | undefined, boolean>;
+  /**
+   * Cache owner temporarily disabled the cache (Groundspeak `available="False"
+   * archived="False"`). Distinct from `archived` — the map renders disabled
+   * caches with a "Z" overlay rather than hiding them. DB default FALSE so
+   * insert is optional. See migration 1779660000000.
+   */
+  disabled: ColumnType<boolean, boolean | undefined, boolean>;
+  /**
+   * The <gpx><time> of the upload that last wrote this row. NULL for pre-PR2
+   * rows (provenance unknown). Used by the upsert staleness guard so a stale
+   * PQ replayed against a fresher dataset can't downgrade newer rows.
+   */
+  source_exported_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
 }
@@ -67,9 +80,26 @@ export interface GpxUploadsTable {
   owner_id: string;
   filename: string;
   parsed_count: ColumnType<number, number | undefined, number>;
+  /** 'received' | 'parsed' | 'failed' — enforced in GpxService, not DB. */
   status: string;
   error: string | null;
   uploaded_at: Generated<Date>;
+  /**
+   * Size in bytes of the gzipped XML stored at /srv/uploads/{id}.gpx.gz.
+   * NULL when no raw file is on disk (pre-feature rows or storage disabled).
+   */
+  raw_size_bytes: ColumnType<bigint | null, bigint | undefined, bigint | null>;
+  /**
+   * Lowercase-hex SHA-256 of the uncompressed XML bytes (64 chars). Used for
+   * integrity check on reprocess + future dedupe. NULL when no raw file.
+   */
+  raw_sha256: ColumnType<string | null, string | undefined, string | null>;
+  /**
+   * The <gpx><time> of the PQ (when Groundspeak generated it). NULL when the
+   * GPX had no <gpx><time> element. Copied onto each upserted cache's
+   * `source_exported_at` at parse time. See migration 1779660000000.
+   */
+  exported_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
 }
 
 export interface CacheFindsTable {

@@ -57,6 +57,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot DB migration runner. Runs node-pg-migrate against the
+  # `pgmigrations` table (idempotent — no-op when nothing pending) and
+  # exits 0. Every postgres-writing service below depends on this with
+  # `service_completed_successfully`, so `docker compose up --build -d`
+  # is now a self-applying deploy: pull, build, up — no separate manual
+  # migrate step on the host. See docs/sdlc/release-and-deploy.md and
+  # docs/sdlc/migrations.md.
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Same DSN the api uses — node-pg-migrate reads DATABASE_URL.
+      DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      # Bind-mount the repo's migrations directory read-only. Each
+      # `git pull` + `docker compose up --build` picks up new files
+      # without a fresh image build.
+      - ../packages/db/migrations:/migrations:ro
+
   valkey:
     image: valkey/valkey:8
     restart: unless-stopped
@@ -162,6 +186,10 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      # osm2pgsql writes into landuse_polygons + parking_facilities —
+      # both schemas need to exist before this runs.
+      migrate:
+        condition: service_completed_successfully
     environment:
       PG_HOST: postgres
       PG_PORT: "5432"
@@ -230,6 +258,10 @@ services:
         condition: service_healthy
       solver:
         condition: service_healthy
+      # Schema must be at the latest revision before api boots — the
+      # Kysely types it ships with assume it.
+      migrate:
+        condition: service_completed_successfully
       # Landuse import is one-shot. The api can boot in parallel with the
       # import — the /landuse endpoint will return empty rows until the
       # import completes (~30-40 min on first boot only). Cluster scoring
@@ -332,11 +364,23 @@ services:
       # Caches per retrigger-stale chunked job. Bounds individual job
       # runtime so the operator dashboard updates promptly during a sweep.
       PRECOMPUTE_RETRIGGER_CHUNK: ${PRECOMPUTE_RETRIGGER_CHUNK:-50}
+
+      # ─── Raw GPX upload storage ─────────────────────────────────────────
+      # Where the gzipped original .gpx files are persisted so the admin
+      # reprocess endpoint can re-parse them after the parser learns about
+      # new fields (without forcing users to re-upload). See the
+      # `gctp_uploads` named volume below.
+      UPLOADS_DIR: ${UPLOADS_DIR:-/srv/uploads}
     volumes:
       # Read-only mount of the OSRM data volume so the API can read
       # /osrm-meta/osrm-version.txt without an extra IPC channel to the
       # OSRM container (osrm-routed has no /info endpoint).
       - osrm-data:/osrm-meta:ro
+      # Raw GPX uploads — kept across container restarts and deploys so
+      # `POST /admin/uploads/:id/reprocess` can re-parse historical
+      # uploads after a parser update. Back up this volume alongside the
+      # Postgres dump.
+      - gctp-uploads:/srv/uploads
 
   jobs:
     build:
@@ -350,6 +394,9 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      # Same schema-version requirement as the api.
+      migrate:
+        condition: service_completed_successfully
     environment:
       # Same UAT override as api — jobs stub doesn't have the auth guard
       # today but stays consistent with the rest of the stack.
@@ -392,3 +439,8 @@ volumes:
   # so the import service can find the node-id → location mapping it built
   # last time — required by osm2pgsql-replication update.
   osm2pgsql-data: {}
+  # Raw user-uploaded .gpx files (gzipped, one per upload id). The api
+  # mounts this at /srv/uploads; admin reprocess reads from here. Back
+  # up alongside pgdata — losing this volume means losing the ability to
+  # reprocess old uploads (the parsed cache data in Postgres is intact).
+  gctp-uploads: {}

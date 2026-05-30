@@ -13,6 +13,12 @@ export interface SearchParams {
   contexts: LanduseKind[];
   /** Toggle the semi-transparent landuse overlay on the map. */
   showLanduse: boolean;
+  /**
+   * Include caches the owner has temporarily disabled (FR-I10).
+   * Default false — server hides them. When true, the map renders
+   * them at 50 % opacity with a "Z" overlay (geocaching.com style).
+   */
+  includeDisabled: boolean;
 }
 
 export const DEFAULT_SEARCH: SearchParams = {
@@ -22,6 +28,7 @@ export const DEFAULT_SEARCH: SearchParams = {
   excludeFound: false,
   contexts: [],
   showLanduse: false,
+  includeDisabled: false,
 };
 
 /**
