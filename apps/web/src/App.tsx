@@ -39,6 +39,8 @@ import type {
 } from "@gctp/shared/tours";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
 import {
+  ClusterLabPanel,
+  DebugOverlaysPanel,
   DEFAULT_PLAN_SETTINGS,
   PlannerSidebar,
   PlanResultPanel,
@@ -146,11 +148,18 @@ export default function App(): JSX.Element {
   // you editing right now" must reset on a new plan.
   const setPlanResult = useCallback((next: PlanResult | null) => {
     setPlanResultRaw(next);
-    if (next) setFocusedClusterId(null);
+    if (next) {
+      setFocusedClusterId(null);
+      // FR-UX1 auto-switch: a fresh plan jumps the user into the
+      // Tour tab so the result is immediately in view. They went
+      // through the trouble of clicking "Plan this loop" — no need
+      // to also ask them to flip a tab to see the totals.
+      setActiveTab("tour");
+    }
     setSelectedLegIndex(null);
     setPreviewAlternativeIndex(null);
     setViaDrag(null);
-  }, []);
+  }, [setActiveTab]);
 
   /**
    * Called from `LegAlternativesPanel`'s "Add via-point" button. Computes
@@ -297,7 +306,6 @@ export default function App(): JSX.Element {
             {activeTab === "filter" && (
               <>
                 <UploadDropzone />
-                <AdminPrecomputePanel />
                 <FilterSidebar
                   value={params}
                   onChange={handleParamsChange}
@@ -311,6 +319,8 @@ export default function App(): JSX.Element {
                 search={params}
                 settings={planSettings}
                 onSettingsChange={setPlanSettings}
+                hideClusterLab
+                hideDebugOverlays
                 clusters={clusters}
                 onClustersChange={setClusters}
                 diagnostics={diagnostics}
@@ -484,10 +494,24 @@ export default function App(): JSX.Element {
                 ✕
               </button>
             </header>
-            <p className="muted" style={{ padding: "0 1rem" }}>
-              Cluster Lab, debug overlays, and admin panels move in here in the
-              next iteration. Currently they still live in the Filter/Plan tabs.
-            </p>
+            <div className="tools-drawer__body">
+              <AdminPrecomputePanel />
+              <DebugOverlaysPanel
+                search={params}
+                settings={planSettings}
+                showWalkingGraph={showWalkingGraph}
+                onShowWalkingGraphChange={setShowWalkingGraph}
+                walkingGraphStats={walkingGraphStats}
+              />
+              <ClusterLabPanel
+                search={params}
+                settings={planSettings}
+                selectedCacheIds={selectedCacheIds}
+                onSelectionChange={setSelectedCacheIds}
+                testRoute={testRoute}
+                onTestRouteChange={setTestRoute}
+              />
+            </div>
           </aside>
         </div>
       )}

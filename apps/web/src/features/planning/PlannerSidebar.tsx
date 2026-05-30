@@ -193,6 +193,11 @@ export interface PlannerSidebarProps {
    * being rendered separately, e.g. in the Tools drawer).
    */
   hideClusterLab?: boolean;
+  /**
+   * When true, suppress the inline "Debug overlays" fieldset (moves
+   * to the Tools drawer behind the cog icon).
+   */
+  hideDebugOverlays?: boolean;
 }
 
 export function PlannerSidebar({
@@ -230,31 +235,13 @@ export function PlannerSidebar({
   onCancelViaDrag,
   hideResultPanel = false,
   hideClusterLab = false,
+  hideDebugOverlays = false,
 }: PlannerSidebarProps) {
-  const queryClient = useQueryClient();
   const landuseProfilesQuery = useQuery({
     queryKey: ["landuse-profiles"],
     queryFn: listLanduseProfiles,
     staleTime: 5 * 60_000, // profile list rarely changes mid-session
   });
-  const purgeBogusMutation = useMutation({
-    mutationFn: async () => {
-      return purgeBogusWalkingCells({
-        center: search.center,
-        radiusM: search.radiusM,
-        hardFilters: {
-          types: search.types.length > 0 ? search.types : undefined,
-        },
-        maxLinkMeters: settings.maxLinkMeters,
-        distanceBudgetMeters: settings.distanceBudgetMeters,
-      });
-    },
-    onSuccess: () => {
-      // Force a fresh walking-graph fetch so the overlay reflects post-purge state.
-      void queryClient.invalidateQueries({ queryKey: ["walking-graph"] });
-    },
-  });
-
   const discoverMutation = useMutation({
     mutationFn: async () => {
       return discoverClusters({
@@ -595,92 +582,15 @@ export function PlannerSidebar({
         </label>
       </fieldset>
 
-      <fieldset className="field">
-        <legend>Debug overlays</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={showWalkingGraph}
-            onChange={(e) => onShowWalkingGraphChange(e.target.checked)}
-          />
-          Show walking graph (blue lines = OSRM walking edges)
-        </label>
-        {showWalkingGraph && walkingGraphStats && (
-          <div className="cluster-lab-hint">
-            {walkingGraphStats.nodeCount} nodes · {walkingGraphStats.edgeCount} edges
-            {walkingGraphStats.isolatedCount > 0 && (
-              <> · {walkingGraphStats.isolatedCount} isolated</>
-            )}
-            {walkingGraphStats.suspiciousCount > 0 && (
-              <>
-                {" · "}
-                <strong style={{ color: "#d50000" }}>
-                  {walkingGraphStats.suspiciousCount} suspicious zero-distance
-                </strong>{" "}
-                (dashed red — likely stale <code>route_legs</code> rows)
-              </>
-            )}
-            <br />
-            median {walkingGraphStats.medianEdgeM.toFixed(0)} m · max {walkingGraphStats.maxEdgeM.toFixed(0)} m ·
-            detour ratio {walkingGraphStats.medianDetourRatio.toFixed(2)}×
-            {walkingGraphStats.highDetourCount > 0 && (
-              <> · {walkingGraphStats.highDetourCount} high-detour</>
-            )}
-            {walkingGraphStats.coverageWarning && (
-              <div
-                style={{
-                  marginTop: 6,
-                  padding: "6px 8px",
-                  border: "1px solid #ff6f00",
-                  borderRadius: 4,
-                  background: "#fff8e1",
-                }}
-              >
-                <strong style={{ color: "#ff6f00" }}>OSRM coverage warning.</strong>{" "}
-                Many edges show large walking-vs-straight-line detours
-                (median {walkingGraphStats.medianDetourRatio.toFixed(2)}×).
-                Likely cause: <code>OSRM_REGION</code> doesn't fully cover
-                this area. For cross-border searches set{" "}
-                <code>OSRM_REGIONS</code> (plural) to a comma-separated list
-                of Geofabrik extracts — the bootstrap will <code>osmium merge</code>{" "}
-                them before extract.
-              </div>
-            )}
-            {walkingGraphStats.suspiciousCount > 0 && (
-              <div style={{ marginTop: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Delete ${walkingGraphStats.suspiciousCount} suspicious zero-distance route_legs rows? ` +
-                          `The next planner pass will refetch from OSRM.`,
-                      )
-                    ) {
-                      purgeBogusMutation.mutate();
-                    }
-                  }}
-                  disabled={purgeBogusMutation.isPending}
-                >
-                  {purgeBogusMutation.isPending
-                    ? "Purging…"
-                    : `Purge ${walkingGraphStats.suspiciousCount} bogus edges`}
-                </button>
-                {purgeBogusMutation.data && (
-                  <span style={{ marginLeft: 8 }}>
-                    Deleted {purgeBogusMutation.data.deletedCount} rows.
-                  </span>
-                )}
-                {purgeBogusMutation.error && (
-                  <span style={{ marginLeft: 8, color: "#d50000" }}>
-                    {(purgeBogusMutation.error as Error).message}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </fieldset>
+      {!hideDebugOverlays && (
+        <DebugOverlaysPanel
+          search={search}
+          settings={settings}
+          showWalkingGraph={showWalkingGraph}
+          onShowWalkingGraphChange={onShowWalkingGraphChange}
+          walkingGraphStats={walkingGraphStats}
+        />
+      )}
 
       <fieldset className="field">
         <legend>Start preference</legend>
@@ -1468,6 +1378,134 @@ function minutes(m: number): string {
   const mm = Math.round(m - h * 60);
   if (h === 0) return `${mm} min`;
   return `${h} h ${mm.toString().padStart(2, "0")} min`;
+}
+
+/**
+ * Walking-graph debug overlay + suspicious-edge purge button (FR-UX1
+ * moved this out of the Plan tab into the Tools drawer). Owns the
+ * `purgeBogus` mutation locally so the move was a pure cut-and-paste
+ * without lifting state.
+ */
+export interface DebugOverlaysPanelProps {
+  search: SearchParams;
+  settings: PlanSettings;
+  showWalkingGraph: boolean;
+  onShowWalkingGraphChange: (next: boolean) => void;
+  walkingGraphStats: WalkingGraphResponse["stats"] | null;
+}
+
+export function DebugOverlaysPanel({
+  search,
+  settings,
+  showWalkingGraph,
+  onShowWalkingGraphChange,
+  walkingGraphStats,
+}: DebugOverlaysPanelProps): JSX.Element {
+  const queryClient = useQueryClient();
+  const purgeBogusMutation = useMutation({
+    mutationFn: async () => {
+      return purgeBogusWalkingCells({
+        center: search.center,
+        radiusM: search.radiusM,
+        hardFilters: {
+          types: search.types.length > 0 ? search.types : undefined,
+        },
+        maxLinkMeters: settings.maxLinkMeters,
+        distanceBudgetMeters: settings.distanceBudgetMeters,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["walking-graph"] });
+    },
+  });
+  return (
+    <fieldset className="field">
+      <legend>Debug overlays</legend>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={showWalkingGraph}
+          onChange={(e) => onShowWalkingGraphChange(e.target.checked)}
+        />
+        Show walking graph (blue lines = OSRM walking edges)
+      </label>
+      {showWalkingGraph && walkingGraphStats && (
+        <div className="cluster-lab-hint">
+          {walkingGraphStats.nodeCount} nodes · {walkingGraphStats.edgeCount} edges
+          {walkingGraphStats.isolatedCount > 0 && (
+            <> · {walkingGraphStats.isolatedCount} isolated</>
+          )}
+          {walkingGraphStats.suspiciousCount > 0 && (
+            <>
+              {" · "}
+              <strong style={{ color: "#d50000" }}>
+                {walkingGraphStats.suspiciousCount} suspicious zero-distance
+              </strong>{" "}
+              (dashed red — likely stale <code>route_legs</code> rows)
+            </>
+          )}
+          <br />
+          median {walkingGraphStats.medianEdgeM.toFixed(0)} m · max {walkingGraphStats.maxEdgeM.toFixed(0)} m ·
+          detour ratio {walkingGraphStats.medianDetourRatio.toFixed(2)}×
+          {walkingGraphStats.highDetourCount > 0 && (
+            <> · {walkingGraphStats.highDetourCount} high-detour</>
+          )}
+          {walkingGraphStats.coverageWarning && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: "6px 8px",
+                border: "1px solid #ff6f00",
+                borderRadius: 4,
+                background: "#fff8e1",
+              }}
+            >
+              <strong style={{ color: "#ff6f00" }}>OSRM coverage warning.</strong>{" "}
+              Many edges show large walking-vs-straight-line detours
+              (median {walkingGraphStats.medianDetourRatio.toFixed(2)}×).
+              Likely cause: <code>OSRM_REGION</code> doesn't fully cover
+              this area. For cross-border searches set{" "}
+              <code>OSRM_REGIONS</code> (plural) to a comma-separated list
+              of Geofabrik extracts — the bootstrap will <code>osmium merge</code>{" "}
+              them before extract.
+            </div>
+          )}
+          {walkingGraphStats.suspiciousCount > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Delete ${walkingGraphStats.suspiciousCount} suspicious zero-distance route_legs rows? ` +
+                        `The next planner pass will refetch from OSRM.`,
+                    )
+                  ) {
+                    purgeBogusMutation.mutate();
+                  }
+                }}
+                disabled={purgeBogusMutation.isPending}
+              >
+                {purgeBogusMutation.isPending
+                  ? "Purging…"
+                  : `Purge ${walkingGraphStats.suspiciousCount} bogus edges`}
+              </button>
+              {purgeBogusMutation.data && (
+                <span style={{ marginLeft: 8 }}>
+                  Deleted {purgeBogusMutation.data.deletedCount} rows.
+                </span>
+              )}
+              {purgeBogusMutation.error && (
+                <span style={{ marginLeft: 8, color: "#d50000" }}>
+                  {(purgeBogusMutation.error as Error).message}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </fieldset>
+  );
 }
 
 export interface ClusterLabPanelProps {
