@@ -19,6 +19,7 @@ import { OsrmVersionService } from "../../../routing/osrm-version.service.js";
 import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
 import { LanduseProfilesRepository } from "../../../landuse-profiles/landuse-profiles.repository.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
+import { pickBestPqParking } from "../pick-pq-parking.js";
 import {
   CLUSTERING_STRATEGIES,
   prepareClusteringContext,
@@ -778,12 +779,13 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       }
       case "parking-waypoint":
       default: {
-        const best = pickBestPqParking(cluster, centroid);
+        const best = await pickBestPqParking(cluster, this.osrm);
         if (best) {
           return {
             type: "pq",
             point: { type: "Point", coordinates: best },
-            reason: "Cache-owner parking waypoint nearest the cluster centroid",
+            reason:
+              "Cache-owner parking waypoint with shortest walking route to a cluster cache",
           };
         }
         return {
@@ -935,24 +937,6 @@ function stableClusterId(cacheIds: readonly number[]): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-function pickBestPqParking(
-  cluster: readonly Caches.CacheDTO[],
-  centroid: readonly [number, number],
-): [number, number] | null {
-  let best: [number, number] | null = null;
-  let bestDist = Number.POSITIVE_INFINITY;
-  const sorted = cluster.slice().sort((a, b) => a.id - b.id);
-  for (const c of sorted) {
-    for (const p of c.parkingPoints) {
-      const d = haversineMeters(centroid, p);
-      if (d < bestDist) {
-        bestDist = d;
-        best = [p[0], p[1]];
-      }
-    }
-  }
-  return best;
-}
 
 function nearestCacheIndexTo(
   cluster: readonly Caches.CacheDTO[],
