@@ -11,10 +11,7 @@ import type {
 } from "@gctp/shared/tours";
 import { discoverClusters, listCaches, planLoop } from "./lib/api.js";
 import { planToGpxTrack } from "./lib/gpx-export.js";
-import {
-  canShareFiles,
-  shareOrDownload,
-} from "./lib/share-or-download.js";
+import { downloadText } from "./lib/download-text.js";
 import {
   type LegPicks,
   planSignature,
@@ -427,30 +424,17 @@ export default function App(): JSX.Element {
   // The Tour panel still has the full menu (track + route + JSON +
   // parking options); this is the one-tap fast path from the map
   // view. Always uses the wire polyline (not the edited one) — the
-  // editing flow happens in the Tour panel anyway. Uses the Web
-  // Share API on mobile so the user can hand the file straight to
-  // Garmin Connect / Drive / Mail; falls back to classic download
-  // when share isn't supported.
-  const shareGpxTrack = useCallback(async () => {
+  // editing flow happens in the Tour panel anyway.
+  const downloadGpxTrack = useCallback(() => {
     if (!planResult) return;
     const text = planToGpxTrack(planResult, caches);
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    await shareOrDownload({
+    downloadText({
       text,
       filename: `gctp-tour-track-${ts}.gpx`,
       mimeType: "application/gpx+xml",
-      shareTitle: "Geocaching tour",
-      shareText: "Planned with gc-tour-planner",
     });
   }, [planResult, caches]);
-  // Stable feature detection. Drives both label ("Share" vs
-  // "Download") and is captured once at mount; navigator.canShare
-  // doesn't change at runtime.
-  const fileShareSupported = useMemo(
-    () =>
-      canShareFiles({ filename: "x.gpx", mimeType: "application/gpx+xml" }),
-    [],
-  );
   const handleTabClick = useCallback(
     (tab: SidebarTab) => {
       if (tab === "plan" && !planTabEnabled) return;
@@ -823,19 +807,11 @@ export default function App(): JSX.Element {
               <button
                 type="button"
                 className="map-tour-download"
-                onClick={shareGpxTrack}
-                aria-label={
-                  fileShareSupported
-                    ? "Share GPX track"
-                    : "Download GPX track"
-                }
-                title={
-                  fileShareSupported
-                    ? "Share GPX track (open in another app)"
-                    : "Download GPX track"
-                }
+                onClick={downloadGpxTrack}
+                aria-label="Download GPX track"
+                title="Download GPX track"
               >
-                {fileShareSupported ? "↗ GPX" : "↓ GPX"}
+                ↓ GPX
               </button>
             </div>
           )}

@@ -30,10 +30,7 @@ import {
   testOsrmRoute,
 } from "../../lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "../../lib/gpx-export.js";
-import {
-  canShareFiles,
-  shareOrDownload,
-} from "../../lib/share-or-download.js";
+import { downloadText } from "../../lib/download-text.js";
 import {
   type LegPicks,
   planSignature,
@@ -810,10 +807,8 @@ export function PlanResultPanel({
   // GPX flavours — see lib/gpx-export.ts for the why of two modes.
   // Garmin file extension is .gpx regardless; the content header in
   // the file tells the device whether to treat it as a track or a
-  // route. Uses the Web Share API on mobile (file goes straight to
-  // Garmin Connect / Drive / Mail / AirDrop); falls back to a
-  // classic download elsewhere.
-  const shareGpx = async (mode: "track" | "route") => {
+  // route.
+  const downloadGpx = (mode: "track" | "route") => {
     const text =
       mode === "track"
         ? planToGpxTrack(
@@ -824,18 +819,12 @@ export function PlanResultPanel({
           )
         : planToGpxRoute(result, caches);
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    await shareOrDownload({
+    downloadText({
       text,
       filename: `gctp-tour-${mode}-${ts}.gpx`,
       mimeType: "application/gpx+xml",
-      shareTitle: `Geocaching tour (${mode})`,
-      shareText: "Planned with gc-tour-planner",
     });
   };
-  const gpxShareSupported = canShareFiles({
-    filename: "x.gpx",
-    mimeType: "application/gpx+xml",
-  });
 
   return (
     <div className="plan-result">
@@ -985,25 +974,17 @@ export function PlanResultPanel({
         </button>
         <button
           type="button"
-          onClick={() => shareGpx("track")}
-          title={
-            gpxShareSupported
-              ? "Share the GPX track — opens the share sheet so you can send straight to Garmin Connect, Drive, Mail, etc. The Garmin follows the exact OSRM polyline drawn on the map."
-              : "Download as a GPX track — the Garmin follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
-          }
+          onClick={() => downloadGpx("track")}
+          title="Download as a GPX track — the Garmin follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
         >
-          {gpxShareSupported ? "Share GPX track" : "Download GPX track"}
+          Download GPX track
         </button>
         <button
           type="button"
-          onClick={() => shareGpx("route")}
-          title={
-            gpxShareSupported
-              ? "Share the GPX route — opens the share sheet so you can send straight to Garmin Connect, Drive, Mail, etc. The Garmin treats the parking + each cache as waypoints and computes leg geometry on-device."
-              : "Download as a GPX route — the Garmin treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
-          }
+          onClick={() => downloadGpx("route")}
+          title="Download as a GPX route — the Garmin treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
         >
-          {gpxShareSupported ? "Share GPX route" : "Download GPX route"}
+          Download GPX route
         </button>
       </div>
     </div>
