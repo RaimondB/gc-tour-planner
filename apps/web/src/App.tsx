@@ -121,6 +121,11 @@ export default function App(): JSX.Element {
     "filter",
   );
   const [toolsOpen, setToolsOpen] = useState(false);
+  // Mobile-only left drawer. Desktop ignores this — the sidebar is
+  // always inline above 768px (the breakpoint is enforced in CSS,
+  // not here, so the same state survives a desktop↔mobile transition
+  // without losing the user's tab).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
   const [previewAlternativeIndex, setPreviewAlternativeIndex] = useState<
     number | null
@@ -246,6 +251,11 @@ export default function App(): JSX.Element {
       if (tab === "plan" && !planTabEnabled) return;
       if (tab === "tour" && !tourTabEnabled) return;
       setActiveTab(tab);
+      // On mobile the drawer covers the map; the user picked a tab
+      // — they're done with the drawer for the moment. Closing it
+      // gets them back to the map view immediately. Desktop ignores
+      // this (the drawer state isn't visible at ≥ 768 px).
+      setSidebarOpen(false);
     },
     [planTabEnabled, tourTabEnabled, setActiveTab],
   );
@@ -270,16 +280,41 @@ export default function App(): JSX.Element {
         if (lat < minLat) minLat = lat;
         if (lat > maxLat) maxLat = lat;
       }
+      // `maxZoom: 16` keeps very tight clusters from zooming past
+      // street level (otherwise a 5-cache cluster within 20 m collapses
+      // the camera into uselessness). `padding: 40` leaves a comfortable
+      // gutter without losing the cluster outline.
       mapRef.current.fitBounds(
         [
           [minLng, minLat],
           [maxLng, maxLat],
         ],
-        { padding: 60, duration: 600 },
+        { padding: 40, duration: 600, maxZoom: 16 },
       );
     },
     [],
   );
+
+  // Esc closes whichever drawer is open. Body-scroll-lock when the
+  // mobile sidebar drawer covers the viewport so the page doesn't
+  // scroll under the drawer's own scroll. Both apply only when an
+  // overlay is actually open — desktop has neither drawer visible
+  // so the listener / scroll-lock are no-ops at ≥ 768 px.
+  useEffect(() => {
+    if (!sidebarOpen && !toolsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (toolsOpen) setToolsOpen(false);
+      else if (sidebarOpen) setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [sidebarOpen, toolsOpen]);
 
   // Fit when the user lands on / re-opens the Tour tab. The bounds
   // are computed from the wire polyline (not the edited one) — same
@@ -292,7 +327,7 @@ export default function App(): JSX.Element {
   }, [activeTab, planResult, fitToCoordinates]);
 
   // Fit when the user focuses a cluster row in the candidates list.
-  // Debounced 250 ms so quick mouse-scrubbing over rows doesn't
+  // Debounced 150 ms so quick mouse-scrubbing over rows doesn't
   // ping-pong the map. Click/hover both feed `focusedClusterId`, so
   // this is the single point where focus → camera flows.
   useEffect(() => {
@@ -308,13 +343,23 @@ export default function App(): JSX.Element {
         coords.push(c.location.coordinates as [number, number]);
       }
       fitToCoordinates(coords);
-    }, 250);
+    }, 150);
     return () => clearTimeout(handle);
   }, [focusedClusterId, clusters, caches, fitToCoordinates]);
 
   return (
     <div className="app">
       <header className="app-header">
+        <button
+          type="button"
+          className="app-header__hamburger"
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-expanded={sidebarOpen}
+          aria-controls="sidebar-drawer"
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          ☰
+        </button>
         <div className="app-header__title">
           <h1>gc-tour-planner</h1>
           <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>
@@ -332,7 +377,17 @@ export default function App(): JSX.Element {
       </header>
 
       <div className="app-body">
-        <div className="left-pane">
+        {sidebarOpen && (
+          <div
+            className="sidebar-backdrop"
+            onClick={() => setSidebarOpen(false)}
+            role="presentation"
+          />
+        )}
+        <div
+          id="sidebar-drawer"
+          className={`left-pane${sidebarOpen ? " left-pane--open" : ""}`}
+        >
           <nav className="sidebar-tabs" role="tablist" aria-label="Sidebar sections">
             <TabButton
               id="filter"

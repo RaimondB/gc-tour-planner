@@ -52,7 +52,8 @@ body,
   font-size: 0.875rem;
 }
 
-.app-header__tools {
+.app-header__tools,
+.app-header__hamburger {
   flex-shrink: 0;
   background: white;
   border: 1px solid #d1d5db;
@@ -62,13 +63,26 @@ body,
   cursor: pointer;
 }
 
-.app-header__tools:hover {
+.app-header__tools:hover,
+.app-header__hamburger:hover {
   background: #f3f4f6;
 }
 
 .app-header__tools[aria-expanded="true"] {
   background: #fff3e0;
   border-color: #fb923c;
+}
+
+.app-header__hamburger[aria-expanded="true"] {
+  background: #eff6ff;
+  border-color: #60a5fa;
+}
+
+/* Hamburger is mobile-only — the sidebar is always visible at desktop
+   widths. Hidden by default; the media query at the bottom of this
+   file shows it. */
+.app-header__hamburger {
+  display: none;
 }
 
 /* --- Sidebar tabs (FR-UX1) -------------------------------------------- */
@@ -672,4 +686,100 @@ body,
 .plan-result .breakdown .val {
   font-variant-numeric: tabular-nums;
   color: #1f2937;
+}
+
+/* --- Responsive: mobile drawer (FR-UX1 phase C) --------------------- */
+
+/* The grid switches to a single column at ≤ 768 px so the map fills
+   the screen. The sidebar becomes a fixed-position left drawer slid
+   off-screen by default; hamburger toggles it on. Backdrop sits
+   between map and drawer so a tap outside the drawer closes it. */
+@media (max-width: 768px) {
+  .app-body {
+    grid-template-columns: 1fr;
+  }
+
+  .app-header__hamburger {
+    display: inline-block;
+  }
+
+  .app-header h1 {
+    font-size: 1.05rem;
+  }
+
+  /* Tagline takes a lot of vertical space — hide on phone, the h1
+     already says what the app is. */
+  .app-header p {
+    display: none;
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.25);
+    z-index: 90;
+  }
+
+  .left-pane {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(360px, 85vw);
+    z-index: 95;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.1);
+    border-right: none;
+  }
+
+  .left-pane--open {
+    transform: translateX(0);
+  }
+
+  /* Map fills the whole app body; nothing competing for width when
+     drawer is closed. */
+  .app-main {
+    grid-column: 1;
+  }
+
+  /* Bump tap targets so they're reachable with a thumb. Sliders are
+     still slim by default; the wrapped label gets enough padding for
+     the input to be hit comfortably. */
+  .sidebar button,
+  .sidebar .checkbox,
+  .sidebar input[type="checkbox"],
+  .sidebar input[type="radio"] {
+    min-height: 44px;
+  }
+
+  .sidebar button {
+    padding: 0.6rem 0.9rem;
+    font-size: 0.9rem;
+  }
+
+  .sidebar .checkbox {
+    padding: 0.4rem 0;
+  }
+
+  .sidebar input[type="checkbox"],
+  .sidebar input[type="radio"] {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Sidebar tabs sit at the top of the drawer — bump their hit area
+     too. */
+  .sidebar-tab {
+    min-height: 44px;
+    font-size: 0.95rem;
+    flex: 1;
+    text-align: center;
+  }
+
+  /* Tools drawer covers more of the screen on phone (a 420 px
+     drawer on a 400 px viewport made no sense). */
+  .tools-drawer {
+    width: 100vw;
+  }
 }
