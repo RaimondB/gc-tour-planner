@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type maplibregl from "maplibre-gl";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -234,11 +234,10 @@ export default function App(): JSX.Element {
     setParams((prev) => ({ ...prev, center: lngLat }));
   }, []);
 
-  // ── Tab state derivations (FR-UX1) ─────────────────────────────────
-  // Plan tab is meaningful as soon as the user has at least one cache
-  // in the search; Tour tab only once a plan has been built. Until
-  // those conditions are met the tabs render as visibly-disabled so
-  // the workflow stages stay discoverable without being clickable.
+  // ── Tab state derivations + map fit helpers (FR-UX1) ───────────────
+  // Hoisted above the JSX so the effects below can read `caches`
+  // (previously these lived next to the tab JSX; the auto-fits need
+  // them earlier in the render).
   const caches = cachesQuery.data?.caches;
   const planTabEnabled = (caches?.length ?? 0) > 0;
   const tourTabEnabled = planResult !== null;
@@ -250,6 +249,68 @@ export default function App(): JSX.Element {
     },
     [planTabEnabled, tourTabEnabled, setActiveTab],
   );
+
+  // ── Map auto-fit helpers (FR-UX1) ──────────────────────────────────
+  // Centralised "frame this set of points on the map" used by:
+  //  - Tour-tab activation → fit the planned polyline (TourLayer also
+  //    fits on planResult change; this covers the "user manually
+  //    re-clicked Tour after panning away" case).
+  //  - Cluster focus (debounced) → fit the focused cluster's caches
+  //    so the user sees what they're hovering in the candidate list.
+  const fitToCoordinates = useCallback(
+    (coords: ReadonlyArray<readonly [number, number]>) => {
+      if (!mapRef.current || coords.length === 0) return;
+      let minLng = coords[0]![0];
+      let minLat = coords[0]![1];
+      let maxLng = minLng;
+      let maxLat = minLat;
+      for (const [lng, lat] of coords) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+      mapRef.current.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 60, duration: 600 },
+      );
+    },
+    [],
+  );
+
+  // Fit when the user lands on / re-opens the Tour tab. The bounds
+  // are computed from the wire polyline (not the edited one) — same
+  // shape TourLayer already uses on initial plan-land.
+  useEffect(() => {
+    if (activeTab !== "tour" || !planResult) return;
+    fitToCoordinates(
+      planResult.polyline.coordinates as ReadonlyArray<[number, number]>,
+    );
+  }, [activeTab, planResult, fitToCoordinates]);
+
+  // Fit when the user focuses a cluster row in the candidates list.
+  // Debounced 250 ms so quick mouse-scrubbing over rows doesn't
+  // ping-pong the map. Click/hover both feed `focusedClusterId`, so
+  // this is the single point where focus → camera flows.
+  useEffect(() => {
+    if (!focusedClusterId || !clusters || !caches) return;
+    const handle = setTimeout(() => {
+      const cluster = clusters.find((c) => c.clusterId === focusedClusterId);
+      if (!cluster) return;
+      const cacheById = new Map(caches.map((c) => [c.id, c]));
+      const coords: [number, number][] = [];
+      for (const id of cluster.cacheIds) {
+        const c = cacheById.get(id);
+        if (!c) continue;
+        coords.push(c.location.coordinates as [number, number]);
+      }
+      fitToCoordinates(coords);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [focusedClusterId, clusters, caches, fitToCoordinates]);
 
   return (
     <div className="app">
