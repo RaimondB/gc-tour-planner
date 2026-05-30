@@ -510,16 +510,27 @@ export async function pickAndAccumulate(args: {
 
   args.grid.addLine(chosen.geometry);
 
-  // Build the surfaced alternative list. OSRM's primary + extras come
-  // through verbatim; if the via-nudge won, append it at the end so the
-  // UI can re-pick it later without another OSRM request. selectedIndex
-  // always points at the actually-chosen leg.
+  // Build the surfaced alternative list. We filter out OSRM's
+  // too-long detours (anything beyond the picker's `maxDetourFraction`
+  // hard cap above primary) — the picker already refuses to *choose*
+  // them, and exposing them as pickable in the UI would let the user
+  // accidentally swap into a 2-3x-primary leg. Primary always stays
+  // (index 0); the actually-chosen leg always stays (defensive, in
+  // case picker policy changes); the via-nudge variant — if it won —
+  // appends at the end so the UI can re-pick it without re-querying
+  // OSRM. selectedIndex tracks `chosen` after the filter.
+  const primaryMeters = primary.meters;
+  const maxAllowed = primaryMeters * (1 + opts.maxDetourFraction);
+  const acceptedAlternatives = alternatives.filter((alt, idx) => {
+    if (idx === 0) return true;
+    if (alt === chosen) return true;
+    return alt.meters <= maxAllowed;
+  });
   const surfacedAlternatives =
-    chosenSource === "nudge" ? [...alternatives, chosen] : alternatives;
-  const selectedIndex =
     chosenSource === "nudge"
-      ? surfacedAlternatives.length - 1
-      : pick.chosenIndex;
+      ? [...acceptedAlternatives, chosen]
+      : acceptedAlternatives;
+  const selectedIndex = surfacedAlternatives.indexOf(chosen);
 
   if (args.logger) {
     const nudgeNote = nudgeAttempted
