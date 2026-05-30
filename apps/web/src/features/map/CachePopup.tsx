@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState } from "react";
-import { isMiniMulti } from "@gctp/shared/caches";
+import { classifyMulti } from "@gctp/shared/caches";
 import type { CacheType } from "@gctp/shared/caches";
 import { AttributeChips } from "../caches/AttributeChips.js";
 
@@ -46,17 +46,20 @@ export function CachePopup({
     }
   };
 
-  // Multi sub-type label (FR-SF2). Stage counts of 0 on a Multi mean
-  // the PQ didn't ship the wpts file — surface that ambiguity rather
-  // than guessing "mini".
-  const multiLabel =
-    type === "Multi"
-      ? stageCount === 0
-        ? "Multi (stages unknown)"
-        : isMiniMulti(stageCount)
-          ? `Mini-multi (${stageCount} stage${stageCount === 1 ? "" : "s"})`
-          : `Full multi (${stageCount} stages)`
-      : null;
+  // Multi sub-type label (FR-SF2). 0 stages → field-puzzle multi
+  // (owner expects you to derive the next coord on-site); 1-2 →
+  // mini; 3+ → full.
+  let multiLabel: string | null = null;
+  if (type === "Multi") {
+    const klass = classifyMulti(stageCount);
+    if (klass === "field-puzzle") {
+      multiLabel = "Field-puzzle multi (no stage waypoints)";
+    } else if (klass === "mini") {
+      multiLabel = `Mini-multi (${stageCount} stage${stageCount === 1 ? "" : "s"})`;
+    } else {
+      multiLabel = `Full multi (${stageCount} stages)`;
+    }
+  }
 
   return (
     <div className="cache-popup">

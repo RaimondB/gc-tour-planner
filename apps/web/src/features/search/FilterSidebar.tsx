@@ -152,7 +152,8 @@ export function FilterSidebar({
             {(
               [
                 ["all", "All"],
-                ["mini", "Mini-multi (≤ 2 stages)"],
+                ["field-puzzle", "Field-puzzle (stages unknown)"],
+                ["mini", "Mini-multi (1–2 stages)"],
                 ["full", "Full multi (3+ stages)"],
               ] as const
             ).map(([val, label]) => (

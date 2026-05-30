@@ -6,7 +6,7 @@ import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheType } from "@gctp/shared/caches";
-import { hasToolRequirement, isMiniMulti } from "@gctp/shared/caches";
+import { classifyMulti, hasToolRequirement } from "@gctp/shared/caches";
 import { listCaches, markCacheFound, unmarkCacheFound } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
@@ -110,9 +110,11 @@ export function CachesLayer({
       if (params.hideToolCaches && hasToolRequirement(c.attributeIds, c.descriptionHints))
         return false;
       if (params.multiSubtype !== "all" && c.type === "Multi") {
-        const mini = isMiniMulti(c.stageCount);
-        if (params.multiSubtype === "mini" && !mini) return false;
-        if (params.multiSubtype === "full" && mini) return false;
+        // classifyMulti distinguishes field-puzzle (stages=0) from
+        // mini (1-2) and full (3+). Bucketing 0-stage Multis as
+        // mini would be wrong — they're usually field-puzzle
+        // multis where you derive the next coord on-site.
+        if (classifyMulti(c.stageCount) !== params.multiSubtype) return false;
       }
       return true;
     });

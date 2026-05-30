@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attributeById,
+  classifyMulti,
   GC_ATTRIBUTES,
   hasToolRequirement,
   isMiniMulti,
@@ -60,15 +61,24 @@ describe("hasToolRequirement", () => {
   });
 });
 
-describe("isMiniMulti", () => {
-  it("treats 0..MULTI_MINI_MAX_STAGES as mini", () => {
-    for (let i = 0; i <= MULTI_MINI_MAX_STAGES; i += 1) {
-      expect(isMiniMulti(i), `stageCount=${i}`).toBe(true);
+describe("classifyMulti / isMiniMulti", () => {
+  it("classifies 0 stages as field-puzzle (not mini)", () => {
+    expect(classifyMulti(0)).toBe("field-puzzle");
+    // Critical: isMiniMulti(0) must NOT be true — that would bucket
+    // field-puzzle multis with quick-hop minis and break the filter.
+    expect(isMiniMulti(0)).toBe(false);
+  });
+
+  it("classifies 1..MULTI_MINI_MAX_STAGES as mini", () => {
+    for (let i = 1; i <= MULTI_MINI_MAX_STAGES; i += 1) {
+      expect(classifyMulti(i), `stageCount=${i}`).toBe("mini");
+      expect(isMiniMulti(i)).toBe(true);
     }
   });
 
-  it("treats counts above the threshold as full multi", () => {
-    expect(isMiniMulti(MULTI_MINI_MAX_STAGES + 1)).toBe(false);
+  it("classifies counts above the threshold as full", () => {
+    expect(classifyMulti(MULTI_MINI_MAX_STAGES + 1)).toBe("full");
+    expect(classifyMulti(10)).toBe("full");
     expect(isMiniMulti(10)).toBe(false);
   });
 });

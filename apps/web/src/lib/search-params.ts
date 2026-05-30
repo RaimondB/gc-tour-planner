@@ -21,11 +21,15 @@ export interface SearchParams {
   includeDisabled: boolean;
   /**
    * FR-SF2 Multi sub-filter — when "Multi" is in `types`, this
-   * narrows to "all" / mini-multis (≤2 stages) / full multis (≥3
-   * stages). Applied client-side after fetch — no extra server
-   * round-trip.
+   * narrows to:
+   *   - "all"          : every Multi shown
+   *   - "field-puzzle" : stages unknown (PQ had 0 stages waypoints
+   *                      → owner expects on-site formula solving)
+   *   - "mini"         : 1–2 stages
+   *   - "full"         : 3+ stages
+   * Applied client-side after fetch — no extra server round-trip.
    */
-  multiSubtype: "all" | "mini" | "full";
+  multiSubtype: "all" | "field-puzzle" | "mini" | "full";
   /**
    * FR-SF6 — hide caches that need physical equipment. Reads
    * `attributeIds` + `descriptionHints` from each CacheDTO and runs

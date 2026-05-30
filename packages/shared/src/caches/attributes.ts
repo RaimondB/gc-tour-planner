@@ -127,16 +127,44 @@ export function attributeById(id: number): GcAttribute | undefined {
 }
 
 /**
- * Multi-cache sub-typing threshold (FR-SF1/F2): caches with ≤2 `stages`
- * additional waypoints are "mini-multis" (effectively a single hop
- * after the start coordinate); 3+ stages are full multis with real
- * legwork.
+ * Multi-cache sub-typing threshold (FR-SF1/F2): caches with 1–2
+ * `stages` additional waypoints are "mini-multis" (effectively a
+ * single hop after the start coordinate); 3+ are full multis with
+ * real legwork.
  */
 export const MULTI_MINI_MAX_STAGES = 2;
 
-/** True when `stageCount` qualifies the cache as a mini-multi (≤2 stages). */
+/**
+ * Three-way classifier for Multi caches. Caller must gate on
+ * `type === "Multi"` — the classifier itself doesn't know the type.
+ *
+ *   - `"field-puzzle"` — `stageCount === 0`. The PQ shipped no
+ *     `stages` waypoints, which is the strong signal that the
+ *     owner expects you to *compute the next coord on-site* via a
+ *     field puzzle / formula at the start coord. Planning-wise
+ *     these behave nothing like a 1–2 stage mini: same fixed point
+ *     on the map but the on-site effort is more like solving a
+ *     puzzle than walking to a sub-waypoint.
+ *   - `"mini"` — 1..MULTI_MINI_MAX_STAGES stages. Quick hop.
+ *   - `"full"` — more stages. Real legwork between sub-waypoints.
+ */
+export type MultiClass = "field-puzzle" | "mini" | "full";
+
+export function classifyMulti(stageCount: number): MultiClass {
+  if (stageCount === 0) return "field-puzzle";
+  if (stageCount <= MULTI_MINI_MAX_STAGES) return "mini";
+  return "full";
+}
+
+/**
+ * True when `stageCount` qualifies the cache as a mini-multi
+ * (1..MULTI_MINI_MAX_STAGES). Returns false for 0 — those are
+ * `field-puzzle` multis (see `classifyMulti`) and must not be
+ * bucketed with minis since their on-site effort is qualitatively
+ * different. Prefer `classifyMulti` in new code.
+ */
 export function isMiniMulti(stageCount: number): boolean {
-  return stageCount <= MULTI_MINI_MAX_STAGES;
+  return classifyMulti(stageCount) === "mini";
 }
 
 /**
