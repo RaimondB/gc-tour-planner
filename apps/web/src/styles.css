@@ -892,6 +892,13 @@ body,
     cursor: progress;
   }
 
+  /* When the focused cluster IS the planned tour, the middle button
+     becomes a "view tour" affordance. Green tint matches the
+     "Found" pill / planned-state convention elsewhere. */
+  .map-plan-fab--planned {
+    background: #166534;
+  }
+
   /* Stats overlay shrinks on phone — top of map, single line. */
   .map-tour-stats__secondary {
     display: none;

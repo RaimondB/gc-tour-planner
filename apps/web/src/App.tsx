@@ -154,7 +154,6 @@ export default function App(): JSX.Element {
   const setPlanResult = useCallback((next: PlanResult | null) => {
     setPlanResultRaw(next);
     if (next) {
-      setFocusedClusterId(null);
       // FR-UX1 auto-switch: a fresh plan jumps the user into the
       // Tour tab so the result is immediately in view. They went
       // through the trouble of clicking "Plan this loop" — no need
@@ -297,20 +296,24 @@ export default function App(): JSX.Element {
     total: number;
     canPrev: boolean;
     canNext: boolean;
+    /**
+     * True when the focused cluster IS the one we just planned. The
+     * FAB middle button then becomes a "View tour #N/M" affordance
+     * (opens the Tour tab) instead of a "Plan this" trigger.
+     */
+    isPlannedTour: boolean;
   } | null>(() => {
     if (!focusedClusterId || !clusters) return null;
     const idx = clusters.findIndex((c) => c.clusterId === focusedClusterId);
     if (idx < 0) return null;
-    // The cluster we just planned is already represented by the
-    // TourLayer + Tour tab; surfacing a "Plan this" button for it
-    // again would be redundant.
-    if (clusters[idx]!.clusterId === chosenClusterId && planResult) return null;
     return {
       cluster: clusters[idx]!,
       rank: idx + 1,
       total: clusters.length,
       canPrev: idx > 0,
       canNext: idx < clusters.length - 1,
+      isPlannedTour:
+        clusters[idx]!.clusterId === chosenClusterId && planResult !== null,
     };
   }, [focusedClusterId, clusters, chosenClusterId, planResult]);
 
@@ -726,13 +729,24 @@ export default function App(): JSX.Element {
               </button>
               <button
                 type="button"
-                className="map-plan-fab"
-                onClick={() => planCluster(focusedClusterForFab.cluster)}
+                className={`map-plan-fab${focusedClusterForFab.isPlannedTour ? " map-plan-fab--planned" : ""}`}
+                onClick={() =>
+                  focusedClusterForFab.isPlannedTour
+                    ? openTourTab()
+                    : planCluster(focusedClusterForFab.cluster)
+                }
                 disabled={planMutation.isPending}
+                title={
+                  focusedClusterForFab.isPlannedTour
+                    ? "Open tour details"
+                    : "Plan this cluster"
+                }
               >
                 {planMutation.isPending
                   ? "Planning…"
-                  : `Plan #${focusedClusterForFab.rank}/${focusedClusterForFab.total} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
+                  : focusedClusterForFab.isPlannedTour
+                    ? `✓ Tour #${focusedClusterForFab.rank}/${focusedClusterForFab.total}`
+                    : `Plan #${focusedClusterForFab.rank}/${focusedClusterForFab.total} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
               </button>
               <button
                 type="button"
