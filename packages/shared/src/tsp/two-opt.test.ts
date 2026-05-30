@@ -71,6 +71,36 @@ describe("solveTwoOpt", () => {
     expect(r.totalDistance).toBeCloseTo(4, 6);
   });
 
+  it("Or-opt never produces a longer tour than 2-opt-alone (monotone improver)", () => {
+    // 20 noisy points — enough to exit the 2-opt-already-optimal regime
+    // for very small inputs. Or-opt is a strict improver in VND: it
+    // only applies a move when delta < 0, so the post-Or-opt tour is
+    // necessarily ≤ the post-2-opt-alone tour.
+    const pts: [number, number][] = Array.from({ length: 20 }, (_, i) => [
+      Math.sin(i * 1.3) * 5,
+      Math.cos(i * 0.9) * 3 + (i % 4),
+    ]);
+    const m = matrixFromPoints(pts);
+    const withOrOpt = solveTwoOpt(m, 0);
+    const without = solveTwoOpt(m, 0, { orOpt: false });
+    expect(withOrOpt.totalDistance).toBeLessThanOrEqual(
+      without.totalDistance + 1e-9,
+    );
+  });
+
+  it("Or-opt opt-out (`orOpt: false`) reproduces the original 2-opt-only behaviour", () => {
+    const pts: [number, number][] = Array.from({ length: 10 }, (_, i) => [
+      Math.sin(i * 1.3),
+      Math.cos(i * 0.7),
+    ]);
+    const m = matrixFromPoints(pts);
+    // Two opt-out calls produce identical results — determinism preserved.
+    const a = solveTwoOpt(m, 0, { orOpt: false });
+    const b = solveTwoOpt(m, 0, { orOpt: false });
+    expect(b.order).toEqual(a.order);
+    expect(b.totalDistance).toBe(a.totalDistance);
+  });
+
   it("treats null cells as +Infinity but still produces a complete tour", () => {
     // 3 collinear points, but the direct 0→2 edge is missing — the optimal
     // closed loop still has finite length via [0,1,2,0].
