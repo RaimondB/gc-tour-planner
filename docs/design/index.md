@@ -12,5 +12,6 @@ Concrete-level design — schemas, API shapes, algorithms. Read [../requirements
 - [OSM context — Overpass](osm-overpass.md) — landuse fetch, cell scheme, hard-filter integration
 - [Routing — OSRM](routing-osrm.md) — leg/matrix cache, foot profile
 - [Frontend implementation notes](frontend.md) — TanStack Query keys, URL state, map layers
+- [UX strategy](ux-strategy.md) — sidebar tab split, map-first single-screen principle, mobile drawer
 - [Conventions](conventions.md) — naming, errors, logging, migrations, tests
 - [Open design questions](open-questions.md) — deferred decisions

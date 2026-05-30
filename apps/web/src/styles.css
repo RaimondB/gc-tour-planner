@@ -693,12 +693,19 @@ body,
 /* Always-visible "at a glance" card when a tour is planned. Floats
    over the top of the map, semi-transparent so the polyline behind
    isn't lost. Click → opens Tour tab + drawer for the full panel. */
-.map-tour-stats {
+.map-tour-overlay {
   position: absolute;
   top: 0.75rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 70;
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  max-width: calc(100% - 1.5rem);
+}
+
+.map-tour-stats {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -711,10 +718,30 @@ body,
   cursor: pointer;
   font-family: inherit;
   text-align: center;
-  max-width: calc(100% - 1.5rem);
+  min-width: 0;
 }
 
 .map-tour-stats:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+/* Sibling pill with the one-tap GPX download. Same float-pill style
+   for visual cohesion with the stats card. */
+.map-tour-download {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #166534;
+  font-weight: 600;
+}
+
+.map-tour-download:hover {
   background: rgba(255, 255, 255, 1);
 }
 
@@ -741,7 +768,8 @@ body,
    start the plan. The media query at the bottom flips display:flex. */
 .map-plan-fab-row,
 .map-plan-fab,
-.map-fab-nav {
+.map-fab-nav,
+.map-discover-fab {
   display: none;
 }
 
@@ -897,6 +925,37 @@ body,
      "Found" pill / planned-state convention elsewhere. */
   .map-plan-fab--planned {
     background: #166534;
+  }
+
+  /* Discover FAB — same bottom-centre slot as the Plan FAB but
+     shown when no clusters have been discovered yet. The two are
+     mutually exclusive (Discover gates on `clusters === null ||
+     empty`; Plan FAB requires a focused cluster which can only
+     exist after Discover). */
+  .map-discover-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    z-index: 80;
+    background: #d84315;
+    color: white;
+    border: none;
+    border-radius: 999px;
+    padding: 0.85rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+    min-height: 44px;
+    cursor: pointer;
+  }
+
+  .map-discover-fab:disabled {
+    background: #9ca3af;
+    cursor: progress;
   }
 
   /* Stats overlay shrinks on phone — top of map, single line. */

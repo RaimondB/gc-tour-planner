@@ -9,7 +9,8 @@ import type {
   ClusterDiagnostics,
   PlanResult,
 } from "@gctp/shared/tours";
-import { listCaches, planLoop } from "./lib/api.js";
+import { discoverClusters, listCaches, planLoop } from "./lib/api.js";
+import { planToGpxTrack } from "./lib/gpx-export.js";
 import {
   type LegPicks,
   planSignature,
@@ -44,6 +45,7 @@ import {
   DEFAULT_PLAN_SETTINGS,
   PlannerSidebar,
   PlanResultPanel,
+  TourSettingsPanel,
   type PlanSettings,
 } from "./features/planning/PlannerSidebar.js";
 import { AdminPrecomputePanel } from "./features/admin/AdminPrecomputePanel.js";
@@ -221,6 +223,58 @@ export default function App(): JSX.Element {
     [planMutation],
   );
 
+  // ── Discover-clusters mutation lifted from PlannerSidebar ──────────
+  // Mirrors planMutation's lift: the Discover map-FAB needs to call
+  // the same mutation as the in-drawer "Discover clusters" button so
+  // the user can kick off cluster discovery from the map view.
+  const discoverMutation = useMutation({
+    mutationFn: async () => {
+      return discoverClusters({
+        center: params.center,
+        radiusM: params.radiusM,
+        maxCaches: planSettings.maxCaches,
+        minClusterSize: planSettings.minClusterSize,
+        maxLinkMeters: planSettings.maxLinkMeters,
+        distanceBudgetMeters: planSettings.distanceBudgetMeters,
+        hardFilters: {
+          types: params.types.length > 0 ? params.types : undefined,
+        },
+        softPreferences: {
+          clusterDensityWeight: 1,
+          loopCompactnessWeight: 1,
+          landuseWeight: planSettings.landuseWeight,
+          ...(planSettings.landuseProfileId
+            ? { landuseProfileId: planSettings.landuseProfileId }
+            : {}),
+        },
+        startPreference: planSettings.startPreference,
+        clusteringStrategy: planSettings.clusteringStrategy,
+        topNClusters: planSettings.topNClusters,
+        ...(planSettings.startPreference === "user-supplied-point"
+          ? { userSuppliedStart: params.center }
+          : {}),
+        osmParkingAccessFilter: [...planSettings.osmParkingAccessFilter],
+        osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
+      });
+    },
+    onSuccess: (res) => {
+      setClusters(res.candidates);
+      setDiagnostics(res.diagnostics);
+      setChosenClusterId(null);
+      setPlanResult(null);
+      // FR-UX1: auto-focus the first cluster so the map FAB row
+      // (◀ Plan #1/N ▶) pops up immediately — saves the user a
+      // tap on a centroid to start the cluster cycle.
+      if (res.candidates.length > 0) {
+        setFocusedClusterId(res.candidates[0]!.clusterId);
+      }
+    },
+  });
+  const onDiscover = useCallback(
+    () => discoverMutation.mutate(),
+    [discoverMutation],
+  );
+
   // Mirror query at App level so the sidebar can show the count without
   // CachesLayer having to lift it up. Same queryKey → same cache entry, no
   // double fetch.
@@ -358,6 +412,32 @@ export default function App(): JSX.Element {
   const caches = cachesQuery.data?.caches;
   const planTabEnabled = (caches?.length ?? 0) > 0;
   const tourTabEnabled = planResult !== null;
+  // FR-UX1: Discover FAB visibility — caches loaded, no clusters yet
+  // (or user clicked Clear). Mobile-only via CSS so desktop's
+  // "Discover clusters" button in the Plan tab remains the canonical
+  // affordance there.
+  const showDiscoverFab =
+    planTabEnabled && (clusters === null || clusters.length === 0);
+
+  // ── GPX track download from the map (FR-UX1 follow-up) ─────────────
+  // The Tour panel still has the full menu (track + route + JSON +
+  // parking options); this is the one-tap fast path from the map
+  // view. Always uses the wire polyline (not the edited one) — the
+  // editing flow happens in the Tour panel anyway.
+  const downloadGpxTrack = useCallback(() => {
+    if (!planResult) return;
+    const text = planToGpxTrack(planResult, caches);
+    const blob = new Blob([text], { type: "application/gpx+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.href = url;
+    a.download = `gctp-tour-track-${ts}.gpx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [planResult, caches]);
   const handleTabClick = useCallback(
     (tab: SidebarTab) => {
       if (tab === "plan" && !planTabEnabled) return;
@@ -583,29 +663,41 @@ export default function App(): JSX.Element {
                   planMutation.isPending ? chosenClusterId : null
                 }
                 planError={(planMutation.error as Error) ?? null}
+                onDiscover={onDiscover}
+                discoverPending={discoverMutation.isPending}
+                discoverError={(discoverMutation.error as Error) ?? null}
               />
             )}
-            {activeTab === "tour" &&
-              (planResult ? (
-                <PlanResultPanel
-                  result={planResult}
-                  avgWalkingKmh={planSettings.avgWalkingKmh}
-                  caches={caches}
-                  editMode={editMode}
-                  onEditModeChange={setEditMode}
-                  selectedLegIndex={selectedLegIndex}
-                  onSelectedLegChange={setSelectedLegIndex}
-                  previewAlternativeIndex={previewAlternativeIndex}
-                  onPreviewAlternativeChange={setPreviewAlternativeIndex}
-                  legPicks={legPicks}
-                  onLegPicksChange={setLegPicks}
-                  viaDragLegIndex={viaDrag?.legIndex ?? null}
-                  onStartViaDrag={startViaDrag}
-                  onCancelViaDrag={cancelViaDrag}
+            {activeTab === "tour" && (
+              <>
+                <TourSettingsPanel
+                  settings={planSettings}
+                  onSettingsChange={setPlanSettings}
                 />
-              ) : (
-                <p className="muted">No planned tour yet — head to the Plan tab.</p>
-              ))}
+                {planResult ? (
+                  <PlanResultPanel
+                    result={planResult}
+                    avgWalkingKmh={planSettings.avgWalkingKmh}
+                    caches={caches}
+                    editMode={editMode}
+                    onEditModeChange={setEditMode}
+                    selectedLegIndex={selectedLegIndex}
+                    onSelectedLegChange={setSelectedLegIndex}
+                    previewAlternativeIndex={previewAlternativeIndex}
+                    onPreviewAlternativeChange={setPreviewAlternativeIndex}
+                    legPicks={legPicks}
+                    onLegPicksChange={setLegPicks}
+                    viaDragLegIndex={viaDrag?.legIndex ?? null}
+                    onStartViaDrag={startViaDrag}
+                    onCancelViaDrag={cancelViaDrag}
+                  />
+                ) : (
+                  <p className="muted">
+                    No planned tour yet — head to the Plan tab.
+                  </p>
+                )}
+              </>
+            )}
           </div>
         </div>
         <main className="app-main">
@@ -701,18 +793,39 @@ export default function App(): JSX.Element {
             <ZoomDebugBadge />
           </MapView>
           {tourStats && (
+            <div className="map-tour-overlay">
+              <button
+                type="button"
+                className="map-tour-stats"
+                onClick={openTourTab}
+                title="Open tour details"
+              >
+                <span className="map-tour-stats__primary">
+                  {tourStats.km.toFixed(2)} km · {minutesLabel(tourStats.totalMinutes)}
+                </span>
+                <span className="map-tour-stats__secondary">
+                  {tourStats.caches} caches · walking {minutesLabel(tourStats.walkingMinutes)} · visit {minutesLabel(tourStats.visitMinutes)}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="map-tour-download"
+                onClick={downloadGpxTrack}
+                aria-label="Download GPX track"
+                title="Download GPX track"
+              >
+                ↓ GPX
+              </button>
+            </div>
+          )}
+          {showDiscoverFab && (
             <button
               type="button"
-              className="map-tour-stats"
-              onClick={openTourTab}
-              title="Open tour details"
+              className="map-discover-fab"
+              onClick={onDiscover}
+              disabled={discoverMutation.isPending}
             >
-              <span className="map-tour-stats__primary">
-                {tourStats.km.toFixed(2)} km · {minutesLabel(tourStats.totalMinutes)}
-              </span>
-              <span className="map-tour-stats__secondary">
-                {tourStats.caches} caches · walking {minutesLabel(tourStats.walkingMinutes)} · visit {minutesLabel(tourStats.visitMinutes)}
-              </span>
+              {discoverMutation.isPending ? "Searching…" : "Discover clusters"}
             </button>
           )}
           {focusedClusterForFab && (

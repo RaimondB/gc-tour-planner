@@ -23,7 +23,6 @@ import {
   type ParkingFeeFilter,
 } from "@gctp/shared/parking-facilities";
 import {
-  discoverClusters,
   explainSelection,
   fetchParkingOptions,
   listLanduseProfiles,
@@ -209,6 +208,14 @@ export interface PlannerSidebarProps {
   planPendingClusterId: string | null;
   /** Last plan error to surface inline. `null` when there's no error. */
   planError: Error | null;
+  /**
+   * Same pattern for the discover mutation — lifted to App so the
+   * "Discover clusters" map FAB can call it without needing the
+   * PlannerSidebar to be mounted.
+   */
+  onDiscover: () => void;
+  discoverPending: boolean;
+  discoverError: Error | null;
 }
 
 export function PlannerSidebar({
@@ -251,49 +258,17 @@ export function PlannerSidebar({
   planPending,
   planPendingClusterId,
   planError,
+  onDiscover,
+  discoverPending,
+  discoverError,
 }: PlannerSidebarProps) {
   const landuseProfilesQuery = useQuery({
     queryKey: ["landuse-profiles"],
     queryFn: listLanduseProfiles,
     staleTime: 5 * 60_000, // profile list rarely changes mid-session
   });
-  const discoverMutation = useMutation({
-    mutationFn: async () => {
-      return discoverClusters({
-        center: search.center,
-        radiusM: search.radiusM,
-        maxCaches: settings.maxCaches,
-        minClusterSize: settings.minClusterSize,
-        maxLinkMeters: settings.maxLinkMeters,
-        distanceBudgetMeters: settings.distanceBudgetMeters,
-        hardFilters: {
-          types: search.types.length > 0 ? search.types : undefined,
-        },
-        softPreferences: {
-          clusterDensityWeight: 1,
-          loopCompactnessWeight: 1,
-          landuseWeight: settings.landuseWeight,
-          ...(settings.landuseProfileId
-            ? { landuseProfileId: settings.landuseProfileId }
-            : {}),
-        },
-        startPreference: settings.startPreference,
-        clusteringStrategy: settings.clusteringStrategy,
-        topNClusters: settings.topNClusters,
-        ...(settings.startPreference === "user-supplied-point"
-          ? { userSuppliedStart: search.center }
-          : {}),
-        osmParkingAccessFilter: [...settings.osmParkingAccessFilter],
-        osmParkingFeeFilter: settings.osmParkingFeeFilter,
-      });
-    },
-    onSuccess: (res) => {
-      onClustersChange(res.candidates);
-      onDiagnosticsChange(res.diagnostics);
-      onChosenClusterChange(null);
-      onResultChange(null);
-    },
-  });
+  // discoverMutation lifted to App.tsx (FR-UX1 follow-up) — see
+  // `onDiscover` / `discoverPending` / `discoverError` props.
 
   const clearAll = () => {
     onClustersChange(null);
@@ -425,22 +400,6 @@ export function PlannerSidebar({
           />
         </label>
         <label>
-          Fringe trim (m): {settings.fringeTrimMeters}
-          <input
-            type="range"
-            min={100}
-            max={3000}
-            step={50}
-            value={settings.fringeTrimMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                fringeTrimMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
           Max link distance (m):{" "}
           {settings.maxLinkMeters.toLocaleString("en-US")}
           <input
@@ -453,54 +412,6 @@ export function PlannerSidebar({
               onSettingsChange({
                 ...settings,
                 maxLinkMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Visit time per cache (min): {settings.timePerCacheMinutes}
-          <input
-            type="range"
-            min={0}
-            max={30}
-            step={1}
-            value={settings.timePerCacheMinutes}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                timePerCacheMinutes: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Tool-cache bonus (min): {settings.toolBonusMinutes}
-          <input
-            type="range"
-            min={0}
-            max={30}
-            step={1}
-            value={settings.toolBonusMinutes}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                toolBonusMinutes: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Avg walking speed (km/h): {settings.avgWalkingKmh.toFixed(1)}
-          <input
-            type="range"
-            min={2}
-            max={8}
-            step={0.1}
-            value={settings.avgWalkingKmh}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                avgWalkingKmh: Number(e.target.value),
               })
             }
           />
@@ -586,95 +497,13 @@ export function PlannerSidebar({
         />
       )}
 
-      <fieldset className="field">
-        <legend>Start preference</legend>
-        {(
-          [
-            ["parking-waypoint", "Cache-owner parking (PQ)"],
-            ["osrm-nearest-road", "OSRM nearest road"],
-            ["user-supplied-point", "Use current search center"],
-            ["osm-parking", "OSM amenity=parking (ADR-0011)"],
-          ] as const
-        ).map(([val, label]) => (
-          <label key={val} className="checkbox">
-            <input
-              type="radio"
-              name="start-preference"
-              checked={settings.startPreference === val}
-              onChange={() =>
-                onSettingsChange({ ...settings, startPreference: val })
-              }
-            />
-            {label}
-          </label>
-        ))}
-        {settings.startPreference === "osm-parking" && (
-          <div className="osm-parking-filters" style={{ marginTop: 8 }}>
-            <div style={{ marginBottom: 6 }}>
-              <span className="muted" style={{ marginRight: 8 }}>
-                Access
-              </span>
-              {PARKING_ACCESS_CHIPS.map((chip) => {
-                const on = settings.osmParkingAccessFilter.includes(chip);
-                return (
-                  <label
-                    key={chip}
-                    className="checkbox"
-                    style={{ display: "inline-block", marginRight: 6 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        const next = on
-                          ? settings.osmParkingAccessFilter.filter(
-                              (c) => c !== chip,
-                            )
-                          : [...settings.osmParkingAccessFilter, chip];
-                        onSettingsChange({
-                          ...settings,
-                          osmParkingAccessFilter: next,
-                        });
-                      }}
-                    />
-                    {chip}
-                  </label>
-                );
-              })}
-            </div>
-            <div>
-              <span className="muted" style={{ marginRight: 8 }}>
-                Fee
-              </span>
-              {PARKING_FEE_FILTER.map((opt) => (
-                <label
-                  key={opt}
-                  className="checkbox"
-                  style={{ display: "inline-block", marginRight: 6 }}
-                >
-                  <input
-                    type="radio"
-                    name="osm-parking-fee"
-                    checked={settings.osmParkingFeeFilter === opt}
-                    onChange={() =>
-                      onSettingsChange({ ...settings, osmParkingFeeFilter: opt })
-                    }
-                  />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-      </fieldset>
-
       <div className="planner-actions">
         <button
           type="button"
-          onClick={() => discoverMutation.mutate()}
-          disabled={discoverMutation.isPending}
+          onClick={onDiscover}
+          disabled={discoverPending}
         >
-          {discoverMutation.isPending ? "Searching…" : "Discover clusters"}
+          {discoverPending ? "Searching…" : "Discover clusters"}
         </button>
         <button
           type="button"
@@ -693,10 +522,8 @@ export function PlannerSidebar({
         </button>
       </div>
 
-      {discoverMutation.error && (
-        <div className="planner-error">
-          {(discoverMutation.error as Error).message}
-        </div>
+      {discoverError && (
+        <div className="planner-error">{discoverError.message}</div>
       )}
 
       {clusters !== null && clusters.length === 0 && (
@@ -1497,6 +1324,181 @@ export function DebugOverlaysPanel({
         </div>
       )}
     </fieldset>
+  );
+}
+
+/**
+ * FR-UX1: Tour-tab settings — controls that affect the planned-route
+ * shape, not which clusters get discovered. Fringe trim, per-cache
+ * visit time, tool-cache bonus, walking speed, and the start
+ * preference (incl. OSM-parking filters when relevant) live here so
+ * the user can tweak them without re-doing cluster discovery.
+ */
+export interface TourSettingsPanelProps {
+  settings: PlanSettings;
+  onSettingsChange: (next: PlanSettings) => void;
+}
+
+export function TourSettingsPanel({
+  settings,
+  onSettingsChange,
+}: TourSettingsPanelProps): JSX.Element {
+  return (
+    <aside className="sidebar planner-sidebar">
+      <h2>Tour settings</h2>
+
+      <div className="field">
+        <label>
+          Fringe trim (m): {settings.fringeTrimMeters}
+          <input
+            type="range"
+            min={100}
+            max={3000}
+            step={50}
+            value={settings.fringeTrimMeters}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                fringeTrimMeters: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Visit time per cache (min): {settings.timePerCacheMinutes}
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={settings.timePerCacheMinutes}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                timePerCacheMinutes: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Tool-cache bonus (min): {settings.toolBonusMinutes}
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={settings.toolBonusMinutes}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                toolBonusMinutes: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Avg walking speed (km/h): {settings.avgWalkingKmh.toFixed(1)}
+          <input
+            type="range"
+            min={2}
+            max={8}
+            step={0.1}
+            value={settings.avgWalkingKmh}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                avgWalkingKmh: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+      </div>
+
+      <fieldset className="field">
+        <legend>Start preference</legend>
+        {(
+          [
+            ["parking-waypoint", "Cache-owner parking (PQ)"],
+            ["osrm-nearest-road", "OSRM nearest road"],
+            ["user-supplied-point", "Use current search center"],
+            ["osm-parking", "OSM amenity=parking (ADR-0011)"],
+          ] as const
+        ).map(([val, label]) => (
+          <label key={val} className="checkbox">
+            <input
+              type="radio"
+              name="start-preference"
+              checked={settings.startPreference === val}
+              onChange={() =>
+                onSettingsChange({ ...settings, startPreference: val })
+              }
+            />
+            {label}
+          </label>
+        ))}
+        {settings.startPreference === "osm-parking" && (
+          <div className="osm-parking-filters" style={{ marginTop: 8 }}>
+            <div style={{ marginBottom: 6 }}>
+              <span className="muted" style={{ marginRight: 8 }}>
+                Access
+              </span>
+              {PARKING_ACCESS_CHIPS.map((chip) => {
+                const on = settings.osmParkingAccessFilter.includes(chip);
+                return (
+                  <label
+                    key={chip}
+                    className="checkbox"
+                    style={{ display: "inline-block", marginRight: 6 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => {
+                        const next = on
+                          ? settings.osmParkingAccessFilter.filter(
+                              (c) => c !== chip,
+                            )
+                          : [...settings.osmParkingAccessFilter, chip];
+                        onSettingsChange({
+                          ...settings,
+                          osmParkingAccessFilter: next,
+                        });
+                      }}
+                    />
+                    {chip}
+                  </label>
+                );
+              })}
+            </div>
+            <div>
+              <span className="muted" style={{ marginRight: 8 }}>
+                Fee
+              </span>
+              {PARKING_FEE_FILTER.map((opt) => (
+                <label
+                  key={opt}
+                  className="checkbox"
+                  style={{ display: "inline-block", marginRight: 6 }}
+                >
+                  <input
+                    type="radio"
+                    name="osm-parking-fee"
+                    checked={settings.osmParkingFeeFilter === opt}
+                    onChange={() =>
+                      onSettingsChange({
+                        ...settings,
+                        osmParkingFeeFilter: opt,
+                      })
+                    }
+                  />
+                  {opt}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </fieldset>
+    </aside>
   );
 }
 
