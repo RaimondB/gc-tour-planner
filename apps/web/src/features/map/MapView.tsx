@@ -138,8 +138,32 @@ export function MapView({
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(container);
 
+    // Tab-visibility recovery. When the tab is backgrounded the
+    // browser pauses requestAnimationFrame, MapLibre's render loop
+    // halts, and tiles that arrive during that pause never paint.
+    // Coming back to the tab leaves the basemap stale (or blank) while
+    // overlays — which redraw on React state changes — look fine.
+    // Forcing a resize + repaint on `visibilitychange` covers it.
+    // `pageshow` with `persisted=true` covers the BFCache restore case
+    // (mobile Safari especially).
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      map.resize();
+      map.triggerRepaint();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        map.resize();
+        map.triggerRepaint();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+
     return () => {
       ro.disconnect();
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
       map.off("click", clickHandler);
       map.off("moveend", onMoveEnd);
       onReadyRef.current?.(null);
