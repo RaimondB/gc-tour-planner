@@ -182,6 +182,17 @@ export interface PlannerSidebarProps {
   onStartViaDrag: (legIndex: number, position: [number, number]) => void;
   /** Tear the via marker down. The persisted via-pick (if any) stays. */
   onCancelViaDrag: () => void;
+  /**
+   * When true, suppress the inline `<PlanResultPanel>` render (the
+   * result panel is being rendered separately, e.g. in a "Tour" tab).
+   * Default false preserves the single-pane layout.
+   */
+  hideResultPanel?: boolean;
+  /**
+   * When true, suppress the inline `<ClusterLabPanel>` render (it's
+   * being rendered separately, e.g. in the Tools drawer).
+   */
+  hideClusterLab?: boolean;
 }
 
 export function PlannerSidebar({
@@ -217,6 +228,8 @@ export function PlannerSidebar({
   viaDragLegIndex,
   onStartViaDrag,
   onCancelViaDrag,
+  hideResultPanel = false,
+  hideClusterLab = false,
 }: PlannerSidebarProps) {
   const queryClient = useQueryClient();
   const landuseProfilesQuery = useQuery({
@@ -861,14 +874,16 @@ export function PlannerSidebar({
         </div>
       )}
 
-      <ClusterLabPanel
-        search={search}
-        settings={settings}
-        selectedCacheIds={selectedCacheIds}
-        onSelectionChange={onSelectionChange}
-        testRoute={testRoute}
-        onTestRouteChange={onTestRouteChange}
-      />
+      {!hideClusterLab && (
+        <ClusterLabPanel
+          search={search}
+          settings={settings}
+          selectedCacheIds={selectedCacheIds}
+          onSelectionChange={onSelectionChange}
+          testRoute={testRoute}
+          onTestRouteChange={onTestRouteChange}
+        />
+      )}
 
 
       {planMutation.error && (
@@ -877,7 +892,7 @@ export function PlannerSidebar({
         </div>
       )}
 
-      {result && (
+      {result && !hideResultPanel && (
         <PlanResultPanel
           result={result}
           avgWalkingKmh={settings.avgWalkingKmh}
@@ -899,7 +914,7 @@ export function PlannerSidebar({
   );
 }
 
-function PlanResultPanel({
+export function PlanResultPanel({
   result,
   avgWalkingKmh,
   caches,
@@ -1455,7 +1470,7 @@ function minutes(m: number): string {
   return `${h} h ${mm.toString().padStart(2, "0")} min`;
 }
 
-interface ClusterLabPanelProps {
+export interface ClusterLabPanelProps {
   search: SearchParams;
   settings: PlanSettings;
   selectedCacheIds: ReadonlySet<number>;
@@ -1474,7 +1489,7 @@ interface ClusterLabPanelProps {
  *   2. Hit Explain — see per-strategy partitions + refinement projection.
  *   3. Shift-click selected markers to remove specific caches, hit Explain again.
  */
-function ClusterLabPanel({
+export function ClusterLabPanel({
   search,
   settings,
   selectedCacheIds,

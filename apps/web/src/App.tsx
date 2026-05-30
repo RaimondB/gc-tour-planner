@@ -41,10 +41,18 @@ import { FilterSidebar } from "./features/search/FilterSidebar.js";
 import {
   DEFAULT_PLAN_SETTINGS,
   PlannerSidebar,
+  PlanResultPanel,
   type PlanSettings,
 } from "./features/planning/PlannerSidebar.js";
 import { AdminPrecomputePanel } from "./features/admin/AdminPrecomputePanel.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
+
+/**
+ * Sidebar tab id (FR-UX1). Workflow stages map 1:1 — Filter sets up
+ * what's on the map, Plan asks for clusters + plans a loop, Tour
+ * holds the planned tour's totals + edit/exports.
+ */
+type SidebarTab = "filter" | "plan" | "tour";
 
 export default function App(): JSX.Element {
   const [params, setParams] = useLocalStorageState<SearchParams>(
@@ -101,6 +109,16 @@ export default function App(): JSX.Element {
     "edit-mode",
     false,
   );
+  // ── Sidebar UX (FR-UX1) ─────────────────────────────────────────────
+  // Tab the user is currently looking at. Persisted in localStorage so
+  // a page reload doesn't bounce them back to Filter while they're
+  // mid-edit of a planned tour. Tools drawer is ephemeral (debug-y, no
+  // need to restore).
+  const [activeTab, setActiveTab] = useLocalStorageState<SidebarTab>(
+    "ui:active-tab",
+    "filter",
+  );
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
   const [previewAlternativeIndex, setPreviewAlternativeIndex] = useState<
     number | null
@@ -207,57 +225,146 @@ export default function App(): JSX.Element {
     setParams((prev) => ({ ...prev, center: lngLat }));
   }, []);
 
+  // ── Tab state derivations (FR-UX1) ─────────────────────────────────
+  // Plan tab is meaningful as soon as the user has at least one cache
+  // in the search; Tour tab only once a plan has been built. Until
+  // those conditions are met the tabs render as visibly-disabled so
+  // the workflow stages stay discoverable without being clickable.
+  const caches = cachesQuery.data?.caches;
+  const planTabEnabled = (caches?.length ?? 0) > 0;
+  const tourTabEnabled = planResult !== null;
+  const handleTabClick = useCallback(
+    (tab: SidebarTab) => {
+      if (tab === "plan" && !planTabEnabled) return;
+      if (tab === "tour" && !tourTabEnabled) return;
+      setActiveTab(tab);
+    },
+    [planTabEnabled, tourTabEnabled, setActiveTab],
+  );
+
   return (
     <div className="app">
       <header className="app-header">
-        <h1>gc-tour-planner</h1>
-        <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>
+        <div className="app-header__title">
+          <h1>gc-tour-planner</h1>
+          <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>
+        </div>
+        <button
+          type="button"
+          className="app-header__tools"
+          onClick={() => setToolsOpen((v) => !v)}
+          aria-expanded={toolsOpen}
+          aria-controls="tools-drawer"
+          title="Developer tools (cluster lab, debug overlays, admin)"
+        >
+          ⚙ Tools
+        </button>
       </header>
 
       <div className="app-body">
         <div className="left-pane">
-          <UploadDropzone />
-          <AdminPrecomputePanel />
-          <FilterSidebar
-            value={params}
-            onChange={handleParamsChange}
-            cacheCount={cachesQuery.data?.caches.length}
-            loading={cachesQuery.isFetching}
-          />
-          <PlannerSidebar
-            search={params}
-            settings={planSettings}
-            onSettingsChange={setPlanSettings}
-            clusters={clusters}
-            onClustersChange={setClusters}
-            diagnostics={diagnostics}
-            onDiagnosticsChange={setDiagnostics}
-            chosenClusterId={chosenClusterId}
-            onChosenClusterChange={setChosenClusterId}
-            focusedClusterId={focusedClusterId}
-            onFocusClusterChange={setFocusedClusterId}
-            result={planResult}
-            onResultChange={setPlanResult}
-            caches={cachesQuery.data?.caches}
-            selectedCacheIds={selectedCacheIds}
-            onSelectionChange={setSelectedCacheIds}
-            showWalkingGraph={showWalkingGraph}
-            onShowWalkingGraphChange={setShowWalkingGraph}
-            walkingGraphStats={walkingGraphStats}
-            testRoute={testRoute}
-            onTestRouteChange={setTestRoute}
-            editMode={editMode}
-            onEditModeChange={setEditMode}
-            selectedLegIndex={selectedLegIndex}
-            onSelectedLegChange={setSelectedLegIndex}
-            previewAlternativeIndex={previewAlternativeIndex}
-            onPreviewAlternativeChange={setPreviewAlternativeIndex}
-            legPicks={legPicks}
-            onLegPicksChange={setLegPicks}
-            viaDragLegIndex={viaDrag?.legIndex ?? null}
-            onStartViaDrag={startViaDrag}
-            onCancelViaDrag={cancelViaDrag}
-          />
+          <nav className="sidebar-tabs" role="tablist" aria-label="Sidebar sections">
+            <TabButton
+              id="filter"
+              label="Filter"
+              active={activeTab === "filter"}
+              enabled
+              onClick={handleTabClick}
+            />
+            <TabButton
+              id="plan"
+              label="Plan"
+              active={activeTab === "plan"}
+              enabled={planTabEnabled}
+              disabledHint="Upload a GPX or widen the search to see caches first."
+              onClick={handleTabClick}
+            />
+            <TabButton
+              id="tour"
+              label="Tour"
+              active={activeTab === "tour"}
+              enabled={tourTabEnabled}
+              disabledHint="Plan a loop in the Plan tab first."
+              onClick={handleTabClick}
+            />
+          </nav>
+
+          <div
+            className="sidebar-tabpanel"
+            role="tabpanel"
+            aria-labelledby={`tab-${activeTab}`}
+          >
+            {activeTab === "filter" && (
+              <>
+                <UploadDropzone />
+                <AdminPrecomputePanel />
+                <FilterSidebar
+                  value={params}
+                  onChange={handleParamsChange}
+                  cacheCount={caches?.length}
+                  loading={cachesQuery.isFetching}
+                />
+              </>
+            )}
+            {activeTab === "plan" && (
+              <PlannerSidebar
+                search={params}
+                settings={planSettings}
+                onSettingsChange={setPlanSettings}
+                clusters={clusters}
+                onClustersChange={setClusters}
+                diagnostics={diagnostics}
+                onDiagnosticsChange={setDiagnostics}
+                chosenClusterId={chosenClusterId}
+                onChosenClusterChange={setChosenClusterId}
+                focusedClusterId={focusedClusterId}
+                onFocusClusterChange={setFocusedClusterId}
+                result={planResult}
+                onResultChange={setPlanResult}
+                caches={caches}
+                selectedCacheIds={selectedCacheIds}
+                onSelectionChange={setSelectedCacheIds}
+                showWalkingGraph={showWalkingGraph}
+                onShowWalkingGraphChange={setShowWalkingGraph}
+                walkingGraphStats={walkingGraphStats}
+                testRoute={testRoute}
+                onTestRouteChange={setTestRoute}
+                editMode={editMode}
+                onEditModeChange={setEditMode}
+                selectedLegIndex={selectedLegIndex}
+                onSelectedLegChange={setSelectedLegIndex}
+                previewAlternativeIndex={previewAlternativeIndex}
+                onPreviewAlternativeChange={setPreviewAlternativeIndex}
+                legPicks={legPicks}
+                onLegPicksChange={setLegPicks}
+                viaDragLegIndex={viaDrag?.legIndex ?? null}
+                onStartViaDrag={startViaDrag}
+                onCancelViaDrag={cancelViaDrag}
+                hideResultPanel
+              />
+            )}
+            {activeTab === "tour" &&
+              (planResult ? (
+                <PlanResultPanel
+                  result={planResult}
+                  avgWalkingKmh={planSettings.avgWalkingKmh}
+                  caches={caches}
+                  editMode={editMode}
+                  onEditModeChange={setEditMode}
+                  selectedLegIndex={selectedLegIndex}
+                  onSelectedLegChange={setSelectedLegIndex}
+                  previewAlternativeIndex={previewAlternativeIndex}
+                  onPreviewAlternativeChange={setPreviewAlternativeIndex}
+                  legPicks={legPicks}
+                  onLegPicksChange={setLegPicks}
+                  viaDragLegIndex={viaDrag?.legIndex ?? null}
+                  onStartViaDrag={startViaDrag}
+                  onCancelViaDrag={cancelViaDrag}
+                />
+              ) : (
+                <p className="muted">No planned tour yet — head to the Plan tab.</p>
+              ))}
+          </div>
         </div>
         <main className="app-main">
           <MapView
@@ -354,6 +461,37 @@ export default function App(): JSX.Element {
         </main>
       </div>
 
+      {toolsOpen && (
+        <div
+          className="tools-drawer-backdrop"
+          onClick={() => setToolsOpen(false)}
+          role="presentation"
+        >
+          <aside
+            id="tools-drawer"
+            className="tools-drawer"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Developer tools"
+          >
+            <header className="tools-drawer__header">
+              <h2>Tools</h2>
+              <button
+                type="button"
+                onClick={() => setToolsOpen(false)}
+                aria-label="Close tools drawer"
+              >
+                ✕
+              </button>
+            </header>
+            <p className="muted" style={{ padding: "0 1rem" }}>
+              Cluster Lab, debug overlays, and admin panels move in here in the
+              next iteration. Currently they still live in the Filter/Plan tabs.
+            </p>
+          </aside>
+        </div>
+      )}
+
       <footer className="app-footer">
         Map data &copy;{" "}
         <a href="https://www.openstreetmap.org/copyright">
@@ -361,6 +499,44 @@ export default function App(): JSX.Element {
         </a>
       </footer>
     </div>
+  );
+}
+
+/**
+ * Minimal tab-bar button (FR-UX1). Disabled state is greyed +
+ * unclickable but keeps the tab visible so the workflow stages stay
+ * discoverable. Tooltip on disabled tabs nudges the user toward the
+ * action that unlocks it (e.g. "upload a GPX first").
+ */
+function TabButton({
+  id,
+  label,
+  active,
+  enabled,
+  disabledHint,
+  onClick,
+}: {
+  id: SidebarTab;
+  label: string;
+  active: boolean;
+  enabled: boolean;
+  disabledHint?: string;
+  onClick: (id: SidebarTab) => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      id={`tab-${id}`}
+      role="tab"
+      aria-selected={active}
+      aria-controls="sidebar-tabpanel"
+      className={`sidebar-tab${active ? " sidebar-tab--active" : ""}`}
+      onClick={() => onClick(id)}
+      disabled={!enabled}
+      title={!enabled ? disabledHint : undefined}
+    >
+      {label}
+    </button>
   );
 }
 
