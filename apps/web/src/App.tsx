@@ -270,6 +270,22 @@ export default function App(): JSX.Element {
     setParams((prev) => ({ ...prev, center: lngLat }));
   }, []);
 
+  // ── Cluster nav (prev / next around the Plan FAB) ──────────────────
+  // When a cluster is focused, the FAB row gains ← / → buttons so the
+  // user can step through candidates from the map view without
+  // opening the drawer. Boundaries disable the buttons (no wrap-around;
+  // wrap would silently send the user to the bottom of the list).
+  const navigateCluster = useCallback(
+    (delta: 1 | -1) => {
+      if (!clusters || !focusedClusterId) return;
+      const idx = clusters.findIndex((c) => c.clusterId === focusedClusterId);
+      const next = idx + delta;
+      if (next < 0 || next >= clusters.length) return;
+      setFocusedClusterId(clusters[next]!.clusterId);
+    },
+    [clusters, focusedClusterId],
+  );
+
   // ── Cluster FAB (mobile-only "Plan this" on the map) ───────────────
   // When the drawer is closed (mobile) the user can't reach the
   // "Plan this loop" row buttons. After focusing a cluster centroid
@@ -278,6 +294,9 @@ export default function App(): JSX.Element {
   const focusedClusterForFab = useMemo<{
     cluster: ClusterCandidate;
     rank: number;
+    total: number;
+    canPrev: boolean;
+    canNext: boolean;
   } | null>(() => {
     if (!focusedClusterId || !clusters) return null;
     const idx = clusters.findIndex((c) => c.clusterId === focusedClusterId);
@@ -286,8 +305,48 @@ export default function App(): JSX.Element {
     // TourLayer + Tour tab; surfacing a "Plan this" button for it
     // again would be redundant.
     if (clusters[idx]!.clusterId === chosenClusterId && planResult) return null;
-    return { cluster: clusters[idx]!, rank: idx + 1 };
+    return {
+      cluster: clusters[idx]!,
+      rank: idx + 1,
+      total: clusters.length,
+      canPrev: idx > 0,
+      canNext: idx < clusters.length - 1,
+    };
   }, [focusedClusterId, clusters, chosenClusterId, planResult]);
+
+  // ── Tour stats overlay (FR-UX1 follow-up) ──────────────────────────
+  // Always-visible summary of the planned tour on top of the map so
+  // the user doesn't have to open the Tour tab to see km/min. Uses
+  // the wire totals (not the edited ones) — accurate enough for an
+  // at-a-glance overlay; the Tour panel still owns the precise
+  // edit-aware numbers.
+  const tourStats = useMemo<{
+    km: number;
+    visitMinutes: number;
+    walkingMinutes: number;
+    totalMinutes: number;
+    caches: number;
+  } | null>(() => {
+    if (!planResult) return null;
+    const km = planResult.totals.meters / 1000;
+    const walkingMinutes =
+      planSettings.avgWalkingKmh > 0
+        ? (km / planSettings.avgWalkingKmh) * 60
+        : 0;
+    const visitMinutes = planResult.totals.visitMinutes;
+    return {
+      km,
+      walkingMinutes,
+      visitMinutes,
+      totalMinutes: walkingMinutes + visitMinutes,
+      caches: planResult.orderedCacheIds.length,
+    };
+  }, [planResult, planSettings.avgWalkingKmh]);
+
+  const openTourTab = useCallback(() => {
+    setActiveTab("tour");
+    setSidebarOpen(true);
+  }, [setActiveTab]);
 
   // ── Tab state derivations + map fit helpers (FR-UX1) ───────────────
   // Hoisted above the JSX so the effects below can read `caches`
@@ -638,17 +697,54 @@ export default function App(): JSX.Element {
             <TestRouteLayer result={testRoute} />
             <ZoomDebugBadge />
           </MapView>
-          {focusedClusterForFab && (
+          {tourStats && (
             <button
               type="button"
-              className="map-plan-fab"
-              onClick={() => planCluster(focusedClusterForFab.cluster)}
-              disabled={planMutation.isPending}
+              className="map-tour-stats"
+              onClick={openTourTab}
+              title="Open tour details"
             >
-              {planMutation.isPending
-                ? "Planning…"
-                : `Plan cluster #${focusedClusterForFab.rank} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
+              <span className="map-tour-stats__primary">
+                {tourStats.km.toFixed(2)} km · {minutesLabel(tourStats.totalMinutes)}
+              </span>
+              <span className="map-tour-stats__secondary">
+                {tourStats.caches} caches · walking {minutesLabel(tourStats.walkingMinutes)} · visit {minutesLabel(tourStats.visitMinutes)}
+              </span>
             </button>
+          )}
+          {focusedClusterForFab && (
+            <div className="map-plan-fab-row" role="group" aria-label="Cluster navigation">
+              <button
+                type="button"
+                className="map-fab-nav"
+                onClick={() => navigateCluster(-1)}
+                disabled={!focusedClusterForFab.canPrev || planMutation.isPending}
+                aria-label="Previous cluster"
+                title="Previous cluster"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                className="map-plan-fab"
+                onClick={() => planCluster(focusedClusterForFab.cluster)}
+                disabled={planMutation.isPending}
+              >
+                {planMutation.isPending
+                  ? "Planning…"
+                  : `Plan #${focusedClusterForFab.rank}/${focusedClusterForFab.total} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
+              </button>
+              <button
+                type="button"
+                className="map-fab-nav"
+                onClick={() => navigateCluster(1)}
+                disabled={!focusedClusterForFab.canNext || planMutation.isPending}
+                aria-label="Next cluster"
+                title="Next cluster"
+              >
+                ▶
+              </button>
+            </div>
           )}
         </main>
       </div>
@@ -750,6 +846,19 @@ function TabButton({
  * Pick a zoom level so the search-radius circle roughly fits the viewport.
  * Empirical mapping — refine if user reports it's too tight/loose.
  */
+/**
+ * Compact "N min" / "1 h 23 min" formatter for the map-stats overlay.
+ * The Tour panel has its own richer formatter (`minutes` in
+ * PlannerSidebar) but its output is too tall for the overlay band.
+ */
+function minutesLabel(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return "—";
+  const h = Math.floor(m / 60);
+  const mm = Math.round(m - h * 60);
+  if (h === 0) return `${mm} min`;
+  return `${h} h ${mm.toString().padStart(2, "0")}`;
+}
+
 function zoomForRadius(radiusM: number): number {
   if (radiusM <= 1_000) return 14;
   if (radiusM <= 2_500) return 13;

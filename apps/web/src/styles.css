@@ -688,13 +688,60 @@ body,
   color: #1f2937;
 }
 
+/* --- Tour stats overlay (FR-UX1 follow-up, both viewports) ----------- */
+
+/* Always-visible "at a glance" card when a tour is planned. Floats
+   over the top of the map, semi-transparent so the polyline behind
+   isn't lost. Click → opens Tour tab + drawer for the full panel. */
+.map-tour-stats {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.45rem 0.9rem;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+  max-width: calc(100% - 1.5rem);
+}
+
+.map-tour-stats:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.map-tour-stats__primary {
+  font-weight: 700;
+  color: #d84315;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-tour-stats__secondary {
+  color: #6b7280;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- Floating "Plan this cluster" button (FR-UX1, mobile-only) ------- */
 
 /* Hidden by default — the in-drawer "Plan this loop" row buttons are
    the desktop affordance. Surfaced on phone when the user focused a
    cluster on the map but doesn't want to re-open the drawer just to
    start the plan. The media query at the bottom flips display:flex. */
-.map-plan-fab {
+.map-plan-fab-row,
+.map-plan-fab,
+.map-fab-nav {
   display: none;
 }
 
@@ -793,34 +840,65 @@ body,
     width: 100vw;
   }
 
-  /* Floating "Plan cluster #N" button — bottom-centre of the map,
-     thumb-reachable. Surfaces after the user focuses a cluster on
-     the map; tapping it starts the plan without re-opening the
-     drawer. Auto-hides when the cluster turns into the planned
-     tour (focusedClusterId clears on plan-success). */
-  .map-plan-fab {
-    display: inline-flex;
+  /* Floating "Plan cluster #N/M" FAB row — bottom-centre of the
+     map, thumb-reachable. ◀ / ▶ flank the main Plan button so the
+     user can step through candidates from the map view. Auto-hides
+     when the focused cluster turns into the planned tour
+     (focusedClusterId clears on plan-success). */
+  .map-plan-fab-row {
+    display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 0.4rem;
     position: absolute;
     left: 50%;
     bottom: 1.5rem;
     transform: translateX(-50%);
+    z-index: 80;
+  }
+
+  .map-plan-fab,
+  .map-fab-nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: #d84315;
     color: white;
     border: none;
-    border-radius: 999px;
-    padding: 0.85rem 1.4rem;
-    font-size: 0.95rem;
-    font-weight: 600;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-    z-index: 80;
     min-height: 44px;
     cursor: pointer;
+    font-weight: 600;
+  }
+
+  .map-plan-fab {
+    border-radius: 999px;
+    padding: 0.85rem 1.2rem;
+    font-size: 0.95rem;
+  }
+
+  .map-fab-nav {
+    width: 44px;
+    border-radius: 999px;
+    font-size: 1rem;
+  }
+
+  .map-plan-fab:disabled,
+  .map-fab-nav:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
   }
 
   .map-plan-fab:disabled {
-    background: #9ca3af;
     cursor: progress;
+  }
+
+  /* Stats overlay shrinks on phone — top of map, single line. */
+  .map-tour-stats__secondary {
+    display: none;
+  }
+
+  .map-tour-stats {
+    padding: 0.4rem 0.75rem;
+    top: 0.5rem;
   }
 }
