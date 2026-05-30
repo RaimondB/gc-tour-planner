@@ -137,6 +137,11 @@ export class GpxRepository {
             archived: c.archived,
             disabled: c.disabled,
             source_exported_at: exportedAt,
+            // FR-SF8: persist the parser's multilingual tool-keyword
+            // scan. Always non-null on the write path so we can tell
+            // "scanned, no matches" (`[]`) apart from "never scanned"
+            // (`NULL`, pre-PR3 rows) later when back-filling.
+            description_hints: c.descriptionHints,
             raw: sql<string>`'{}'::jsonb`,
           })
           .onConflict((oc) =>
@@ -155,6 +160,7 @@ export class GpxRepository {
                 archived: (eb) => eb.ref("excluded.archived"),
                 disabled: (eb) => eb.ref("excluded.disabled"),
                 source_exported_at: (eb) => eb.ref("excluded.source_exported_at"),
+                description_hints: (eb) => eb.ref("excluded.description_hints"),
                 last_seen_at: sql<Date>`now()`,
               }),
           )

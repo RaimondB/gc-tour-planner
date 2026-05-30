@@ -25,6 +25,15 @@ export const PlanLoopInput = z.object({
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   /** Per-cache visit time used in time-budget math. Default per FR-T3 = 5. */
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
+  /**
+   * FR-SF7: extra minutes added per cache that needs a tool (climbing
+   * gear, scuba, fishing rod, etc. — see `hasToolRequirement` in
+   * `packages/shared/src/caches/attributes.ts`). Default 5 min covers
+   * the typical "unpack equipment, get to the right spot" overhead.
+   * Bumps `result.totals.visitMinutes` only; doesn't affect planning
+   * (distance budget, parking selection, leg picking).
+   */
+  toolBonusMinutes: z.number().int().nonnegative().max(60).default(5),
   startPreference: StartPreference.default("parking-waypoint"),
   userSuppliedStart: LngLat.optional(),
   /**

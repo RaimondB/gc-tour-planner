@@ -3,6 +3,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
+import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { RoutingService } from "../../../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
@@ -309,7 +310,22 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       parkingToFirst.picked.seconds +
       interSeconds +
       lastToParking.picked.seconds;
-    const visitMinutes = input.timePerCacheMinutes * orderedIds.length;
+    // FR-SF7: match the greedy planner — add `toolBonusMinutes` per
+    // cache that needs equipment. We keep the sidecar's flat
+    // `visitSecondsPerCache` budget (line 151) for internal solver
+    // optimisation; the bonus only shows up in the returned totals.
+    // Effect on solver quality is small (~3-5% of typical tour time)
+    // and the trade-off is documented in this comment.
+    let toolStopCount = 0;
+    for (const id of orderedIds) {
+      const c = byId.get(id);
+      if (!c) continue;
+      if (hasToolRequirement(c.attributeIds, c.descriptionHints))
+        toolStopCount += 1;
+    }
+    const visitMinutes =
+      input.timePerCacheMinutes * orderedIds.length +
+      input.toolBonusMinutes * toolStopCount;
 
     return {
       orderedCacheIds: orderedIds,

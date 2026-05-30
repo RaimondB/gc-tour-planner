@@ -409,6 +409,54 @@ body,
   border-radius: 999px;
 }
 
+/* --- Cache-attribute chips (FR-SF4 / FR-SF8) ---------------------------- */
+
+.cache-attr-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+}
+
+.cache-attr-chips__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.cache-attr-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  background: #f3f4f6;
+  color: #374151;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  line-height: 1.1;
+}
+
+/* Tool chips — orange tint signals "you must bring equipment". */
+.cache-attr-chips .chip--tool {
+  background: #fff3e0;
+  color: #b45309;
+}
+
+/* Description-hint chips — italic + lower opacity so the user sees
+   them as "best guess from cache text" rather than "confirmed by
+   the owner via attribute". Distinct enough to read at a glance. */
+.cache-attr-chips__row--hint {
+  opacity: 0.85;
+}
+
+.cache-attr-chips .chip--hint {
+  font-style: italic;
+  font-size: 0.65rem;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px dashed #fb923c;
+}
+
 /* --- Plan result panel ------------------------------------------------- */
 
 .plan-result {

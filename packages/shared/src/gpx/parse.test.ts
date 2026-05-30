@@ -27,6 +27,7 @@ describe("parseGpx", () => {
     expect(traditional?.size).toBe("Small");
     expect(traditional?.archived).toBe(false);
     expect(traditional?.disabled).toBe(false);
+    expect(traditional?.descriptionHints).toEqual([]);
     expect(traditional?.location).toEqual([5.1214, 52.0907]);
     expect(traditional?.attributes).toEqual([
       { id: 6, positive: true },
@@ -118,6 +119,38 @@ describe("parseGpx", () => {
     // orthogonal so the UI can render exactly one badge per cache.
     expect(arc?.disabled).toBe(false);
     expect(arc?.archived).toBe(true);
+  });
+
+  it("scans HTML descriptions for tool-hint keywords (multilingual)", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        <wpt lat="52.0" lon="5.0">
+          <name>GCFISH1</name>
+          <groundspeak:cache id="1" available="True" archived="False">
+            <groundspeak:name>De Hengel</groundspeak:name>
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+            <groundspeak:short_description html="True">&lt;p&gt;Vergeet je &lt;b&gt;hengel&lt;/b&gt; niet!&lt;/p&gt;</groundspeak:short_description>
+            <groundspeak:long_description html="True">&lt;p&gt;You'll also want binoculars for the view.&lt;/p&gt;</groundspeak:long_description>
+          </groundspeak:cache>
+        </wpt>
+        <wpt lat="52.0" lon="5.0">
+          <name>GCNORM1</name>
+          <groundspeak:cache id="2" available="True" archived="False">
+            <groundspeak:name>Plain</groundspeak:name>
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+            <groundspeak:long_description html="True">&lt;p&gt;Nothing special here.&lt;/p&gt;</groundspeak:long_description>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    const result = parseGpx(xml);
+    const fish = result.caches.find((c) => c.code === "GCFISH1");
+    const norm = result.caches.find((c) => c.code === "GCNORM1");
+    // Dutch "hengel" + English "binoculars" both match — order
+    // follows the dictionary, not the description.
+    expect(fish?.descriptionHints).toEqual(["fishingRod", "binoculars"]);
+    // No keywords → empty array.
+    expect(norm?.descriptionHints).toEqual([]);
   });
 
   it("warns on caches with no waypoints and ignores wpts missing coordinates", () => {

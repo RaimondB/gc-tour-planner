@@ -158,6 +158,23 @@ CREATE TABLE gpx_uploads (
   exported_at    TIMESTAMPTZ
 );
 
+-- FR-SF8 (migration 1779670000000): description_hints stores the keys
+-- returned by `scanDescriptionHints` over the cache's short+long
+-- description text. THREE-state nullability is intentional:
+--   NULL      = never scanned (pre-PR3 row; back-fill via
+--               POST /admin/uploads/:id/reprocess)
+--   '{}'      = scanned, no hints matched
+--   non-empty = scanned, hints found (e.g. {'fishingRod','binoculars'})
+-- No index — column is SELECT-projected only; filtering happens
+-- client-side after fetch.
+ALTER TABLE caches ADD COLUMN description_hints TEXT[];
+
+-- FR-SF1: stage_count is NOT a column — it's computed via a sibling
+-- subquery in caches.repository.ts:
+--   (SELECT COUNT(*)::int FROM additional_waypoints w
+--    WHERE w.cache_id = c.id AND w.type = 'stages') AS stage_count
+-- Uses the existing additional_waypoints_cache_idx; no new index.
+
 CREATE TABLE landuse_profiles (                                -- M5-β
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id    UUID REFERENCES users(id) ON DELETE CASCADE,    -- NULL = system profile

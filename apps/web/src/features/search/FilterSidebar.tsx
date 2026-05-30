@@ -144,6 +144,30 @@ export function FilterSidebar({
           </label>
         ))}
         <small>No selection = any type</small>
+        {value.types.includes("Multi") && (
+          <div className="filter-sub" style={{ marginTop: 6 }}>
+            <small style={{ display: "block", marginBottom: 2 }}>
+              Multi sub-type
+            </small>
+            {(
+              [
+                ["all", "All"],
+                ["mini", "Mini-multi (≤ 2 stages)"],
+                ["full", "Full multi (3+ stages)"],
+              ] as const
+            ).map(([val, label]) => (
+              <label key={val} className="checkbox">
+                <input
+                  type="radio"
+                  name="multi-subtype"
+                  checked={value.multiSubtype === val}
+                  onChange={() => onChange({ ...value, multiSubtype: val })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
       </fieldset>
 
       <fieldset className="field">
@@ -180,6 +204,26 @@ export function FilterSidebar({
           Disabled caches are temporarily out of service (owner maintenance).
           Hidden by default; when shown they render at 50 % opacity with a
           &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
+        </small>
+      </fieldset>
+
+      <fieldset className="field">
+        <legend>Equipment</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={value.hideToolCaches}
+            onChange={(e) =>
+              onChange({ ...value, hideToolCaches: e.target.checked })
+            }
+          />
+          Hide caches requiring special tools
+        </label>
+        <small>
+          Excludes caches with attributes like climbing gear, boat, scuba,
+          flashlight, snowshoes, or &ldquo;special tool required&rdquo; (e.g.
+          angler pole). Also catches caches whose description mentions a tool
+          (fishing rod, ladder, mirror, &hellip;) in en/nl/de.
         </small>
       </fieldset>
 

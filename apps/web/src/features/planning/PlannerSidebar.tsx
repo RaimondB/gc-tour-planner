@@ -51,6 +51,12 @@ export interface PlanSettings {
   /** Per-cache visit time used in time totals. */
   timePerCacheMinutes: number;
   /**
+   * FR-SF7: extra minutes added per cache that needs equipment
+   * (climbing gear, scuba, fishing rod, …). Default 5 min covers
+   * "unpack equipment, get to the right spot." Range 0-60.
+   */
+  toolBonusMinutes: number;
+  /**
    * Walking pace used to convert planned distance into walking time. Lets
    * the user override OSRM's foot-profile default (~5 km/h) without
    * re-planning — purely a display concern, recomputed on the client.
@@ -106,6 +112,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   maxLinkMeters: 1_500,
   startPreference: "parking-waypoint",
   timePerCacheMinutes: 5,
+  toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "louvain",
   topNClusters: 5,
@@ -280,6 +287,7 @@ export function PlannerSidebar({
         cacheIds: cluster.cacheIds,
         distanceBudgetMeters: settings.distanceBudgetMeters,
         timePerCacheMinutes: settings.timePerCacheMinutes,
+        toolBonusMinutes: settings.toolBonusMinutes,
         startPreference: settings.startPreference,
         maxLinkMeters: settings.maxLinkMeters,
         fringeTrimMeters: settings.fringeTrimMeters,
@@ -467,6 +475,22 @@ export function PlannerSidebar({
               onSettingsChange({
                 ...settings,
                 timePerCacheMinutes: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Tool-cache bonus (min): {settings.toolBonusMinutes}
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={settings.toolBonusMinutes}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                toolBonusMinutes: Number(e.target.value),
               })
             }
           />

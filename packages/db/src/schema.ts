@@ -57,6 +57,20 @@ export interface CachesTable {
    * PQ replayed against a fresher dataset can't downgrade newer rows.
    */
   source_exported_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+  /**
+   * FR-F8 tool-hint keys (e.g. 'fishingRod', 'binoculars', 'magnet') parsed
+   * from the cache description by `scanDescriptionHints`. Three-state
+   * nullability:
+   *   NULL                = never scanned (pre-PR3 row, or scan skipped).
+   *                         Operator can back-fill via
+   *                         `POST /admin/uploads/:id/reprocess` (FR-I9).
+   *   `[]`                = scanned but no hints matched.
+   *   `['fishingRod', …]` = scanned and matched at least one entry.
+   * Read on every `listCaches` (small projection cost) but never used in a
+   * WHERE clause — filtering is client-side. No index. See migration
+   * 1779670000000.
+   */
+  description_hints: ColumnType<string[] | null, string[] | null | undefined, string[] | null>;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
 }

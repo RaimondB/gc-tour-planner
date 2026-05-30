@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
 import type { CacheDTO } from "@gctp/shared/caches";
+import { hasToolRequirement } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
 import { useMap } from "./MapContext.js";
@@ -25,6 +26,13 @@ const PARKING_LABEL_LAYER = "gctp-tour-parking-label";
 const STOP_SOURCE = "gctp-tour-stops";
 const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
 const STOP_LABEL_LAYER = "gctp-tour-stops-label";
+/**
+ * FR-SF5: small "T" badge rendered on the upper-right of a stop
+ * circle when the cache needs equipment (`hasToolRequirement` true).
+ * Filtered by feature property so a single source feeds both the
+ * numbered circle and the conditional badge.
+ */
+const STOP_TOOL_LAYER = "gctp-tour-stops-tool";
 const DROPPED_SOURCE = "gctp-tour-dropped";
 const DROPPED_CIRCLE_LAYER = "gctp-tour-dropped-circle";
 const DROPPED_LABEL_LAYER = "gctp-tour-dropped-label";
@@ -158,6 +166,13 @@ export function TourLayer({
                 properties: {
                   order: i + 1,
                   code: cache.code,
+                  // FR-SF5 0/1 flag drives the STOP_TOOL_LAYER filter.
+                  hasTool: hasToolRequirement(
+                    cache.attributeIds,
+                    cache.descriptionHints,
+                  )
+                    ? 1
+                    : 0,
                 },
               };
             })
@@ -344,6 +359,31 @@ export function TourLayer({
       },
       paint: {
         "text-color": "#ffffff",
+      },
+    });
+    // FR-SF5: small "T" badge in the upper-right of a stop circle
+    // when that cache requires equipment. Letter "T" instead of an
+    // emoji wrench so it renders in the bundled Noto Sans Bold (no
+    // emoji glyph would render as a fallback box). Green halo
+    // distinguishes from the red stop circle.
+    addLayerSafe(STOP_TOOL_LAYER, {
+      id: STOP_TOOL_LAYER,
+      type: "symbol",
+      source: STOP_SOURCE,
+      filter: ["==", ["get", "hasTool"], 1],
+      layout: {
+        "text-field": "T",
+        "text-font": SYMBOL_FONT,
+        "text-size": 11,
+        "text-offset": [0.9, -0.9],
+        "text-anchor": "center",
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "#1b5e20",
+        "text-halo-width": 2,
       },
     });
     // Trimmed-by-planner caches. Gray fill with a bright stroke

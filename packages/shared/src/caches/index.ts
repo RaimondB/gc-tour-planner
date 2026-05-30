@@ -4,6 +4,9 @@
 import { z } from "zod";
 import { GeoJsonPoint, LngLat } from "../geo/index.js";
 
+export * from "./attributes.js";
+export * from "./description-hints.js";
+
 export const CACHE_TYPES = [
   "Traditional",
   "Multi",
@@ -67,6 +70,21 @@ export const CacheDTO = z.object({
   parkingPoints: z.array(LngLat),
   /** True if the current user has logged a find for this cache. */
   foundByMe: z.boolean(),
+  /**
+   * Number of `type='stages'` additional waypoints (FR-SF1). 0 for
+   * non-multis; ≤ MULTI_MINI_MAX_STAGES qualifies a Multi cache as a
+   * "mini-multi" in the filter sidebar. Defaulted for back-compat
+   * with pre-PR3 server responses.
+   */
+  stageCount: z.number().int().nonnegative().default(0),
+  /**
+   * Multilingual tool-keyword hint keys (FR-SF8) — populated by the
+   * parser via `scanDescriptionHints` over the cache's short+long
+   * description text. Empty array when the description had no
+   * matches or wasn't scanned. Each entry is a stable key from
+   * `DESCRIPTION_HINTS` (e.g. `"fishingRod"`, `"binoculars"`).
+   */
+  descriptionHints: z.array(z.string()).default([]),
 });
 export type CacheDTO = z.infer<typeof CacheDTO>;
 

@@ -7,6 +7,7 @@ import {
   type CacheType,
   type WaypointType,
 } from "../caches/index.js";
+import { scanDescriptionHints } from "../caches/description-hints.js";
 import type { ParsedCache, ParsedGpx, ParsedWaypoint } from "./types.js";
 
 /**
@@ -127,6 +128,16 @@ interface GroundspeakCache {
   "groundspeak:attributes"?: {
     "groundspeak:attribute"?: GroundspeakAttribute[];
   };
+  // Cache descriptions. `html="True"` is the common case (PQs ship
+  // markup); fast-xml-parser hands us the decoded inner text either
+  // way. `#text` is fast-xml-parser's bucket for the element's text
+  // content when the element also has attributes (like `html`).
+  "groundspeak:short_description"?:
+    | string
+    | { "#text"?: string; "@_html"?: string | boolean };
+  "groundspeak:long_description"?:
+    | string
+    | { "#text"?: string; "@_html"?: string | boolean };
 }
 
 interface GroundspeakAttribute {
@@ -215,6 +226,13 @@ function toParsedCache(
     }))
     .filter((a) => Number.isInteger(a.id) && a.id > 0);
 
+  // FR-SF8: scan short + long descriptions for tool-related keywords.
+  // Descriptions are usually HTML; we strip tags + entities to plain
+  // text before passing to the scanner so regex word-boundary matches
+  // aren't blocked by `<strong>fishing rod</strong>` style markup.
+  const descText = extractDescriptionText(gs);
+  const descriptionHints = descText ? scanDescriptionHints(descText) : [];
+
   return {
     sourceId: code,
     code,
@@ -227,7 +245,56 @@ function toParsedCache(
     archived,
     disabled,
     attributes,
+    descriptionHints,
   };
+}
+
+/**
+ * Pull short + long description text out of a `<groundspeak:cache>`
+ * element. Returns `""` when nothing usable is present. Tolerant of
+ * both string-typed elements (plain `<groundspeak:short_description>`)
+ * and object-typed (`<… html="True">…</…>` which fast-xml-parser
+ * collapses into `{ "#text": …, "@_html": … }`).
+ *
+ * HTML is stripped to plain text via a small helper — the scanner
+ * runs against the visible prose, not the markup. We intentionally
+ * keep this loose (no DOM parser) since the dictionary entries use
+ * word-boundary regex which would otherwise miss
+ * `<strong>fishing rod</strong>`.
+ */
+function extractDescriptionText(gs: GroundspeakCache): string {
+  const pieces: string[] = [];
+  const short = gs["groundspeak:short_description"];
+  const long = gs["groundspeak:long_description"];
+  for (const raw of [short, long]) {
+    if (!raw) continue;
+    if (typeof raw === "string") {
+      pieces.push(raw);
+    } else if (typeof raw === "object" && typeof raw["#text"] === "string") {
+      pieces.push(raw["#text"]);
+    }
+  }
+  if (pieces.length === 0) return "";
+  return stripHtml(pieces.join("\n"));
+}
+
+/**
+ * Replace HTML tags with spaces and decode the handful of entities
+ * Groundspeak descriptions commonly emit (`&lt; &gt; &amp; &quot;
+ * &nbsp;`). Not a full HTML parser — by design. Anything else is
+ * left as-is and the regex scanner just doesn't match it.
+ */
+function stripHtml(s: string): string {
+  return s
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**

@@ -56,6 +56,13 @@ interface CacheRow {
   parking_lngs: number[];
   parking_lats: number[];
   found_by_me: boolean;
+  /** FR-SF1: COUNT of additional_waypoints rows with type='stages' for this cache. */
+  stage_count: number;
+  /**
+   * FR-SF8: scanned hint keys; NULL when the row predates PR3 and was
+   * never re-parsed. Empty array when scanned but nothing matched.
+   */
+  description_hints: string[] | null;
 }
 
 @Injectable()
@@ -126,6 +133,16 @@ export class CachesRepository {
               .where("f.user_id", "=", p.ownerId),
           )
           .as("found_by_me"),
+        // FR-SF1: count of 'stages' additional waypoints. The web's
+        // FilterSidebar uses this to bucket Multis as mini (≤2) vs
+        // full (≥3). Indexed by additional_waypoints_cache_idx.
+        eb
+          .selectFrom("additional_waypoints as w")
+          .whereRef("w.cache_id", "=", "c.id")
+          .where("w.type", "=", "stages")
+          .select(sql<number>`COUNT(*)::int`.as("stage_count"))
+          .as("stage_count"),
+        "c.description_hints",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -229,6 +246,13 @@ export class CachesRepository {
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),
+        stageCount: r.stage_count ?? 0,
+        // NULL `description_hints` (pre-PR3 rows) maps to an empty
+        // array on the DTO. The web layer can't tell "never scanned"
+        // apart from "scanned, no hits" — that distinction stays in
+        // the DB so the admin reprocess flow can spot back-fill
+        // targets via WHERE description_hints IS NULL.
+        descriptionHints: r.description_hints ?? [],
       };
     });
   }
@@ -331,6 +355,17 @@ export class CachesRepository {
               .where("f.user_id", "=", userId),
           )
           .as("found_by_me"),
+        // FR-SF1: same `stage_count` subquery as in `find()`. The
+        // planner consumes `findByIds()` results to assemble the
+        // chosen cluster — `stageCount` shows up on the tour stops
+        // for the popup label.
+        eb
+          .selectFrom("additional_waypoints as w")
+          .whereRef("w.cache_id", "=", "c.id")
+          .where("w.type", "=", "stages")
+          .select(sql<number>`COUNT(*)::int`.as("stage_count"))
+          .as("stage_count"),
+        "c.description_hints",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -362,6 +397,13 @@ export class CachesRepository {
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),
+        stageCount: r.stage_count ?? 0,
+        // NULL `description_hints` (pre-PR3 rows) maps to an empty
+        // array on the DTO. The web layer can't tell "never scanned"
+        // apart from "scanned, no hits" — that distinction stays in
+        // the DB so the admin reprocess flow can spot back-fill
+        // targets via WHERE description_hints IS NULL.
+        descriptionHints: r.description_hints ?? [],
       };
     });
   }

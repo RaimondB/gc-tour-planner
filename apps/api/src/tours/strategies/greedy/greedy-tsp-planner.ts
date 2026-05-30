@@ -4,6 +4,7 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
 import { Tsp } from "@gctp/shared";
+import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { CachesRepository } from "../../../caches/caches.repository.js";
 import { CacheLanduseRepository } from "../../../caches/cache-landuse.repository.js";
@@ -652,7 +653,22 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const meters = parkingToFirst.meters + interMeters + lastToParking.meters;
     const seconds =
       parkingToFirst.seconds + interSeconds + lastToParking.seconds;
-    const visitMinutes = input.timePerCacheMinutes * orderedIdsFinal.length;
+    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes`
+    // on top of `timePerCacheMinutes`. The bonus counts attribute-
+    // tagged tool caches (TOOL_ATTRIBUTE_IDS) and descriptionHints
+    // matches together (see `hasToolRequirement`). Only affects the
+    // returned `totals.visitMinutes` — distance budget, parking
+    // selection, and leg picking still use the flat per-cache time.
+    let toolStopCount = 0;
+    for (const id of orderedIdsFinal) {
+      const c = byId.get(id);
+      if (!c) continue;
+      if (hasToolRequirement(c.attributeIds, c.descriptionHints))
+        toolStopCount += 1;
+    }
+    const visitMinutes =
+      input.timePerCacheMinutes * orderedIdsFinal.length +
+      input.toolBonusMinutes * toolStopCount;
 
     // Project the in-memory legs into the wire shape PlanResult.legs[]
     // expects. Parking endpoints use the sentinel cache id 0. Each leg

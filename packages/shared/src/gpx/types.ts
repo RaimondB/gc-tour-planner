@@ -30,6 +30,13 @@ export const ParsedCache = z.object({
    */
   disabled: z.boolean(),
   attributes: z.array(ParsedAttribute),
+  /**
+   * FR-SF8 description-keyword hints — multilingual scan over the
+   * cache's short+long description text. Each entry is a stable key
+   * from `DESCRIPTION_HINTS` (e.g. `"fishingRod"`). Defaults to `[]`
+   * when the parser couldn't extract description text.
+   */
+  descriptionHints: z.array(z.string()).default([]),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

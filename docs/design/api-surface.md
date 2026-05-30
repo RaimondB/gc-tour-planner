@@ -18,6 +18,15 @@ const CachesQuery = z.object({
   includeDisabled: z.boolean().optional(),  // 50% opacity + Z overlay on map
   includeArchived: z.boolean().optional(),  // no UI today; debug only
 });
+
+// FR-SF1 + FR-SF8 add two derived fields to the wire DTO.
+type CacheDTO = {
+  // …all earlier fields…
+  /** FR-SF1: count of additional_waypoints rows with type='stages'. */
+  stageCount: number;          // default 0 (pre-PR3 / non-Multi)
+  /** FR-SF8: parser-extracted tool-hint keys. */
+  descriptionHints: string[];  // default [] (pre-PR3 / scan returned no hits)
+};
 type CachesResponse = {
   caches: CacheDTO[];
   clustersHint: { gridCell: string; count: number }[];
@@ -114,6 +123,9 @@ const PlanLoopInput = z.object({
   distanceBudgetMeters: z.number().int().positive().max(25_000).default(8_000),
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
+  // FR-SF7: extra minutes per cache that needs equipment. Both planners add
+  // this to result.totals.visitMinutes when hasToolRequirement(cache) is true.
+  toolBonusMinutes: z.number().int().nonnegative().max(60).default(5),
   startPreference: z
     .enum([
       "parking-waypoint",

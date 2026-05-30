@@ -19,6 +19,20 @@ export interface SearchParams {
    * them at 50 % opacity with a "Z" overlay (geocaching.com style).
    */
   includeDisabled: boolean;
+  /**
+   * FR-SF2 Multi sub-filter — when "Multi" is in `types`, this
+   * narrows to "all" / mini-multis (≤2 stages) / full multis (≥3
+   * stages). Applied client-side after fetch — no extra server
+   * round-trip.
+   */
+  multiSubtype: "all" | "mini" | "full";
+  /**
+   * FR-SF6 — hide caches that need physical equipment. Reads
+   * `attributeIds` + `descriptionHints` from each CacheDTO and runs
+   * `hasToolRequirement` client-side. Default false (show
+   * everything).
+   */
+  hideToolCaches: boolean;
 }
 
 export const DEFAULT_SEARCH: SearchParams = {
@@ -29,6 +43,8 @@ export const DEFAULT_SEARCH: SearchParams = {
   contexts: [],
   showLanduse: false,
   includeDisabled: false,
+  multiSubtype: "all",
+  hideToolCaches: false,
 };
 
 /**

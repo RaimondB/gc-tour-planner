@@ -6,6 +6,7 @@ import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheType } from "@gctp/shared/caches";
+import { hasToolRequirement, isMiniMulti } from "@gctp/shared/caches";
 import { listCaches, markCacheFound, unmarkCacheFound } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
@@ -44,6 +45,16 @@ interface CacheProps {
   selected: number; // 0/1 — same MapLibre-filter caveat
   /** 1 when the cache owner has temporarily disabled it (FR-I10). */
   disabled: number;
+  /**
+   * Comma-joined attribute ids + description-hint keys. GeoJSON
+   * feature properties don't round-trip arrays through MapLibre's
+   * JSON encode/decode reliably — joining + splitting on the popup
+   * side is the established workaround in this codebase.
+   */
+  attributeIds: string;
+  descriptionHints: string;
+  /** FR-SF1 count of `stages` additional waypoints. */
+  stageCount: number;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -90,7 +101,21 @@ export function CachesLayer({
   useEffect(() => {
     if (!ready) return;
 
-    const caches = query.data?.caches ?? [];
+    const rawCaches = query.data?.caches ?? [];
+
+    // FR-SF2 + FR-SF6: client-side filters applied after fetch so the
+    // user can toggle without a server round-trip. The server still
+    // does the heavy spatial + type filtering; we only narrow further.
+    const caches = rawCaches.filter((c) => {
+      if (params.hideToolCaches && hasToolRequirement(c.attributeIds, c.descriptionHints))
+        return false;
+      if (params.multiSubtype !== "all" && c.type === "Multi") {
+        const mini = isMiniMulti(c.stageCount);
+        if (params.multiSubtype === "mini" && !mini) return false;
+        if (params.multiSubtype === "full" && mini) return false;
+      }
+      return true;
+    });
 
     const cachesFeatures = caches.map<
       GeoJSON.Feature<GeoJSON.Point, CacheProps>
@@ -109,6 +134,11 @@ export function CachesLayer({
         foundByMe: c.foundByMe ? 1 : 0,
         selected: selectedCacheIds?.has(c.id) ? 1 : 0,
         disabled: c.disabled ? 1 : 0,
+        // Arrays don't round-trip through MapLibre's JSON pipeline
+        // reliably — comma-join here, split on the popup side.
+        attributeIds: c.attributeIds.join(","),
+        descriptionHints: c.descriptionHints.join(","),
+        stageCount: c.stageCount,
       },
     }));
 
@@ -256,7 +286,10 @@ export function CachesLayer({
     }
 
     return undefined;
-  }, [map, ready, query.data, selectedCacheIds]);
+    // FR-SF2 + FR-SF6: re-run when the client-side filter toggles
+    // change, even if query.data didn't (e.g. user unchecks
+    // hideToolCaches with the same fetch in the cache).
+  }, [map, ready, query.data, selectedCacheIds, params.hideToolCaches, params.multiSubtype]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.
@@ -309,6 +342,17 @@ export function CachesLayer({
         .setDOMContent(container)
         .addTo(map);
 
+      // MapLibre's JSON round-trip stringifies arrays; split back
+      // here. Empty string → `[]`, otherwise parse the comma-joined
+      // values. Numeric attribute ids need to come back as numbers.
+      const attributeIds =
+        props.attributeIds.length > 0
+          ? props.attributeIds.split(",").map((s) => Number(s))
+          : [];
+      const descriptionHints =
+        props.descriptionHints.length > 0
+          ? props.descriptionHints.split(",")
+          : [];
       const renderPopup = (foundByMe: boolean) => {
         root.render(
           <CachePopup
@@ -318,6 +362,9 @@ export function CachesLayer({
             difficulty={props.difficulty}
             terrain={props.terrain}
             foundByMe={foundByMe}
+            attributeIds={attributeIds}
+            descriptionHints={descriptionHints}
+            stageCount={props.stageCount}
             onToggleFound={async () => {
               try {
                 if (foundByMe) {

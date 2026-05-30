@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState } from "react";
+import { isMiniMulti } from "@gctp/shared/caches";
 import type { CacheType } from "@gctp/shared/caches";
+import { AttributeChips } from "../caches/AttributeChips.js";
 
 export interface CachePopupProps {
   code: string;
@@ -13,6 +15,12 @@ export interface CachePopupProps {
   foundByMe: boolean;
   /** Toggle the find. Should return after the network call resolves. */
   onToggleFound: () => Promise<void>;
+  /** Curated cache attribute ids (positive only) for chip rendering. */
+  attributeIds?: readonly number[];
+  /** FR-SF8 multilingual description-hint keys (e.g. "fishingRod"). */
+  descriptionHints?: readonly string[];
+  /** FR-SF1 count of `stages` waypoints. 0 for non-multis. */
+  stageCount?: number;
 }
 
 export function CachePopup({
@@ -23,6 +31,9 @@ export function CachePopup({
   terrain,
   foundByMe,
   onToggleFound,
+  attributeIds = [],
+  descriptionHints = [],
+  stageCount = 0,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
 
@@ -35,6 +46,18 @@ export function CachePopup({
     }
   };
 
+  // Multi sub-type label (FR-SF2). Stage counts of 0 on a Multi mean
+  // the PQ didn't ship the wpts file — surface that ambiguity rather
+  // than guessing "mini".
+  const multiLabel =
+    type === "Multi"
+      ? stageCount === 0
+        ? "Multi (stages unknown)"
+        : isMiniMulti(stageCount)
+          ? `Mini-multi (${stageCount} stage${stageCount === 1 ? "" : "s"})`
+          : `Full multi (${stageCount} stages)`
+      : null;
+
   return (
     <div className="cache-popup">
       <div className="cache-popup__title">
@@ -45,6 +68,15 @@ export function CachePopup({
         D {difficulty ?? "?"} / T {terrain ?? "?"}
         {foundByMe && <span className="cache-popup__found-pill">Found</span>}
       </div>
+      {multiLabel && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          {multiLabel}
+        </div>
+      )}
+      <AttributeChips
+        attributeIds={attributeIds}
+        descriptionHints={descriptionHints}
+      />
       <button
         type="button"
         className={`cache-popup__btn${foundByMe ? " cache-popup__btn--unmark" : ""}`}
