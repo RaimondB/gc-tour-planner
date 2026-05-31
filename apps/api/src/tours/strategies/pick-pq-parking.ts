@@ -24,6 +24,28 @@ const logger = new Logger("pick-pq-parking");
  *
  * in which case the caller falls back to OSRM-nearest centroid.
  */
+/**
+ * Enumerate the cluster's distinct Pocket-Query parking waypoints — no OSRM
+ * routing. The same physical spot listed by several caches is deduplicated
+ * (rounded to ~1 m). Unlike {@link pickBestPqParking} (which walks each to its
+ * nearest cache and keeps the shortest), this returns every candidate so the
+ * caller can score them against the actual tour loop. Order is deterministic
+ * (caches sorted by id, first occurrence wins).
+ */
+export function enumeratePqParking(
+  cluster: readonly Caches.CacheDTO[],
+): [number, number][] {
+  const byKey = new Map<string, [number, number]>();
+  const sorted = cluster.slice().sort((a, b) => a.id - b.id);
+  for (const c of sorted) {
+    for (const p of c.parkingPoints) {
+      const key = `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
+      if (!byKey.has(key)) byKey.set(key, [p[0], p[1]]);
+    }
+  }
+  return [...byKey.values()];
+}
+
 export async function pickBestPqParking(
   cluster: readonly Caches.CacheDTO[],
   osrm: OsrmClient,

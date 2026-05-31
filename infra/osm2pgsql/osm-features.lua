@@ -3,15 +3,18 @@
 --
 -- osm2pgsql flex-output configuration for gc-tour-planner.
 --
--- Single Lua script, two output tables, single PBF pass:
+-- Single Lua script, three output tables, single PBF pass:
 --   * landuse_polygons    — landuse / natural / leisure polygons used for
 --                           cluster scoring (ADR-0009).
 --   * parking_facilities  — amenity=parking nodes/ways/relations used for
 --                           tour-start picking + map overlay (ADR-0011).
+--   * car_roads           — quiet, car-accessible road ways used to snap
+--                           "nearest road" tour-start parking (ADR-0012).
 --
 -- Schema must stay in lockstep with the matching migrations:
 --   * packages/db/migrations/1779610000000_landuse_polygons.sql
 --   * packages/db/migrations/1779620000000_parking_facilities.sql
+--   * packages/db/migrations/1779680000000_car_roads.sql
 --
 -- The kind classifier for landuse is the Lua equivalent of
 -- apps/api/src/osm/landuse-classify.ts — keep the two in lockstep.
@@ -132,6 +135,81 @@ local function parking_attrs(tags)
     }
 end
 
+-- ─── Car-accessible roads (ADR-0012) ────────────────────────────────────────
+
+local car_roads = osm2pgsql.define_table({
+    name = 'car_roads',
+    -- Roads are ways. Relations (route=*) carry no own geometry we want.
+    ids = { type = 'way', id_column = 'osm_id' },
+    columns = {
+        -- LineString in 4326. Roads are open ways (roundabouts/cul-de-sacs
+        -- are closed but as_linestring still produces a valid line).
+        { column = 'geom',          type = 'linestring', not_null = true, projection = 4326 },
+        { column = 'highway',       type = 'text', not_null = true },
+        { column = 'access',        type = 'text' },
+        { column = 'motor_vehicle', type = 'text' },
+        -- Pre-parsed km/h so the fine filter is a plain integer comparison.
+        { column = 'maxspeed_kmh',  type = 'int' },
+        { column = 'service',       type = 'text' },
+        { column = 'name',          type = 'text' },
+    },
+    indexes = {
+        { column = 'geom',    method = 'gist' },
+        { column = 'highway', method = 'btree' },
+    },
+})
+
+-- Coarse class filter: only quiet roads you can realistically pull over on
+-- and get out of the car. Fast/through roads (motorway/trunk/primary/
+-- secondary + links) and foot/cycle ways are intentionally excluded here so
+-- the table stays small. The *fine* filter (access / motor_vehicle /
+-- maxspeed / service=driveway) runs at query time in car-roads.repository.ts
+-- so it can be retuned without a re-import — see ADR-0012. Returns the
+-- highway value to store, or nil to skip the way.
+local CAR_ROAD_CLASSES = {
+    residential   = true,
+    living_street = true,
+    unclassified  = true,
+    service       = true,
+    tertiary      = true,
+}
+local function classify_car_road(tags)
+    local hw = tags.highway
+    if hw and CAR_ROAD_CLASSES[hw] then return hw end
+    return nil
+end
+
+-- Best-effort maxspeed → integer km/h. Handles plain numbers, "30 mph", and
+-- the NL implicit-speed zone tags. nil when absent/unparseable; the query
+-- treats nil as "unknown, keep" since the class filter already drops the
+-- genuinely fast roads.
+local function parse_maxspeed_kmh(tags)
+    local ms = tags.maxspeed
+    if not ms then return nil end
+    if ms == 'none'        then return 999 end
+    if ms == 'walk'        then return 5   end
+    if ms == 'NL:urban'    then return 50  end
+    if ms == 'NL:rural'    then return 80  end
+    if ms == 'NL:motorway' then return 100 end
+    if ms == 'NL:zone30'   then return 30  end
+    local n = string.match(ms, '(%d+)')
+    if not n then return nil end
+    n = tonumber(n)
+    if string.match(ms, 'mph') then return math.floor(n * 1.609) end
+    return n
+end
+
+local function car_road_attrs(tags, hw)
+    return {
+        highway       = hw,
+        access        = tags.access,
+        motor_vehicle = tags.motor_vehicle,
+        maxspeed_kmh  = parse_maxspeed_kmh(tags),
+        service       = tags.service,
+        name          = tags.name,
+    }
+end
+
 -- ─── Callbacks ─────────────────────────────────────────────────────────────
 
 -- Nodes: only parking nodes are emitted. Landuse never comes from nodes.
@@ -146,6 +224,15 @@ end
 -- have both landuse + amenity tags in principle; in practice it's one or
 -- the other).
 function osm2pgsql.process_way(object)
+    -- Roads first — they are (mostly) open ways, so this must run before the
+    -- closed-way guard below. classify_car_road keeps only quiet car classes.
+    local hw = classify_car_road(object.tags)
+    if hw then
+        local row = car_road_attrs(object.tags, hw)
+        row.geom = object:as_linestring()
+        car_roads:insert(row)
+    end
+
     if not object.is_closed then return end
 
     local kind = classify_landuse(object.tags)

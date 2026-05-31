@@ -70,9 +70,10 @@ CREATE TABLE additional_waypoints (
 CREATE INDEX additional_waypoints_location_gist ON additional_waypoints USING GIST (location);
 
 -- ADR-0009 replaced the Overpass-fed osm_landuse with osm2pgsql-fed
--- landuse_polygons. ADR-0011 adds parking_facilities to the same import.
--- Both tables are populated by infra/osm2pgsql/osm-features.lua in a
--- single PBF pass, with freshness recorded in landuse_import_meta.
+-- landuse_polygons. ADR-0011 adds parking_facilities and ADR-0012 adds
+-- car_roads to the same import. All three tables are populated by
+-- infra/osm2pgsql/osm-features.lua in a single PBF pass, with freshness
+-- recorded in landuse_import_meta.
 CREATE TABLE landuse_polygons (
   osm_id    BIGINT NOT NULL,                                  -- OSM way / relation id
   osm_type  CHAR(1) NOT NULL,                                 -- 'W' (way) | 'R' (relation), uppercase from osm2pgsql flex
@@ -101,6 +102,23 @@ CREATE TABLE parking_facilities (                              -- ADR-0011
 CREATE INDEX parking_facilities_geom_gix    ON parking_facilities USING GIST (geom);
 CREATE INDEX parking_facilities_access_idx  ON parking_facilities (access);
 CREATE INDEX parking_facilities_fee_idx     ON parking_facilities (fee);
+
+CREATE TABLE car_roads (                                      -- ADR-0012
+  osm_id        BIGINT PRIMARY KEY,                           -- ways only (no osm_type)
+  geom          GEOMETRY(LineString, 4326) NOT NULL,          -- open ways
+  highway       TEXT NOT NULL,                                -- residential | living_street | unclassified | service | tertiary
+  access        TEXT,                                         -- fine filter: drop no | private
+  motor_vehicle TEXT,                                         -- fine filter: drop no | private
+  maxspeed_kmh  INTEGER,                                      -- pre-parsed; fine filter drops ≥ 70 (NULL kept)
+  service       TEXT,                                         -- fine filter: drop 'driveway'
+  name          TEXT
+);
+CREATE INDEX car_roads_geom_gix    ON car_roads USING GIST (geom);
+CREATE INDEX car_roads_highway_idx ON car_roads (highway);
+-- Coarse highway class filter applied in the osm2pgsql Lua; the fine filter
+-- (access/motor_vehicle/maxspeed/service) runs at query time in
+-- CarRoadsRepository so it's retunable without a re-import. Snapped via
+-- ST_ClosestPoint for `osrm-nearest-road` tour-start parking.
 
 CREATE TABLE landuse_import_meta (                             -- single-row, CHECK id=1
   id            INTEGER PRIMARY KEY CHECK (id = 1),

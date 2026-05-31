@@ -113,12 +113,32 @@ in the sidebar:
 | `osmParkingAccessFilter` | `["yes", "customers"]` | OSM `access` values eligible as tour starts. `permit` is opt-in (a permit you don't have ≈ private). `private`/`no` are never offered. |
 | `osmParkingFeeFilter` | `"any"` | `"free"` requires `fee=no`; `"paid"` requires `fee=yes`; `"any"` allows both. `parking:condition=disc` (NL blue zones) is normalised to `fee=no` upstream by the Lua import. |
 
-Selection is "shortest OSRM walk to the cluster's nearest cache, within
-`maxLinkMeters`". Candidates whose walk exceeds the cap (usually an OSM
-data gap, e.g. missing footway connector) are silently dropped — the
-planner falls back to OSRM-nearest-road if no facility survives the cap.
-The chosen `ParkingChoice.reason` always includes the OSM id, access,
-fee, and rounded walking distance so the UI can explain the pick.
+Selection is **loop-aware**: every candidate within `maxLinkMeters` is
+scored by its cheapest insertion edge into the planned loop
+(`parking→next + prev→parking − prev→next`) and the lowest-detour one
+wins — the lot that adds the least walking to the *tour*, not merely the
+one closest to a single cache. Candidates whose nearest-cache walk exceeds
+the cap (usually an OSM data gap, e.g. a missing footway connector) are
+dropped; the planner falls back to OSRM-nearest-road if none survive. The
+chosen `ParkingChoice.reason` includes the OSM id, access, fee, and the
+detour it added. (PQ `parking-waypoint` selection uses the same loop-aware
+scorer.)
+
+## Pass 2 — car-accessible nearest-road start (ADR-0012)
+
+When `startPreference="osrm-nearest-road"` is selected, the planner snaps
+parking onto quiet, **car-accessible** roads from the `car_roads` table
+(not the foot graph) and scores the candidates loop-aware, exactly like
+OSM/PQ parking. Eligible roads: `highway ∈ {residential, living_street,
+unclassified, service, tertiary}` (coarse filter in the osm2pgsql Lua),
+minus `access`/`motor_vehicle ∈ {no, private}`, `maxspeed ≥ 70`, and
+`service = driveway` (fine filter at query time — retunable without a
+re-import). If no eligible road is reachable, it falls back to the old
+OSRM `/nearest` foot-snap of the centroid.
+
+| Knob | Default | Effect |
+|---|---|---|
+| `PLANNER_ROAD_CANDIDATES` | `12` | Number of eligible road segments enumerated as parking candidates — the ones closest to the **tour path** (the closed cycle line, not the centroid), clamped 1..50. Each becomes one `ST_ClosestPoint` snap point fed to the loop-aware scorer's batched OSRM `/table`. Higher = more thorough placement at the cost of a larger `/table`; lower = cheaper, coarser. |
 
 ## Symptom → knob
 

@@ -180,6 +180,37 @@ export interface ParkingFacilitiesTable {
 }
 
 /**
+ * Quiet, car-accessible road ways (ADR-0012). Used to snap "nearest road"
+ * tour-start parking candidates onto roads you can actually park-and-walk
+ * from, then score them with the loop-aware selector.
+ *
+ * Schema declared in `infra/osm2pgsql/osm-features.lua` and
+ * `packages/db/migrations/1779680000000_car_roads.sql` — keep them in
+ * lockstep. Freshness shares `landuse_import_meta` (no separate metadata
+ * row). Roads are ways only, so there is no `osm_type` column.
+ *
+ * The Lua applies the coarse class filter (highway IN the 5 eligible
+ * classes); the fine filter (access / motor_vehicle / maxspeed_kmh /
+ * service=driveway) runs at query time in `car-roads.repository.ts`.
+ */
+export interface CarRoadsTable {
+  osm_id: number;
+  /** LineString in 4326 (open ways). Repositories use ST_ClosestPoint. */
+  geom: string;
+  /** residential | living_street | unclassified | service | tertiary. */
+  highway: string;
+  /** Raw OSM `access`: yes | private | no | destination | … | NULL. */
+  access: string | null;
+  /** Raw OSM `motor_vehicle`: yes | no | private | … | NULL. */
+  motor_vehicle: string | null;
+  /** Pre-parsed km/h. NULL when absent/unparseable (kept by the filter). */
+  maxspeed_kmh: number | null;
+  /** `service` value (driveway | parking_aisle | …) for highway=service. */
+  service: string | null;
+  name: string | null;
+}
+
+/**
  * Single-row metadata table tracking the most recent landuse import +
  * replication run. `id` is constrained to 1 by a CHECK so jobs can
  * blindly UPSERT.
@@ -309,6 +340,7 @@ export interface Database {
   cache_finds: CacheFindsTable;
   landuse_polygons: LandusePolygonsTable;
   parking_facilities: ParkingFacilitiesTable;
+  car_roads: CarRoadsTable;
   landuse_import_meta: LanduseImportMetaTable;
   landuse_profiles: LanduseProfilesTable;
   route_legs: RouteLegsTable;

@@ -12,6 +12,7 @@ import { OsmModule } from "../osm/osm.module.js";
 import { LanduseProfilesModule } from "../landuse-profiles/landuse-profiles.module.js";
 import { LanduseProfilesRepository } from "../landuse-profiles/landuse-profiles.repository.js";
 import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
+import { CarRoadsRepository } from "../osm/car-roads.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
@@ -53,6 +54,7 @@ const tourPlannerProvider: Provider = {
     osrmVersion: OsrmVersionService,
     solver: SolverClient,
     parkingFacilities: ParkingFacilitiesRepository,
+    carRoads: CarRoadsRepository,
     landuseProfiles: LanduseProfilesRepository,
   ) => {
     const greedy = new GreedyTspPlanner(
@@ -64,6 +66,7 @@ const tourPlannerProvider: Provider = {
       osrm,
       osrmVersion,
       parkingFacilities,
+      carRoads,
       landuseProfiles,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
@@ -93,6 +96,7 @@ const tourPlannerProvider: Provider = {
     OsrmVersionService,
     SOLVER_CLIENT,
     ParkingFacilitiesRepository,
+    CarRoadsRepository,
     LanduseProfilesRepository,
   ],
 };
