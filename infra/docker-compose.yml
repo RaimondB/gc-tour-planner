@@ -149,6 +149,9 @@ services:
       OSRM_THREADS: ${OSRM_THREADS:-4}
     volumes:
       - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
+      # Custom foot profile (ADR-0013): walkable cycleways. Mounted next to the
+      # stock profile + lib/ so its loadfile()/require('lib/..') resolve in /opt.
+      - ./osrm/foot-gctp.lua:/opt/foot-gctp.lua:ro
       - osrm-data:/data
     ports:
       - "${OSRM_PORT}:5000"
