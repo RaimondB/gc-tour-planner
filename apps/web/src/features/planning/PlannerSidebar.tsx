@@ -332,7 +332,12 @@ export function PlannerSidebar({
 
   return (
     <aside className="sidebar planner-sidebar">
-      <h2>Plan a tour</h2>
+      <h2>Find clusters</h2>
+      <p className="muted">
+        These settings shape which clusters are discovered. Pick a candidate
+        below to open it in the Tour tab, where you set the start preference
+        and plan the route.
+      </p>
 
       <div className="field">
         <label>
@@ -590,7 +595,7 @@ export function PlannerSidebar({
                   >
                     {planPending && c.clusterId === planPendingClusterId
                       ? "Planning…"
-                      : "Plan this loop"}
+                      : "Open in Tour ▸"}
                   </button>
                   <button
                     type="button"
@@ -1416,7 +1421,7 @@ export function TourSettingsPanel({
         {(
           [
             ["parking-waypoint", "Cache-owner parking (PQ)"],
-            ["osrm-nearest-road", "OSRM nearest road"],
+            ["osrm-nearest-road", "Nearest car-accessible road"],
             ["user-supplied-point", "Use current search center"],
             ["osm-parking", "OSM amenity=parking (ADR-0011)"],
           ] as const
@@ -1672,7 +1677,7 @@ function labelForParking(t: PlanResult["parking"]["type"]): string {
     case "pq":
       return "Cache-owner parking (PQ)";
     case "osrm-nearest":
-      return "OSRM nearest road";
+      return "Nearest road";
     case "user":
       return "User-supplied point";
     case "osm":
