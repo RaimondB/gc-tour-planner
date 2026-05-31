@@ -15,6 +15,7 @@ import { downloadText } from "./lib/download-text.js";
 import {
   type LegPicks,
   planSignature,
+  prunePlanEditKeys,
   useLocalStorageState,
 } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
@@ -178,6 +179,13 @@ export default function App(): JSX.Element {
       : "plan-edits:none",
     {},
   );
+  // Keep only the current plan's leg-edit entry in localStorage. Without this,
+  // every distinct tour ever planned leaves a `plan-edits:<sig>` key behind
+  // (unbounded growth toward the storage quota). Runs when the active plan
+  // changes; re-planning the same cluster in-session still restores its edits.
+  useEffect(() => {
+    if (currentPlanSignature) prunePlanEditKeys(currentPlanSignature);
+  }, [currentPlanSignature]);
 
   // Clear the focused cluster whenever the real OSRM-routed result lands —
   // the TourLayer takes over and we don't want two polylines fighting on the map.

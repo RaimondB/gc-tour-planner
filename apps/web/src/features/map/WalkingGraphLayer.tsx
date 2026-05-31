@@ -63,6 +63,10 @@ export function WalkingGraphLayer({
       distanceBudgetMeters,
     ],
     enabled: enabled && ready && cr !== null,
+    // Heaviest payload in the app (thousands of edge/node features) and a
+    // debug-only overlay — don't let abandoned bbox entries linger. Shorter
+    // than the global 60s default.
+    gcTime: 30_000,
     queryFn: () =>
       fetchWalkingGraph({
         center: cr!.center,
