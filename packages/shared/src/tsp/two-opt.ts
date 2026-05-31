@@ -50,6 +50,16 @@ const MAX_ITERATIONS = 1_000;
 const MAX_OR_OPT_ITERATIONS = 1_000;
 
 /**
+ * Hard cap on the outer VND rounds (alternating 2-opt ↔ Or-opt). Each round
+ * only applies strict (> 1e-9) improvements so the loop is monotonic and
+ * "converges", but its only natural bound is tourLength/epsilon — astronomically
+ * large if the two neighborhoods oscillate on floating-point noise. That can
+ * peg a core and block the Node event loop for the whole API. Real inputs
+ * (N ≤ 50) settle in a handful of rounds, so 64 is comfortably generous while
+ * guaranteeing termination. The returned order is still a valid tour. */
+const MAX_VND_ROUNDS = 64;
+
+/**
  * Solve the closed-loop TSP.
  *
  * @param distances Symmetric N×N distance matrix. Diagonal must be 0.
@@ -80,7 +90,9 @@ export function solveTwoOpt(
   // is off (or `n < 4`, which makes Or-opt trivial) the outer loop
   // runs once and degenerates back to plain 2-opt.
   let vndImproved = true;
-  while (vndImproved) {
+  let vndRounds = 0;
+  while (vndImproved && vndRounds < MAX_VND_ROUNDS) {
+    vndRounds += 1;
     vndImproved = false;
     const next2 = twoOptPass(distances, order, n);
     if (next2.improved) {
