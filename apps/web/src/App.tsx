@@ -914,6 +914,7 @@ export default function App(): JSX.Element {
               params={params}
               maxLinkMeters={planSettings.maxLinkMeters}
               distanceBudgetMeters={planSettings.distanceBudgetMeters}
+              avgWalkingKmh={planSettings.avgWalkingKmh}
               onStatsChange={setWalkingGraphStats}
             />
             <TestRouteLayer result={testRoute} />

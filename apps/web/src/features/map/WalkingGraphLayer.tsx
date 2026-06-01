@@ -1,11 +1,11 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type maplibregl from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 import type { WalkingGraphResponse } from "@gctp/shared/tours";
-import { fetchWalkingGraph } from "../../lib/api.js";
+import { fetchLeg, fetchWalkingGraph } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
 import { bboxToCenterRadius, useViewportBbox } from "./useViewportBbox.js";
@@ -14,6 +14,23 @@ const SOURCE_ID = "gctp-walking-graph";
 const EDGE_LAYER = "gctp-walking-graph-edges";
 const SUSPICIOUS_LAYER = "gctp-walking-graph-suspicious";
 const NODE_HALO_LAYER = "gctp-walking-graph-isolated";
+// Transparent wide line on top of the edges so thin lines are easy to click.
+const EDGE_HIT_LAYER = "gctp-walking-graph-hit";
+// Dedicated source + layer for the selected edge's real OSRM path.
+const ROUTE_SOURCE = "gctp-walking-graph-route";
+const ROUTE_LAYER = "gctp-walking-graph-route-line";
+
+/** The clicked edge, carrying the stats already on the edge + the click point. */
+interface SelectedEdge {
+  a: number;
+  b: number;
+  walkingM: number;
+  walkingS: number;
+  haversineM: number;
+  suspicious: boolean;
+  lng: number;
+  lat: number;
+}
 
 export interface WalkingGraphLayerProps {
   /** When false, layer is unmounted (no fetch, no map source). */
@@ -22,6 +39,8 @@ export interface WalkingGraphLayerProps {
   /** Same knobs the planner uses — match them so the visualisation reflects what the planner sees. */
   maxLinkMeters: number;
   distanceBudgetMeters: number;
+  /** Walking speed (km/h) for the per-edge walk-time estimate in the popup. */
+  avgWalkingKmh: number;
   /** Called once the fetch resolves so the sidebar can show counts. */
   onStatsChange?: (stats: WalkingGraphResponse["stats"] | null) => void;
 }
@@ -40,9 +59,12 @@ export function WalkingGraphLayer({
   params,
   maxLinkMeters,
   distanceBudgetMeters,
+  avgWalkingKmh,
   onStatsChange,
 }: WalkingGraphLayerProps): null {
   const { map, ready } = useMap();
+  const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
   // Follow the viewport rather than the search radius — the walking
   // graph is heavy (full OSRM /table over the bbox's caches) so we
   // gate it to z12+ and snap to a moderately coarse grid so panning a
@@ -87,11 +109,22 @@ export function WalkingGraphLayer({
   useEffect(() => {
     if (!ready) return;
     if (!enabled) {
-      // Remove layers + source when toggled off.
-      for (const id of [SUSPICIOUS_LAYER, EDGE_LAYER, NODE_HALO_LAYER]) {
+      // Remove layers + source when toggled off (route highlight + hit layer
+      // first; they sit above the edges and share / sit beside the source).
+      for (const id of [
+        ROUTE_LAYER,
+        EDGE_HIT_LAYER,
+        SUSPICIOUS_LAYER,
+        EDGE_LAYER,
+        NODE_HALO_LAYER,
+      ]) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
+      if (map.getSource(ROUTE_SOURCE)) map.removeSource(ROUTE_SOURCE);
       if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+      popupRef.current?.remove();
+      popupRef.current = null;
+      setSelectedEdge(null);
       return;
     }
     // Below the layer's minZoom the viewport bbox is null and we skip
@@ -130,6 +163,7 @@ export function WalkingGraphLayer({
           a: e.a,
           b: e.b,
           walkingM: e.walkingM,
+          walkingS: e.walkingS,
           haversineM: e.haversineM,
           suspicious: e.suspicious ? 1 : 0,
         },
@@ -212,7 +246,159 @@ export function WalkingGraphLayer({
         },
       });
     }
+    // Transparent wide line for forgiving edge clicks (queried on click).
+    if (!map.getLayer(EDGE_HIT_LAYER)) {
+      map.addLayer({
+        id: EDGE_HIT_LAYER,
+        type: "line",
+        source: SOURCE_ID,
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: { "line-color": "#000000", "line-opacity": 0, "line-width": 12 },
+      });
+    }
+    // Selected edge's real OSRM path (highlight), in its own source so it's
+    // independent of the edge collection.
+    if (!map.getSource(ROUTE_SOURCE)) {
+      map.addSource(ROUTE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+    }
+    if (!map.getLayer(ROUTE_LAYER)) {
+      map.addLayer({
+        id: ROUTE_LAYER,
+        type: "line",
+        source: ROUTE_SOURCE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#00c853",
+          "line-width": 4,
+          "line-opacity": 0.95,
+        },
+      });
+    }
   }, [map, ready, enabled, query.data, cr]);
+
+  // Real OSRM path for the selected edge. Cache-first on the server, so the
+  // first select of a pair hits OSRM once and repeats are instant.
+  const legQuery = useQuery({
+    queryKey: ["walking-edge-leg", selectedEdge?.a, selectedEdge?.b],
+    enabled: selectedEdge !== null,
+    gcTime: 30_000,
+    queryFn: () => fetchLeg(selectedEdge!.a, selectedEdge!.b),
+  });
+
+  // Click an edge → select it. queryRenderedFeatures on the wide transparent
+  // hit layer makes thin lines easy to hit; the global handler is robust to
+  // the hit layer not existing yet.
+  useEffect(() => {
+    if (!ready || !enabled) return;
+    const onClick = (e: maplibregl.MapMouseEvent): void => {
+      if (!map.getLayer(EDGE_HIT_LAYER)) return;
+      const f = map.queryRenderedFeatures(e.point, {
+        layers: [EDGE_HIT_LAYER],
+      })[0];
+      if (!f) return;
+      const p = f.properties as Record<string, unknown>;
+      setSelectedEdge({
+        a: Number(p.a),
+        b: Number(p.b),
+        walkingM: Number(p.walkingM),
+        walkingS: Number(p.walkingS),
+        haversineM: Number(p.haversineM),
+        suspicious: Number(p.suspicious) === 1,
+        lng: e.lngLat.lng,
+        lat: e.lngLat.lat,
+      });
+    };
+    map.on("click", onClick);
+    return () => {
+      map.off("click", onClick);
+    };
+  }, [map, ready, enabled]);
+
+  // Draw the selected edge's path + show its stats popup, reacting to the leg
+  // fetch state.
+  useEffect(() => {
+    if (!ready) return;
+    const routeSrc = map.getSource(ROUTE_SOURCE) as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    if (!selectedEdge) {
+      routeSrc?.setData({ type: "FeatureCollection", features: [] });
+      popupRef.current?.remove();
+      popupRef.current = null;
+      return;
+    }
+    const leg = legQuery.data;
+    routeSrc?.setData(
+      leg
+        ? { type: "Feature", geometry: leg.geometry, properties: {} }
+        : { type: "FeatureCollection", features: [] },
+    );
+
+    const codeOf = (id: number): string =>
+      query.data?.nodes.find((n) => n.id === id)?.code ?? `#${id}`;
+    const fmtT = (s: number): string =>
+      s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
+    const detour =
+      selectedEdge.haversineM > 0
+        ? `×${(selectedEdge.walkingM / selectedEdge.haversineM).toFixed(2)}`
+        : "—";
+    const walkEst =
+      avgWalkingKmh > 0
+        ? `${Math.round((selectedEdge.walkingM / 1000 / avgWalkingKmh) * 60)} min`
+        : "—";
+    const routeRow = legQuery.isFetching
+      ? `<div style="color:#6b7280">routing…</div>`
+      : leg
+        ? `<div>OSRM route: ${Math.round(leg.meters)} m · ${fmtT(leg.seconds)}</div>`
+        : `<div style="color:#b91c1c">no OSRM route for this pair</div>`;
+    const html =
+      `<div style="font:13px/1.45 system-ui,sans-serif">` +
+      `<div style="font-weight:600;margin-bottom:3px">${codeOf(selectedEdge.a)} → ${codeOf(selectedEdge.b)}` +
+      (selectedEdge.suspicious
+        ? ` <span style="color:#b91c1c;font-weight:600">⚠ suspicious</span>`
+        : "") +
+      `</div>` +
+      `<div>walking: ${Math.round(selectedEdge.walkingM)} m · ${fmtT(selectedEdge.walkingS)}</div>` +
+      `<div>straight: ${Math.round(selectedEdge.haversineM)} m · detour ${detour}</div>` +
+      `<div>walk @ ${avgWalkingKmh.toFixed(1)} km/h ≈ ${walkEst}</div>` +
+      routeRow +
+      `</div>`;
+
+    if (!popupRef.current) {
+      popupRef.current = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: false,
+        maxWidth: "280px",
+      }).on("close", () => {
+        // User closed it → clear selection so the highlighted path clears too.
+        popupRef.current = null;
+        setSelectedEdge(null);
+      });
+    }
+    popupRef.current
+      .setLngLat([selectedEdge.lng, selectedEdge.lat])
+      .setHTML(html)
+      .addTo(map);
+  }, [
+    map,
+    ready,
+    selectedEdge,
+    legQuery.data,
+    legQuery.isFetching,
+    avgWalkingKmh,
+    query.data,
+  ]);
+
+  // Teardown if the component unmounts while still enabled.
+  useEffect(() => {
+    return () => {
+      popupRef.current?.remove();
+      popupRef.current = null;
+    };
+  }, []);
 
   return null;
 }

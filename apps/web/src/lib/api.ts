@@ -13,6 +13,7 @@ import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
+import { Leg } from "@gctp/shared/routing";
 import {
   ParkingFacilitiesResponse,
   type ParkingAccessChip,
@@ -228,6 +229,24 @@ export async function fetchWalkingGraph(input: WalkingGraphInput) {
     body: JSON.stringify(input),
   });
   return WalkingGraphResponse.parse(raw);
+}
+
+/**
+ * Cache-first OSRM walking leg (route geometry + meters + seconds) between two
+ * of the current user's caches. Used by the walking-graph debug overlay to show
+ * the real shortest path for a selected edge. Returns `null` when OSRM can't
+ * route the pair. First call per pair hits OSRM once; the server persists it to
+ * `route_legs`, so repeats are a cheap DB read.
+ */
+export async function fetchLeg(
+  fromId: number,
+  toId: number,
+  profile = "foot",
+): Promise<Leg | null> {
+  const raw = await request<unknown>(
+    `/routing/leg/${fromId}/${toId}?profile=${profile}`,
+  );
+  return Leg.nullable().parse(raw);
 }
 
 export async function testOsrmRoute(input: TestRouteInput) {
