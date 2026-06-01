@@ -341,8 +341,8 @@ export function PlannerSidebar({
 
       <div className="field">
         <label>
-          Distance budget (m):{" "}
-          {settings.distanceBudgetMeters.toLocaleString("en-US")}
+          Tour length budget:{" "}
+          {settings.distanceBudgetMeters.toLocaleString("en-US")} m
           <input
             type="range"
             min={1_000}
@@ -356,9 +356,12 @@ export function PlannerSidebar({
               })
             }
           />
+          <small className="muted">
+            Roughly how far you want to walk in one loop.
+          </small>
         </label>
         <label>
-          Max caches: {settings.maxCaches}
+          Max caches in a loop: {settings.maxCaches}
           <input
             type="range"
             min={2}
@@ -373,73 +376,7 @@ export function PlannerSidebar({
             }
           />
         </label>
-        <label>
-          Min cluster size: {settings.minClusterSize}
-          <input
-            type="range"
-            min={2}
-            max={Math.max(2, settings.maxCaches)}
-            step={1}
-            value={settings.minClusterSize}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                minClusterSize: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Candidates to return: {settings.topNClusters}
-          <input
-            type="range"
-            min={1}
-            max={20}
-            step={1}
-            value={settings.topNClusters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                topNClusters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Max link distance (m):{" "}
-          {settings.maxLinkMeters.toLocaleString("en-US")}
-          <input
-            type="range"
-            min={200}
-            max={5_000}
-            step={100}
-            value={settings.maxLinkMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                maxLinkMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
       </div>
-
-      <fieldset className="field">
-        <legend>Clustering algorithm</legend>
-        {STRATEGY_OPTIONS.map(([val, label]) => (
-          <label key={val} className="checkbox">
-            <input
-              type="radio"
-              name="clustering-strategy"
-              checked={settings.clusteringStrategy === val}
-              onChange={() =>
-                onSettingsChange({ ...settings, clusteringStrategy: val })
-              }
-            />
-            {label}
-          </label>
-        ))}
-      </fieldset>
 
       <fieldset className="field">
         <legend>Landuse preference</legend>
@@ -493,6 +430,82 @@ export function PlannerSidebar({
         </label>
       </fieldset>
 
+      <details className="advanced">
+        <summary>Advanced cluster settings</summary>
+        <div className="field">
+          <label>
+            Min caches per cluster: {settings.minClusterSize}
+            <input
+              type="range"
+              min={2}
+              max={Math.max(2, settings.maxCaches)}
+              step={1}
+              value={settings.minClusterSize}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  minClusterSize: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Clusters to show: {settings.topNClusters}
+            <input
+              type="range"
+              min={1}
+              max={20}
+              step={1}
+              value={settings.topNClusters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  topNClusters: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Max gap between caches:{" "}
+            {settings.maxLinkMeters.toLocaleString("en-US")} m
+            <input
+              type="range"
+              min={200}
+              max={5_000}
+              step={100}
+              value={settings.maxLinkMeters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  maxLinkMeters: Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">
+              Caches farther apart than this on foot aren&rsquo;t linked into the
+              same loop.
+            </small>
+          </label>
+        </div>
+
+        <fieldset className="field">
+          <legend>Clustering algorithm</legend>
+          {STRATEGY_OPTIONS.map(([val, label]) => (
+            <label key={val} className="checkbox">
+              <input
+                type="radio"
+                name="clustering-strategy"
+                checked={settings.clusteringStrategy === val}
+                onChange={() =>
+                  onSettingsChange({ ...settings, clusteringStrategy: val })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      </details>
+
       {!hideDebugOverlays && (
         <DebugOverlaysPanel
           search={search}
@@ -543,7 +556,20 @@ export function PlannerSidebar({
         <div className="cluster-picker">
           <h3>Candidate clusters</h3>
           <ol>
-            {clusters.map((c, i) => (
+            {clusters.map((c, i) => {
+              // Humanised summary: estimated loop length (fall back to MST×2
+              // when the estimate is absent) + a rough total time = walking at
+              // the user's avg speed + visit time per cache.
+              const loopKm =
+                (c.estimatedTourMeters > 0
+                  ? c.estimatedTourMeters
+                  : c.mstLengthMeters * 2) / 1000;
+              const totalMin =
+                (settings.avgWalkingKmh > 0
+                  ? (loopKm / settings.avgWalkingKmh) * 60
+                  : 0) +
+                settings.timePerCacheMinutes * c.cacheIds.length;
+              return (
               <li
                 key={c.clusterId}
                 ref={(el) => rowRefs.current.set(c.clusterId, el)}
@@ -558,35 +584,43 @@ export function PlannerSidebar({
                 // only changes when the user picks a different row or clears.
                 onMouseEnter={() => onFocusClusterChange(c.clusterId)}
                 onFocus={() => onFocusClusterChange(c.clusterId)}
+                // Hover/focus previews; double-click commits to the Tour tab
+                // (same as the "Open in Tour" button).
+                onDoubleClick={() => onPlanCluster(c)}
                 tabIndex={0}
+                title="Double-click to plan this cluster in the Tour tab"
               >
                 <div className="cluster-head">
                   <span className="cluster-rank">#{i + 1}</span>
-                  <span className="cluster-caches">
+                  <strong className="cluster-caches">
                     {c.cacheIds.length} caches
-                  </span>
-                  <span className="cluster-mst">
-                    MST {(c.mstLengthMeters / 1000).toFixed(2)} km
-                  </span>
-                  {c.estimatedTourMeters > 0 && (
-                    <span
-                      className="cluster-est-tour"
-                      title="Estimated tour length (NN+2-opt × 1.4 haversine→walking). Pass-2 produces the real OSRM-routed value."
-                    >
-                      est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
-                    </span>
-                  )}
-                  <span className="cluster-score">
-                    score {c.score.toFixed(3)}
+                  </strong>
+                  <span className="cluster-summary">
+                    ~{loopKm.toFixed(1)} km loop · ~{minutes(totalMin)}
                   </span>
                 </div>
-                <div className="cluster-breakdown">
-                  {Object.entries(c.scoreBreakdown).map(([k, v]) => (
-                    <span key={k} className="chip">
-                      {k}: {v.toFixed(2)}
+                <details className="cluster-metrics">
+                  <summary>details</summary>
+                  <div className="cluster-breakdown">
+                    <span className="chip">
+                      MST {(c.mstLengthMeters / 1000).toFixed(2)} km
                     </span>
-                  ))}
-                </div>
+                    {c.estimatedTourMeters > 0 && (
+                      <span
+                        className="chip"
+                        title="NN+2-opt × 1.4 haversine→walking; Pass-2 produces the real OSRM-routed value."
+                      >
+                        est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
+                      </span>
+                    )}
+                    <span className="chip">score {c.score.toFixed(3)}</span>
+                    {Object.entries(c.scoreBreakdown).map(([k, v]) => (
+                      <span key={k} className="chip">
+                        {k}: {v.toFixed(2)}
+                      </span>
+                    ))}
+                  </div>
+                </details>
                 <div className="cluster-row-actions">
                   <button
                     type="button"
@@ -606,7 +640,8 @@ export function PlannerSidebar({
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </div>
       )}
@@ -1351,22 +1386,6 @@ export function TourSettingsPanel({
 
       <div className="field">
         <label>
-          Fringe trim (m): {settings.fringeTrimMeters}
-          <input
-            type="range"
-            min={100}
-            max={3000}
-            step={50}
-            value={settings.fringeTrimMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                fringeTrimMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
           Visit time per cache (min): {settings.timePerCacheMinutes}
           <input
             type="range"
@@ -1383,7 +1402,7 @@ export function TourSettingsPanel({
           />
         </label>
         <label>
-          Tool-cache bonus (min): {settings.toolBonusMinutes}
+          Extra time for tool caches (min): {settings.toolBonusMinutes}
           <input
             type="range"
             min={0}
@@ -1500,6 +1519,32 @@ export function TourSettingsPanel({
           </div>
         )}
       </fieldset>
+
+      <details className="advanced">
+        <summary>Advanced tour settings</summary>
+        <div className="field">
+          <label>
+            Trim out-and-back spurs: {settings.fringeTrimMeters} m
+            <input
+              type="range"
+              min={100}
+              max={3000}
+              step={50}
+              value={settings.fringeTrimMeters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  fringeTrimMeters: Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">
+              Drop a cache whose in-and-out path retraces more than this much of
+              itself (a dead-end spur).
+            </small>
+          </label>
+        </div>
+      </details>
     </aside>
   );
 }

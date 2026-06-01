@@ -845,11 +845,12 @@ export default function App(): JSX.Element {
               candidates={clusters}
               caches={cachesQuery.data?.caches}
               focusedClusterId={focusedClusterId}
-              // Clicking a centroid focuses it (highlight + fit) AND selects it
-              // as the Tour-tab context — the desktop equivalent of the mobile
-              // "Select #N" FAB. No auto-plan; the route is planned from the
-              // Tour tab.
-              onCentroidClick={(id) => {
+              // Single click = preview (focus + map fit) only, so browsing
+              // clusters doesn't yank you into the Tour tab. Double click =
+              // commit it as the Tour context (same as the list's double-click
+              // / "Open in Tour" button).
+              onCentroidClick={setFocusedClusterId}
+              onCentroidDblClick={(id) => {
                 setFocusedClusterId(id);
                 const c = clusters?.find((x) => x.clusterId === id);
                 if (c) selectCluster(c);

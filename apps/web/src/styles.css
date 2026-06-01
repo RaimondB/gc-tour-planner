@@ -623,6 +623,45 @@ body,
   border-radius: 999px;
 }
 
+/* Humanised cluster card (UX P0): plain summary up front, dev metrics tucked
+   into a "details" disclosure. */
+.cluster-summary {
+  color: #4b5563;
+}
+.cluster-metrics > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #9ca3af;
+  list-style: none;
+}
+.cluster-metrics[open] > summary {
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+}
+
+/* Progressive-disclosure "Advanced …" sections in the Plan/Tour panels. */
+.sidebar details.advanced {
+  margin: 0.1rem 0 0.4rem;
+  border-top: 1px solid #eceff1;
+  padding-top: 0.4rem;
+}
+.sidebar details.advanced > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #6b7280;
+  user-select: none;
+}
+.sidebar details.advanced[open] > summary {
+  color: #1f2937;
+  margin-bottom: 0.4rem;
+}
+/* Slider hint text under a labelled control. */
+.sidebar label small.muted {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+}
+
 /* --- Cache-attribute chips (FR-SF4 / FR-SF8) ---------------------------- */
 
 .cache-attr-chips {

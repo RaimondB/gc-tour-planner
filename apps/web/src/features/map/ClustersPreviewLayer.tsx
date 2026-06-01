@@ -35,11 +35,15 @@ export function ClustersPreviewLayer({
   caches,
   focusedClusterId,
   onCentroidClick,
+  onCentroidDblClick,
 }: {
   candidates: ClusterCandidate[] | null;
   caches: readonly CacheDTO[] | undefined;
   focusedClusterId: string | null;
+  /** Single click — preview/focus only. */
   onCentroidClick: (clusterId: string) => void;
+  /** Double click — commit the cluster as the Tour context. */
+  onCentroidDblClick: (clusterId: string) => void;
 }): null {
   const { map, ready } = useMap();
 
@@ -235,6 +239,18 @@ export function ClustersPreviewLayer({
       const id = (f.properties as { clusterId?: string }).clusterId;
       if (id) onCentroidClick(id);
     };
+    const dblHandler = (
+      e: maplibregl.MapMouseEvent & {
+        features?: maplibregl.MapGeoJSONFeature[];
+      },
+    ) => {
+      const f = e.features?.[0];
+      if (!f) return;
+      // Stop the map's default double-click zoom — here a dbl-click selects.
+      e.preventDefault();
+      const id = (f.properties as { clusterId?: string }).clusterId;
+      if (id) onCentroidDblClick(id);
+    };
     const enter = () => {
       map.getCanvas().style.cursor = "pointer";
     };
@@ -242,14 +258,16 @@ export function ClustersPreviewLayer({
       map.getCanvas().style.cursor = "";
     };
     map.on("click", CENTROIDS_LAYER, handler);
+    map.on("dblclick", CENTROIDS_LAYER, dblHandler);
     map.on("mouseenter", CENTROIDS_LAYER, enter);
     map.on("mouseleave", CENTROIDS_LAYER, leave);
     return () => {
       map.off("click", CENTROIDS_LAYER, handler);
+      map.off("dblclick", CENTROIDS_LAYER, dblHandler);
       map.off("mouseenter", CENTROIDS_LAYER, enter);
       map.off("mouseleave", CENTROIDS_LAYER, leave);
     };
-  }, [map, ready, onCentroidClick]);
+  }, [map, ready, onCentroidClick, onCentroidDblClick]);
 
   return null;
 }
