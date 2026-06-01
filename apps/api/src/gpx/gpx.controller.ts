@@ -50,7 +50,7 @@ export class GpxController {
           type: "string",
           enum: ["true", "false"],
           description:
-            "Set to 'true' for a Groundspeak 'My Finds' Pocket Query — every cache in the upload is also marked as found by the current user (idempotent).",
+            "Optional manual override. A Groundspeak 'My Finds' Pocket Query is auto-detected (top-level <name>My Finds Pocket Query</name>) and always marked found regardless of this flag. Set 'true' to also mark a regular PQ's caches as found.",
         },
       },
       required: ["file"],

@@ -34,7 +34,7 @@ export function parseGpx(xml: string): ParsedGpx {
   });
 
   const doc = parser.parse(xml) as {
-    gpx?: { wpt?: GpxWpt[]; time?: string | number };
+    gpx?: { wpt?: GpxWpt[]; time?: string | number; name?: string | number };
   };
   const wpts = doc.gpx?.wpt ?? [];
   // Top-level `<gpx><time>` is Groundspeak's PQ generation timestamp
@@ -42,6 +42,13 @@ export function parseGpx(xml: string): ParsedGpx {
   // `ParsedGpx.exportedAt` so the upsert path can apply the staleness
   // guard. Normalize to RFC3339 string; null when missing or unparseable.
   const exportedAt = normalizeTimestamp(doc.gpx?.time);
+  // A "My Finds" Pocket Query is stamped by geocaching.com with the
+  // top-level `<gpx><name>My Finds Pocket Query</name>`. Detecting it
+  // lets the ingest path mark every cache as found automatically — no
+  // manual toggle. Match leniently (case-insensitive, substring) so a
+  // localized or slightly-renamed variant still trips it.
+  const gpxName = textOrNull(doc.gpx?.name);
+  const isMyFinds = gpxName !== null && /my finds/i.test(gpxName);
 
   const caches: ParsedCache[] = [];
   const waypoints: ParsedWaypoint[] = [];
@@ -84,7 +91,7 @@ export function parseGpx(xml: string): ParsedGpx {
     });
   }
 
-  return { caches, waypoints, warnings, exportedAt };
+  return { caches, waypoints, warnings, exportedAt, isMyFinds };
 }
 
 /**

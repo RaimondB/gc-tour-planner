@@ -156,6 +156,8 @@ export interface UploadGpxResult {
     stale: number;
     exportedAt: string | null;
   };
+  /** Auto-detected as a Groundspeak "My Finds" Pocket Query. */
+  myFinds: boolean;
 }
 
 export interface UploadGpxOptions {

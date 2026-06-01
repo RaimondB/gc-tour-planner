@@ -184,8 +184,8 @@ export function FilterSidebar({
           Exclude caches I have found
         </label>
         <small>
-          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX with the toggle below,
-          or mark caches one-by-one from the map popup.
+          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX (detected
+          automatically), or mark caches one-by-one from the map popup.
         </small>
       </fieldset>
 

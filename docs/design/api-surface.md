@@ -35,7 +35,10 @@ type CachesResponse = {
 
 ## `POST /gpx/upload`
 
-Multipart upload. Returns:
+Multipart upload (`file` + optional `markAsFound` override). A Groundspeak
+**"My Finds"** PQ is auto-detected from its top-level `<gpx><name>` and its
+caches are marked found automatically (FR-I7); `markAsFound=true` is the manual
+override for marking a regular PQ's caches found. Returns:
 
 ```ts
 type UploadGpxResult = {
@@ -54,6 +57,7 @@ type UploadGpxResult = {
     stale: number;               // upsert: skipped (incoming exportedAt < existing)
     exportedAt: string | null;   // top-level <gpx><time>
   };
+  myFinds: boolean;              // auto-detected "My Finds" PQ
 };
 ```
 

@@ -418,6 +418,19 @@ body,
   color: #991b1b;
 }
 
+.dropzone__hint {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #6b7280;
+}
+
+.dropzone__myfinds {
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+  color: #c2410c;
+}
+
 .dropzone details {
   margin-top: 0.4rem;
   text-align: left;
@@ -428,21 +441,12 @@ body,
   padding: 0;
 }
 
-/* --- Upload mode --------------------------------------------------------*/
+/* --- Upload ------------------------------------------------------------*/
 
 .upload {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.upload__mode {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  color: #4b5563;
-  padding: 0 0.25rem;
 }
 
 /* --- MapLibre popups --------------------------------------------------- */
