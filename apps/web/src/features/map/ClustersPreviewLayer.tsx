@@ -40,7 +40,8 @@ export function ClustersPreviewLayer({
   candidates: ClusterCandidate[] | null;
   caches: readonly CacheDTO[] | undefined;
   focusedClusterId: string | null;
-  /** Single click — preview/focus only. */
+  /** Single click — currently a no-op (App passes `() => {}`) so clicking
+   *  around the map never changes focus or moves the camera. Kept as a hook. */
   onCentroidClick: (clusterId: string) => void;
   /** Double click — commit the cluster as the Tour context. */
   onCentroidDblClick: (clusterId: string) => void;

@@ -601,8 +601,8 @@ export default function App(): JSX.Element {
 
   // Fit when the user focuses a cluster row in the candidates list.
   // Debounced 150 ms so quick mouse-scrubbing over rows doesn't
-  // ping-pong the map. Click/hover both feed `focusedClusterId`, so
-  // this is the single point where focus → camera flows.
+  // ping-pong the map. Focus is fed only by sidebar hover/keyboard now
+  // (map single-click is a no-op), so this is the single focus → camera path.
   useEffect(() => {
     if (!focusedClusterId || !clusters || !caches) return;
     const handle = setTimeout(() => {
@@ -845,11 +845,13 @@ export default function App(): JSX.Element {
               candidates={clusters}
               caches={cachesQuery.data?.caches}
               focusedClusterId={focusedClusterId}
-              // Single click = preview (focus + map fit) only, so browsing
-              // clusters doesn't yank you into the Tour tab. Double click =
+              // Single click on the map is intentionally a no-op: panning and
+              // clicking around the map must NOT change the focused cluster or
+              // yank the camera (the focus→camera effect would refit). Focus is
+              // driven only by the sidebar list. Double click on a centroid =
               // commit it as the Tour context (same as the list's double-click
               // / "Open in Tour" button).
-              onCentroidClick={setFocusedClusterId}
+              onCentroidClick={() => {}}
               onCentroidDblClick={(id) => {
                 setFocusedClusterId(id);
                 const c = clusters?.find((x) => x.clusterId === id);
