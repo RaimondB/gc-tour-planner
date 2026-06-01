@@ -375,20 +375,28 @@ export function WalkingGraphLayer({
       `</div>`;
 
     if (!popupRef.current) {
+      // Create + add ONCE. `addTo` on an already-open popup internally calls
+      // remove() → fires "close" → would clear the selection, toggling the
+      // route off on the very next effect run. So only addTo on creation;
+      // updates below just move/refresh it.
       popupRef.current = new maplibregl.Popup({
         closeButton: true,
         closeOnClick: false,
         maxWidth: "280px",
       }).on("close", () => {
-        // User closed it → clear selection so the highlighted path clears too.
+        // User hit the X → clear selection so the highlighted path clears too.
         popupRef.current = null;
         setSelectedEdge(null);
       });
+      popupRef.current
+        .setLngLat([selectedEdge.lng, selectedEdge.lat])
+        .setHTML(html)
+        .addTo(map);
+    } else {
+      popupRef.current
+        .setLngLat([selectedEdge.lng, selectedEdge.lat])
+        .setHTML(html);
     }
-    popupRef.current
-      .setLngLat([selectedEdge.lng, selectedEdge.lat])
-      .setHTML(html)
-      .addTo(map);
   }, [
     map,
     ready,
