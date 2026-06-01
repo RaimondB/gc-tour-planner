@@ -253,7 +253,10 @@ export function WalkingGraphLayer({
         type: "line",
         source: SOURCE_ID,
         filter: ["==", ["geometry-type"], "LineString"],
-        paint: { "line-color": "#000000", "line-opacity": 0, "line-width": 12 },
+        // Forgiving so the first click reliably lands on a thin line. Stale
+        // popups (the earlier "stats next to the edge" complaint) are handled
+        // by dismiss-on-click-away, not by shrinking the target.
+        paint: { "line-color": "#000000", "line-opacity": 0, "line-width": 14 },
       });
     }
     // Selected edge's real OSRM path (highlight), in its own source so it's
@@ -298,7 +301,11 @@ export function WalkingGraphLayer({
       const f = map.queryRenderedFeatures(e.point, {
         layers: [EDGE_HIT_LAYER],
       })[0];
-      if (!f) return;
+      if (!f) {
+        // Clicked away from any edge → dismiss the popup + clear the path.
+        setSelectedEdge(null);
+        return;
+      }
       const p = f.properties as Record<string, unknown>;
       setSelectedEdge({
         a: Number(p.a),
