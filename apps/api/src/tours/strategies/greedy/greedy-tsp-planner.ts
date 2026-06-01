@@ -3,7 +3,6 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
-import { Tsp } from "@gctp/shared";
 import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { CachesRepository } from "../../../caches/caches.repository.js";
@@ -22,13 +21,14 @@ import { LanduseProfilesRepository } from "../../../landuse-profiles/landuse-pro
 import { enumerateOsmParking } from "../pick-osm-parking.js";
 import { enumeratePqParking } from "../pick-pq-parking.js";
 import {
-  CLUSTERING_STRATEGIES,
   prepareClusteringContext,
-  refineClusters,
   resolveClusteringStrategy,
 } from "./clustering/index.js";
-import { scoreCluster } from "./cluster-scoring.js";
 import { haversineMeters } from "./equirectangular.js";
+import {
+  COMPUTE_POOL,
+  type ComputePool,
+} from "../../compute/compute-pool.service.js";
 import {
   OverlapGrid,
   pickAndAccumulate,
@@ -72,6 +72,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     private readonly parkingFacilities: ParkingFacilitiesRepository,
     private readonly carRoads: CarRoadsRepository,
     private readonly landuseProfiles: LanduseProfilesRepository,
+    @Inject(COMPUTE_POOL) private readonly computePool: ComputePool,
   ) {}
 
   // ─── Pass 1: cluster discovery ────────────────────────────────────────────
@@ -133,165 +134,20 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       };
     }
 
-    const poolById = new Map(ctx.pool.map((c) => [c.id, c]));
-    const clusterDistanceMeters = (a: number, b: number): number => {
-      if (a === b) return 0;
-      const ca = poolById.get(a);
-      const cb = poolById.get(b);
-      if (!ca || !cb) return Number.POSITIVE_INFINITY;
-      return haversineMeters(
-        [ca.location.coordinates[0]!, ca.location.coordinates[1]!],
-        [cb.location.coordinates[0]!, cb.location.coordinates[1]!],
-      );
-    };
-
-    // 2. Run the chosen strategy.
-    const raw = strategy.cluster(ctx);
-
-    // 3. Shared refinement pipeline.
-    const splitClusters = refineClusters(raw, ctx, strategy.skipRefinement);
-
-    // 4. Score + sort.
+    // Preferred landuse kinds is a DB read — resolve on the main thread, then
+    // hand the (serializable) context + strategy name + kinds to the worker
+    // pool. The CPU-heavy clustering + refinement + scoring + diagnostics run
+    // off the event loop in `computeClusters` (ADR-0014); the result is the
+    // same DiscoverClustersResult the inline pipeline produced.
     const preferredLanduseKinds = await this.kindsForLanduseProfile(
       ownerId,
       input.softPreferences.landuseProfileId,
     );
-    const scored = splitClusters.map((cacheIds) => {
-      const cluster = cacheIds.map((id) => poolById.get(id)!).filter(Boolean);
-      if (cluster.length !== cacheIds.length) {
-        // Refinement returns pool-only ids, so a hydration miss here means
-        // an invariant got violated upstream. Worth a warning so the leak
-        // can be tracked down rather than silently truncating clusters.
-        this.logger.warn(
-          `scored: ${cacheIds.length - cluster.length}/${cacheIds.length} cluster ids missing from poolById (refine→pool invariant broken)`,
-        );
-      }
-      const mst = mstLengthByDistance(cluster.length, (i, j) =>
-        clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
-      );
-      // NN+2-opt closed-loop estimate on the same distance lookup. MST
-      // is a 2-5× undershoot for thin/chained clusters because the
-      // spanning tree never sees the closing leg back to the start —
-      // the TSP estimate gives Pass 1 a realistic tour-length signal.
-      // Multiplied by the haversine-to-walking factor below so the
-      // estimate is comparable to the OSRM-routed length Pass 2 will
-      // produce (NL urban foot routing is typically ~1.4× haversine).
-      const estimatedTourMeters = estimateTourLength(
-        cluster.length,
-        (i, j) =>
-          clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
-      );
-      const { total, breakdown } = scoreCluster({
-        caches: cluster,
-        mstLengthMeters: mst,
-        estimatedTourMeters,
-        distanceBudgetMeters: input.distanceBudgetMeters,
-        softPrefs: input.softPreferences,
-        landuseKindsByCacheId: ctx.landuseKindsByCacheId,
-        preferredLanduseKinds,
-        landuseWeight: input.softPreferences.landuseWeight ?? 1,
-      });
-      const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
-      const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
-      return {
-        clusterId: stableClusterId(cluster.map((c) => c.id)),
-        cacheIds: cluster.map((c) => c.id),
-        centroid: {
-          type: "Point" as const,
-          coordinates: [meanLng, meanLat] as [number, number],
-        },
-        mstLengthMeters: round2(mst),
-        estimatedTourMeters: round2(estimatedTourMeters),
-        score: round4(total),
-        scoreBreakdown: Object.fromEntries(
-          Object.entries(breakdown).map(([k, v]) => [k, round4(v)]),
-        ),
-      } satisfies Tours.ClusterCandidate;
-    });
-
-    scored.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.clusterId < b.clusterId ? -1 : a.clusterId > b.clusterId ? 1 : 0;
-    });
-
-    // Boundary guard: `ClusterCandidate.cacheIds` is `.min(2)` on the wire,
-    // and refinement is also supposed to enforce minClusterSize. A leak past
-    // both — observed in the field as a stray 1-cluster at the bottom of
-    // the top-5 — would crash the UI's response parser. Filter and warn so
-    // the response stays valid while we root-cause the leak.
-    const validCandidates = scored.filter((c) => c.cacheIds.length >= 2);
-    if (validCandidates.length !== scored.length) {
-      this.logger.warn(
-        `scored: dropped ${scored.length - validCandidates.length} sub-minimum candidate(s) before response — refine should have caught these`,
-      );
-    }
-
-    // Diagnostics — components are still one-per-seed-subgraph for the
-    // Louvain pipeline; for other strategies we report the raw clusters that
-    // entered refinement so the user can see what the strategy actually found.
-    const components: Tours.ClusterComponent[] =
-      strategy.name === "louvain"
-        ? ctx.subgraphs.map((sub) => ({
-            cacheIds: sub.cacheIds.slice().sort((a, b) => a - b),
-            mstLengthMeters: round2(
-              mstLengthByDistance(sub.cacheIds.length, (i, j) =>
-                clusterDistanceMeters(sub.cacheIds[i]!, sub.cacheIds[j]!),
-              ),
-            ),
-            accepted: scored.some((c) =>
-              c.cacheIds.some((id) => sub.cacheIds.includes(id)),
-            ),
-          }))
-        : raw.map((r) => ({
-            cacheIds: r.cacheIds.slice().sort((a, b) => a - b),
-            mstLengthMeters: round2(
-              mstLengthByDistance(r.cacheIds.length, (i, j) =>
-                clusterDistanceMeters(r.cacheIds[i]!, r.cacheIds[j]!),
-              ),
-            ),
-            accepted: scored.some((c) =>
-              setsOverlap(new Set(c.cacheIds), r.cacheIds),
-            ),
-          }));
-
-    const nearestById = new Map<number, number>();
-    for (const e of ctx.edges) {
-      const cur = nearestById.get(e.fromCacheId);
-      if (cur === undefined || e.meters < cur)
-        nearestById.set(e.fromCacheId, e.meters);
-      const curRev = nearestById.get(e.toCacheId);
-      if (curRev === undefined || e.meters < curRev)
-        nearestById.set(e.toCacheId, e.meters);
-    }
-    const cacheConnectivity: Tours.CacheConnectivity[] = ctx.pool.map((c) => ({
-      cacheId: c.id,
-      nearestWalkableMeters: nearestById.has(c.id)
-        ? round2(nearestById.get(c.id)!)
-        : null,
-    }));
-    const landuseHits = ctx.pool.filter((c) =>
-      (ctx.landuseKindsByCacheId.get(c.id) ?? []).length > 0,
-    ).length;
-
-    return {
-      candidates: validCandidates.slice(
-        0,
-        input.topNClusters ?? DEFAULT_TOP_N_CLUSTERS,
-      ),
-      diagnostics: {
-        epsilonMeters: strategy.epsilonMetersForDiagnostics(ctx),
-        poolSize: ctx.pool.length,
-        components,
-        cacheConnectivity,
-        seedCount: ctx.subgraphs.length,
-        edgeCount: ctx.edges.length,
-        landuseCoverageFraction:
-          ctx.pool.length > 0 ? landuseHits / ctx.pool.length : 0,
-        resolutionsUsed: louvainResolutionsFrom(raw),
-        strategyUsed: strategy.name,
-        strategyParams: strategy.paramsForDiagnostics(ctx),
-      },
-    };
+    return this.computePool.computeClusters(
+      ctx,
+      strategy.name,
+      preferredLanduseKinds,
+    );
   }
 
   /** Read the resolution metadata Louvain attaches to raw candidates. Empty for other strategies. */
@@ -356,7 +212,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     ];
     const startIndex = nearestCacheIndexTo(connectedCaches, centroid);
 
-    const { order: tspOrder } = Tsp.solveTwoOpt(distances, startIndex);
+    // TSP solve runs on the worker pool (ADR-0014) — never on the event loop.
+    const { order: tspOrder } = await this.computePool.solveTwoOpt(
+      distances,
+      startIndex,
+    );
     const initialOrderedIds = tspOrder.map((i) => connectedIds[i]!);
 
     // Pick parking. For multi-candidate modes (osm-parking, PQ waypoints) this
@@ -412,7 +272,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // compat but not used here; that formula was median-derived and
     // ignored the user's per-plan tolerance.
     const trimThreshold = input.maxLinkMeters;
-    const trim = trimMarginalCaches({
+    const trim = await trimMarginalCaches({
       orderedIds: initialOrderedIds,
       originalIds: connectedIds,
       distances,
@@ -420,6 +280,8 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       cacheToParkingM,
       thresholdMeters: trimThreshold,
       minRemaining: 2,
+      // Re-order survivors on the worker pool, not the event loop.
+      solve: (d, s) => this.computePool.solveTwoOpt(d, s),
     });
     const orderedIds = trim.orderedIds;
     const droppedCacheIds = trim.droppedIds;
@@ -672,7 +534,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       // Start at the cache nearest to parking in the survivor set.
       const survivingCaches = survivingIds.map((id) => byId.get(id)!);
       const startIdx = nearestCacheIndexTo(survivingCaches, parkingCoord);
-      const { order: subOrder } = Tsp.solveTwoOpt(subDistances, startIdx);
+      const { order: subOrder } = await this.computePool.solveTwoOpt(
+        subDistances,
+        startIdx,
+      );
       currentOrderedIds = rotateForBestParkingInsertion(
         subOrder.map((i) => survivingIds[i]!),
         parkingToCacheAt,
@@ -1033,10 +898,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
 // ─── Pure utilities ─────────────────────────────────────────────────────────
 
-void CLUSTERING_STRATEGIES; // imported for side-effect-free type access; kept
-                            // to surface a future "register a strategy" hook
-                            // if we ever load strategies dynamically.
-
 function sum(xs: readonly number[]): number {
   let s = 0;
   for (const x of xs) s += x;
@@ -1050,122 +911,6 @@ function mean(xs: readonly number[]): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
-}
-
-function setsOverlap(a: ReadonlySet<number>, b: readonly number[]): boolean {
-  for (const x of b) if (a.has(x)) return true;
-  return false;
-}
-
-function louvainResolutionsFrom(
-  raw: ReadonlyArray<{ meta?: Record<string, number | string> }>,
-): number[] {
-  const seen = new Set<number>();
-  for (const r of raw) {
-    const v = r.meta?.resolution;
-    if (typeof v === "number") seen.add(v);
-  }
-  return Array.from(seen).sort((a, b) => a - b);
-}
-
-/**
- * MST length via Prim's algorithm, parameterised by a distance function so
- * the caller can supply either Euclidean or walking-distance metrics.
- *
- * Quadratic in N, fine here — N is capped at MAX_LOOP_CACHES = 50 for tours
- * and at the cluster size for scoring.
- */
-function mstLengthByDistance(
-  n: number,
-  dist: (i: number, j: number) => number,
-): number {
-  if (n <= 1) return 0;
-  const inTree = new Array<boolean>(n).fill(false);
-  const minDist = new Array<number>(n).fill(Number.POSITIVE_INFINITY);
-  minDist[0] = 0;
-  let total = 0;
-  for (let i = 0; i < n; i += 1) {
-    let u = -1;
-    let best = Number.POSITIVE_INFINITY;
-    for (let j = 0; j < n; j += 1) {
-      if (!inTree[j] && minDist[j]! < best) {
-        best = minDist[j]!;
-        u = j;
-      }
-    }
-    if (u < 0) break;
-    inTree[u] = true;
-    if (Number.isFinite(best)) total += best;
-    for (let v = 0; v < n; v += 1) {
-      if (inTree[v]) continue;
-      const d = dist(u, v);
-      if (d < (minDist[v] ?? Number.POSITIVE_INFINITY)) minDist[v] = d;
-    }
-  }
-  return total;
-}
-
-/**
- * Pass-1 closed-loop tour length estimate via Nearest-Neighbour seed +
- * 2-opt. Reuses the cluster's distance function (haversine over the
- * cluster's caches), then multiplies by an empirical haversine→walking
- * factor so the estimate is comparable to the OSRM-walked length Pass 2
- * produces. Calibrated on NL urban foot routing: ratio of OSRM walking
- * to straight-line is consistently 1.3-1.5; 1.4 is the middle.
- *
- * Cost: O(N²) matrix build + O(N² × iterations) inside `solveTwoOpt`.
- * For N=14 it's a sub-millisecond computation; for N=50 (the cluster
- * cap) it's still well under 10 ms. Per-cluster work; called once per
- * candidate in `scored.map`.
- *
- * On degenerate inputs (N < 2 or NaN distances) returns the MST length
- * as a conservative fallback — the caller in scoreCluster also falls
- * back to MST when estimatedTourMeters is 0, so this is belt-and-braces.
- */
-const HAVERSINE_TO_WALKING_FACTOR = 1.4;
-function estimateTourLength(
-  n: number,
-  dist: (i: number, j: number) => number,
-): number {
-  if (n <= 1) return 0;
-  if (n === 2) {
-    // Single round-trip — exactly 2× the leg, no TSP work needed.
-    const d = dist(0, 1);
-    return Number.isFinite(d) ? d * 2 * HAVERSINE_TO_WALKING_FACTOR : 0;
-  }
-  const matrix: (number | null)[][] = [];
-  for (let i = 0; i < n; i += 1) {
-    const row: (number | null)[] = [];
-    for (let j = 0; j < n; j += 1) {
-      if (i === j) {
-        row.push(0);
-      } else {
-        const d = dist(i, j);
-        row.push(Number.isFinite(d) ? d : null);
-      }
-    }
-    matrix.push(row);
-  }
-  const { totalDistance } = Tsp.solveTwoOpt(matrix, 0);
-  if (!Number.isFinite(totalDistance)) return 0;
-  return totalDistance * HAVERSINE_TO_WALKING_FACTOR;
-}
-
-function stableClusterId(cacheIds: readonly number[]): string {
-  let h = 0x811c9dc5;
-  for (const id of cacheIds) {
-    let v = id;
-    for (let b = 0; b < 4; b += 1) {
-      h ^= v & 0xff;
-      h = Math.imul(h, 0x01000193);
-      v >>>= 8;
-    }
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
 }
 
 

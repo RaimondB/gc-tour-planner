@@ -140,6 +140,20 @@ OSRM `/nearest` foot-snap of the centroid.
 |---|---|---|
 | `PLANNER_ROAD_CANDIDATES` | `12` | Number of eligible road segments enumerated as parking candidates — the ones closest to the **tour path** (the closed cycle line, not the centroid), clamped 1..50. Each becomes one `ST_ClosestPoint` snap point fed to the loop-aware scorer's batched OSRM `/table`. Higher = more thorough placement at the cost of a larger `/table`; lower = cheaper, coarser. |
 
+## Compute worker pool (ADR-0014)
+
+The planner's CPU-heavy pure computations — the TSP solver (`solveTwoOpt`, used
+by `planLoop` + the marginal/fringe re-solves) and the whole cluster-discovery
+pipeline (Louvain + refine + score) — run in a **piscina worker-thread pool**, not
+on the API event loop. This keeps the API responsive to other users while one
+request crunches; only serializable pure functions cross the boundary (all OSRM
++ Postgres I/O stays on the main thread).
+
+| Knob | Default | Effect |
+|---|---|---|
+| `PLANNER_WORKER_THREADS` | `max(1, cpus-1)` capped at 4 | Pool size — how many planner CPU tasks run in parallel across cores. Raise for more concurrent planning throughput on a bigger box; the default leaves a core for the event loop + OSRM (the host is 4C/8T and OSRM already uses ~4). Clamped 1..16. |
+| `PLANNER_WORKER_TIMEOUT_MS` | `30000` | Per-task abort budget. A task exceeding it is aborted (surfaced as an error) so a pathological input can't tie up a worker. The TSP VND cap still bounds a single solve; this is the outer safety net. |
+
 ## Symptom → knob
 
 | Symptom | Probable cause | Adjust |

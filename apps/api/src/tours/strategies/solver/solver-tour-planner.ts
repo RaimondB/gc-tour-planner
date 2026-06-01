@@ -197,7 +197,9 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     // Threshold = user-supplied maxLinkMeters (see greedy-tsp-planner.ts
     // for the rationale).
     const trimThreshold = input.maxLinkMeters;
-    const trim = trimMarginalCaches({
+    // trimMarginalCaches is async (ADR-0014); the solver path uses its
+    // synchronous fallback solve (its heavy work is the Timefold sidecar).
+    const trim = await trimMarginalCaches({
       orderedIds: solverOrderedIds,
       originalIds: ids,
       distances: trimDistances,

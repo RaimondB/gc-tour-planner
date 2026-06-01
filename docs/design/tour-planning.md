@@ -54,6 +54,29 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 - NN+2-opt is exact-enough for the small N (≤ 50) we cap at; no need for OR-Tools yet.
 - All randomness avoided so the same inputs produce the same output — easy to test, easy to reason about.
 
+## Compute boundary — worker-thread pool (ADR-0014)
+
+The CPU-heavy, **synchronous** parts of both passes run off the API event loop in
+a piscina worker pool (`ComputePool`, `tours/compute/`), so one user's plan can't
+block everyone else (the prerequisite for multi-user). Two task kinds cross the
+boundary, both pure + serializable:
+
+- **`tsp`** — `solveTwoOpt` (Pass 2's initial solve, the marginal-trim re-order,
+  and each fringe-trim re-solve). The greedy planner `await`s the pool instead of
+  calling the solver inline.
+- **`cluster`** — the entire post-context Pass 1 pipeline (`computeClusters` in
+  `discover-compute.ts`: strategy → refine → score → diagnostics).
+
+The split is strict: **all I/O stays on the main thread.** `prepareClusteringContext`
+(OSRM + Postgres), `routing.getMatrix`, the loop-aware leg building, and parking
+selection all run on the main thread, which builds the serializable inputs
+(distance matrix; the clustering context incl. its landuse `Map`) and hands them
+to the pool. The worker imports only pure modules — the strategy registry was
+split into `clustering/registry.ts` precisely so the worker never loads the
+I/O-bearing `clustering/context.ts`. Determinism is unchanged (same pure
+functions, just off-thread). Knobs: `PLANNER_WORKER_THREADS`,
+`PLANNER_WORKER_TIMEOUT_MS` (see [../PLANNER_TUNING.md](../PLANNER_TUNING.md)).
+
 ## Manual edits — leg geometry swap (FR-T11)
 
 After Pass 2 finishes, the planner attaches a per-leg array to `PlanResult.legs`. Each entry has `index`, `fromCacheId`/`toCacheId` (0 = parking sentinel), the picker's chosen `meters`/`seconds`/`geometry`, plus `alternatives[]` — every OSRM `routeAlternatives` candidate the loop-aware picker received, including the chosen one at `selectedAlternativeIndex`. No extra OSRM calls happen — the picker had to fetch these to score them anyway; we just surface them to the client instead of dropping the non-winning candidates on the floor.

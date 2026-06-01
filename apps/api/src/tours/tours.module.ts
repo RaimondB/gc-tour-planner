@@ -21,6 +21,11 @@ import { OsrmVersionService } from "../routing/osrm-version.service.js";
 import { GreedyTspPlanner } from "./strategies/greedy/greedy-tsp-planner.js";
 import { SolverTourPlanner } from "./strategies/solver/solver-tour-planner.js";
 import {
+  COMPUTE_POOL,
+  type ComputePool,
+  PiscinaComputePool,
+} from "./compute/compute-pool.service.js";
+import {
   HttpSolverClient,
   SOLVER_CLIENT,
   type SolverClient,
@@ -56,6 +61,7 @@ const tourPlannerProvider: Provider = {
     parkingFacilities: ParkingFacilitiesRepository,
     carRoads: CarRoadsRepository,
     landuseProfiles: LanduseProfilesRepository,
+    computePool: ComputePool,
   ) => {
     const greedy = new GreedyTspPlanner(
       caches,
@@ -68,6 +74,7 @@ const tourPlannerProvider: Provider = {
       parkingFacilities,
       carRoads,
       landuseProfiles,
+      computePool,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
@@ -98,6 +105,7 @@ const tourPlannerProvider: Provider = {
     ParkingFacilitiesRepository,
     CarRoadsRepository,
     LanduseProfilesRepository,
+    COMPUTE_POOL,
   ],
 };
 
@@ -107,6 +115,7 @@ const tourPlannerProvider: Provider = {
   providers: [
     ToursService,
     { provide: SOLVER_CLIENT, useClass: HttpSolverClient },
+    { provide: COMPUTE_POOL, useClass: PiscinaComputePool },
     tourPlannerProvider,
   ],
   exports: [Tours.TOUR_PLANNER, ToursService],
