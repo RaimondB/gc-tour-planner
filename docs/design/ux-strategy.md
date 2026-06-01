@@ -97,13 +97,13 @@ Add a lightweight toast (no dep; a timed element) or a transient highlight class
 **Files:** `apps/web/src/App.tsx` (selectCluster + a toast state), small CSS.
 **Effort:** S.
 
-### P1 — first-run / empty-state guidance
+### ✅ P1 — first-run / empty-state guidance (shipped 2026-06)
 **Problem:** new users hit blank tabs with no next step.
-**Approach:** Filter empty → "Upload a GPX (or widen the search) to see your
-caches"; Plan with no clusters → "Press Discover to find walkable loops"; (Tour
-empty state already exists). Reuse the `.muted` prompt style.
-**Files:** `FilterSidebar.tsx`, `PlannerSidebar.tsx` (cluster-picker empty branch).
-**Effort:** S.
+**Shipped:** a shared `.empty-hint` callout. Filter with no caches → "Upload a
+GPX above … then open the Plan tab"; Plan before discovery (`clusters === null`)
+→ "Press Discover clusters … then pick a candidate to open it in the Tour tab";
+the post-discovery "no clusters found" note and the Tour empty state already
+existed. **Files:** `FilterSidebar.tsx`, `PlannerSidebar.tsx`, `styles.css`.
 
 ### P2 — telegraph the Filter → Plan → Tour sequence
 **Problem:** tabs read as parallel sections; the flow is actually a sequence.

@@ -556,6 +556,24 @@ body,
   font-style: italic;
 }
 
+/* First-run guidance: shown when a tab has nothing yet and the user needs
+   to be told what action loads it (cold-start cue, not a "no results" note). */
+.empty-hint {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #374151;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #fb923c;
+  border-radius: 6px;
+}
+
+.empty-hint strong {
+  color: #c2410c;
+}
+
 /* --- Cluster picker ---------------------------------------------------- */
 
 .cluster-picker ol {

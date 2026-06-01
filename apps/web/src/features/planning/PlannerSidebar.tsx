@@ -545,6 +545,14 @@ export function PlannerSidebar({
         <div className="planner-error">{discoverError.message}</div>
       )}
 
+      {clusters === null && !discoverPending && (
+        <div className="empty-hint">
+          Press <strong>Discover clusters</strong> to find walkable loops from
+          your caches. Then pick a candidate to open it in the{" "}
+          <strong>Tour</strong> tab and plan the route.
+        </div>
+      )}
+
       {clusters !== null && clusters.length === 0 && (
         <div className="planner-empty">
           No clusters found in this area. Try widening the radius or loosening

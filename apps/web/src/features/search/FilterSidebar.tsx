@@ -275,6 +275,14 @@ export function FilterSidebar({
             ? "—"
             : `${cacheCount} cache${cacheCount === 1 ? "" : "s"} in radius`}
       </div>
+
+      {!loading && !cacheCount && (
+        <div className="empty-hint">
+          No caches here yet. <strong>Upload a GPX</strong> above to load your
+          caches, or widen the radius / move the search center (click the map).
+          Then open the <strong>Plan</strong> tab.
+        </div>
+      )}
     </aside>
   );
 }
