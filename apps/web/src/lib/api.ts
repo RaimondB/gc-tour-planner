@@ -9,7 +9,11 @@ import {
   RetriggerStaleResponse,
   StaleCacheListResponse,
 } from "@gctp/shared/admin";
-import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
+import {
+  CacheDTO,
+  CachesSummaryResponse,
+  type CachesQuery,
+} from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
@@ -93,7 +97,17 @@ export async function listCaches(params: ListCachesParams) {
   if (params.includeDisabled) search.set("includeDisabled", "true");
   if (params.includeArchived) search.set("includeArchived", "true");
   const raw = await request<unknown>(`/caches?${search.toString()}`);
-  return CachesResponse.parse(raw);
+  return CachesSummaryResponse.parse(raw);
+}
+
+/**
+ * Full detail for a single cache — the popup-only fields (`difficulty`,
+ * `terrain`, `attributeIds`, `descriptionHints`, …) that the lean `/caches`
+ * list omits. Fetched lazily when a cache popup opens. Owner-scoped server-side.
+ */
+export async function fetchCacheDetail(id: number) {
+  const raw = await request<unknown>(`/caches/${id}`);
+  return CacheDTO.parse(raw);
 }
 
 export interface ListLanduseParams {

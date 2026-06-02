@@ -54,6 +54,19 @@ export class CachesService {
     return this.repo.findByIds(ownerId, ids);
   }
 
+  /**
+   * Full detail for a single cache (the popup-only fields the lean
+   * `GET /caches` list omits). Owner-scoped via `findByIds`; 404 when the id
+   * isn't the current user's (per-user GPX isolation — CLAUDE.md hard rule).
+   */
+  async getDetail(ownerId: string, id: number): Promise<Caches.CacheDTO> {
+    const [cache] = await this.repo.findByIds(ownerId, [id]);
+    if (!cache) {
+      throw new NotFoundException(`Cache ${id} not found for this user`);
+    }
+    return cache;
+  }
+
   async markFound(
     ownerId: string,
     cacheId: number,

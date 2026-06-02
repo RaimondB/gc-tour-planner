@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo } from "react";
 import type maplibregl from "maplibre-gl";
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { ClusterCandidate } from "@gctp/shared/tours";
 import { useMap } from "./MapContext.js";
 
@@ -38,7 +38,7 @@ export function ClustersPreviewLayer({
   onCentroidDblClick,
 }: {
   candidates: ClusterCandidate[] | null;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   focusedClusterId: string | null;
   /** Single click — currently a no-op (App passes `() => {}`) so clicking
    *  around the map never changes focus or moves the camera. Kept as a hook. */
@@ -49,7 +49,7 @@ export function ClustersPreviewLayer({
   const { map, ready } = useMap();
 
   const cacheById = useMemo(() => {
-    const out = new Map<number, CacheDTO>();
+    const out = new Map<number, CacheSummaryDTO>();
     for (const c of caches ?? []) out.set(c.id, c);
     return out;
   }, [caches]);
@@ -144,7 +144,7 @@ export function ClustersPreviewLayer({
       const focused = cluster.clusterId === focusedClusterId ? 1 : 0;
       const memberCaches = cluster.cacheIds
         .map((id) => cacheById.get(id))
-        .filter((c): c is CacheDTO => c != null);
+        .filter((c): c is CacheSummaryDTO => c != null);
 
       for (const c of memberCaches) {
         cacheFeatures.push({

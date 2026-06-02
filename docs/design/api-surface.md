@@ -33,6 +33,47 @@ type CachesResponse = {
 };
 ```
 
+## `GET /caches`
+
+Lists caches in a radius (center + `radiusM`, max 50 000) matching the
+server-side hard filters (`types`, `attributes`, `excludeFound`, `contexts`,
+`includeDisabled`, `includeArchived`). Returns a **lean per-cache summary** to
+keep the payload small over the Cloudflare tunnel — a wide query is thousands of
+caches (responses are gzip-compressed by the nginx edge):
+
+```ts
+type CachesSummaryResponse = {
+  caches: CacheSummaryDTO[];
+  clustersHint: { gridCell: string; count: number }[];
+};
+type CacheSummaryDTO = {
+  id: number;
+  code: string;
+  type: CacheType;
+  name: string;
+  location: GeoJsonPoint;
+  disabled: boolean;
+  foundByMe: boolean;
+  stageCount: number;
+  parkingPoints: [number, number][];
+  requiresTool: boolean;   // = hasToolRequirement(attributeIds, descriptionHints), server-computed
+};
+```
+
+The popup-only fields (`difficulty`, `terrain`, `size`, `attributeIds`,
+`descriptionHints`, `source`, `sourceId`, `archived`) are **not** in the list —
+they're fetched per cache via `GET /caches/:id` when a popup opens. `requiresTool`
+is precomputed so the "hide tool caches" filter and the tour-stop tool badge stay
+client-side and instant without shipping the attribute/hint arrays. Internally
+`CachesService.list` still returns the full `CacheDTO[]` (the tour planner needs
+every field); only the HTTP response is mapped down via `toCacheSummary`.
+
+## `GET /caches/:id`
+
+Full detail for a single cache — the popup-only fields the list omits. Returns
+the full `CacheDTO`. Owner-scoped (reuses `findByIds`); **404** when the id isn't
+the current user's (per-user GPX isolation).
+
 ## `POST /gpx/upload`
 
 Multipart upload (`file` + optional `markAsFound` override). A Groundspeak

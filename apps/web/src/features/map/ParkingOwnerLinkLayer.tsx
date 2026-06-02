@@ -3,7 +3,7 @@
 
 import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { SelectedParking } from "./CachesLayer.js";
 import { useMap } from "./MapContext.js";
 
@@ -26,7 +26,7 @@ export function ParkingOwnerLinkLayer({
   caches,
 }: {
   selectedParking: SelectedParking | null;
-  caches?: readonly CacheDTO[];
+  caches?: readonly CacheSummaryDTO[];
 }): null {
   const { map, ready } = useMap();
 

@@ -6,7 +6,7 @@ import {
   useMutation,
   useQuery,
 } from "@tanstack/react-query";
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
@@ -150,7 +150,7 @@ export interface PlannerSidebarProps {
   result: PlanResult | null;
   onResultChange: (next: PlanResult | null) => void;
   /** Caches currently in the search radius — used for the JSON debug export. */
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   /** Manually selected cache ids (shift-click on the map). Used by Cluster Lab. */
   selectedCacheIds: ReadonlySet<number>;
   onSelectionChange: (next: ReadonlySet<number>) => void;
@@ -710,7 +710,7 @@ export function PlanResultPanel({
 }: {
   result: PlanResult;
   avgWalkingKmh: number;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   editMode: boolean;
   onEditModeChange: (next: boolean) => void;
   selectedLegIndex: number | null;
@@ -1093,13 +1093,13 @@ function LegAlternativesPanel({
   onApplyAlt: (altIndex: number) => void;
   onResetLeg: () => void;
   onClose: () => void;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   /** True while this leg is the one being via-dragged on the map. */
   viaDragActive: boolean;
   onStartViaDrag: () => void;
   onCancelViaDrag: () => void;
 }) {
-  const cacheById = new Map<number, CacheDTO>();
+  const cacheById = new Map<number, CacheSummaryDTO>();
   for (const c of caches ?? []) cacheById.set(c.id, c);
   const label = (id: number): string => {
     if (id === 0) return "Parking";

@@ -21,6 +21,12 @@ export interface CachePopupProps {
   descriptionHints?: readonly string[];
   /** FR-SF1 count of `stages` waypoints. 0 for non-multis. */
   stageCount?: number;
+  /**
+   * True while the per-cache detail (difficulty/terrain/attributes/hints) is
+   * still loading from `GET /caches/:id` — the lean list doesn't carry them.
+   * The header (code/name/type/found) renders immediately regardless.
+   */
+  loadingDetail?: boolean;
 }
 
 export function CachePopup({
@@ -34,6 +40,7 @@ export function CachePopup({
   attributeIds = [],
   descriptionHints = [],
   stageCount = 0,
+  loadingDetail = false,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
 
@@ -68,7 +75,8 @@ export function CachePopup({
       </div>
       <div className="cache-popup__name">{name}</div>
       <div className="cache-popup__meta">
-        D {difficulty ?? "?"} / T {terrain ?? "?"}
+        D {loadingDetail ? "…" : (difficulty ?? "?")} / T{" "}
+        {loadingDetail ? "…" : (terrain ?? "?")}
         {foundByMe && <span className="cache-popup__found-pill">Found</span>}
       </div>
       {multiLabel && (
@@ -76,10 +84,16 @@ export function CachePopup({
           {multiLabel}
         </div>
       )}
-      <AttributeChips
-        attributeIds={attributeIds}
-        descriptionHints={descriptionHints}
-      />
+      {loadingDetail ? (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          Loading details…
+        </div>
+      ) : (
+        <AttributeChips
+          attributeIds={attributeIds}
+          descriptionHints={descriptionHints}
+        />
+      )}
       <button
         type="button"
         className={`cache-popup__btn${foundByMe ? " cache-popup__btn--unmark" : ""}`}
