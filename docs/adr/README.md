@@ -20,3 +20,8 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0008](0008-self-host-overpass.md) | Self-host Overpass as a compose sidecar (shared with dev) | Superseded by ADR-0009 |
 | [0009](0009-osm2pgsql-replaces-overpass.md) | Replace self-hosted Overpass with osm2pgsql + PostGIS | Accepted; daily-diff path amended by ADR-0010 |
 | [0010](0010-unified-osm-refresh.md) | Unified OSM refresh (drop daily landuse replication) | Accepted |
+| [0011](0011-osm-parking-facilities.md) | OSM parking facilities table via the osm2pgsql pass | Accepted |
+| [0012](0012-car-accessible-roads-for-nearest-road-parking.md) | Car-accessible road filter for nearest-road parking | Accepted |
+| [0013](0013-walkable-cycleways-in-foot-profile.md) | Walkable cycleways in the OSRM foot profile | Accepted |
+| [0014](0014-planner-compute-worker-pool.md) | Planner CPU work on a worker-thread pool (piscina) | Accepted |
+| [0015](0015-isolated-network-dedicated-cloudflare-tunnel.md) | gctp on an isolated network behind its own Cloudflare Tunnel | Accepted |

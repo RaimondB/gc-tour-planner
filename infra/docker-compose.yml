@@ -12,18 +12,16 @@
 
 name: gctp
 
-# Shared networks:
-#   - `default` (compose-generated `gctp_default`): internal-only; postgres,
-#     valkey, osrm, solver, jobs talk to api/web here.
-#   - `shared proxy network` (`the shared proxy network`, external): shared reverse proxy's docker-provider
-#     network. api/web join it ONLY to be discoverable by shared reverse proxy; their
-#     ports are NOT published to the host. Hostnames terminate on
-#     `<service>.example.com` with letsencrypt-provisioned TLS.
+# Networking (ADR-0015):
+#   - `default` (compose-generated `gctp_default`): the ONLY network. postgres,
+#     valkey, osrm, solver, jobs, api, web and the dedicated cloudflared all
+#     live here and nowhere else. gctp deliberately no longer joins the shared
+#     `the shared proxy network` reverse-proxy network — no other workloads
+#     container can reach gctp's (pre-auth) API. The only ingress is the
+#     cloudflared tunnel below; this bridge still has egress (NAT) so
+#     cloudflared can dial out to the Cloudflare edge.
 networks:
   default:
-  shared proxy network:
-    name: the shared proxy network
-    external: true
 
 services:
   postgres:
@@ -274,23 +272,10 @@ services:
         condition: service_started
     networks:
       - default
-      - shared proxy network
-    # shared reverse proxy routing. Same-origin as the web: requests hit
-    # `app.example.com/api/*`, get the `/api` prefix stripped, and land
-    # on the api container at port 3000. Same origin = no CORS dance.
-    # No `ports:` block: only shared reverse proxy reaches this container.
-    labels:
-      shared reverse proxy.enable: "true"
-      shared reverse proxy.docker.network: the shared proxy network
-      # Host+PathPrefix is more specific than the web's bare Host rule,
-      # so shared reverse proxy routes /api/* here before falling through to the web.
-      shared reverse proxy.http.routers.gctp-api.rule: Host(`app.example.com`) && PathPrefix(`/api`)
-      shared reverse proxy.http.routers.gctp-api.entrypoints: websecure
-      shared reverse proxy.http.routers.gctp-api.tls: "true"
-      shared reverse proxy.http.routers.gctp-api.tls.certresolver: letsencrypt
-      shared reverse proxy.http.routers.gctp-api.middlewares: gctp-api-strip@docker
-      shared reverse proxy.http.middlewares.gctp-api-strip.stripprefix.prefixes: /api
-      shared reverse proxy.http.services.gctp-api.loadbalancer.server.port: "3000"
+    # No published ports and no reverse-proxy labels: the api is reachable
+    # only from inside gctp's own network. The web nginx proxies same-origin
+    # `/api/*` to this container (port 3000), stripping the `/api` prefix.
+    # The public edge is the cloudflared tunnel in front of web (ADR-0015).
     environment:
       # `uat` (not `production`) — until the M6 JWT auth module lands, the
       # dev-user middleware is the only auth source, and AuthModule throws
@@ -424,15 +409,29 @@ services:
       - api
     networks:
       - default
-      - shared proxy network
-    labels:
-      shared reverse proxy.enable: "true"
-      shared reverse proxy.docker.network: the shared proxy network
-      shared reverse proxy.http.routers.gctp.rule: Host(`app.example.com`)
-      shared reverse proxy.http.routers.gctp.entrypoints: websecure
-      shared reverse proxy.http.routers.gctp.tls: "true"
-      shared reverse proxy.http.routers.gctp.tls.certresolver: letsencrypt
-      shared reverse proxy.http.services.gctp.loadbalancer.server.port: "80"
+    # web is the stack's single origin: serves the SPA and reverse-proxies
+    # `/api/*` to the api (see infra/nginx.conf). No host ports — the
+    # dedicated cloudflared tunnel below is the only way in.
+
+  # Dedicated Cloudflare Tunnel for gctp (ADR-0015). Runs its OWN tunnel
+  # (separate token from the other workloads tunnel) and joins ONLY gctp's
+  # network, so gctp shares no network with any other stack. The public
+  # hostname route (app.example.com -> http://web:80) and the Cloudflare
+  # Access policy are configured in the Cloudflare Zero Trust dashboard; TLS
+  # terminates at the Cloudflare edge, so no Let's Encrypt cert lives on-box.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: gctp-cloudflared
+    restart: unless-stopped
+    mem_limit: 128m
+    memswap_limit: 128m
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - web
+    networks:
+      - default
 
 volumes:
   pgdata: {}

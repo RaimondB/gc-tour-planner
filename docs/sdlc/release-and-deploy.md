@@ -34,11 +34,11 @@ The dev stack runs in its own compose project with its own state. The one delibe
 | Postgres host port | 5432 | 15432 | no |
 | Valkey host port | 6379 | 16379 | no |
 | OSRM | container, port 5000 | **same container** via host:5000 | **YES (read-only)** |
-| API host port | 3000 (internal) / behind shared reverse proxy | 3030 | no |
-| Web host port | behind shared reverse proxy | 5173 | no |
+| API host port | none (only `web` nginx reaches it) | 3030 | no |
+| Web host port | none (only the gctp cloudflared reaches it) | 5173 | no |
 | Postgres database | `gctp` | `gctp_dev` | no |
 | Volumes | `pgdata`, `valkey-data`, `osrm-data`, `gctp-uploads` | `pgdata-dev`, `valkey-data-dev` (uploads on host: `./data/uploads/`) | no |
-| shared reverse proxy labels | yes | no | n/a |
+| Public ingress | dedicated Cloudflare Tunnel + Access ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) | n/a | no |
 
 Wiping dev state (`docker compose -p gctp-dev -f infra/docker-compose.dev.yml down -v`) can never touch UAT postgres or UAT valkey. OSRM is shared but stateless from the consumer's perspective — dev cache cells in `route_legs` are stamped `osrm_version='unknown'` (the dev api can't read UAT's `/osrm-meta/osrm-version.txt` from the host) and stay cleanly namespaced from UAT's version-stamped cells.
 
@@ -50,12 +50,12 @@ For the full container-shape stack (api + web also in compose), use the producti
 
 ## Current state (pre-M6)
 
-A single UAT instance runs at https://app.example.com, served from a host behind shared reverse proxy. The deployment is manual:
+A single UAT instance runs at https://app.example.com, served from a host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with the host's other workloads stack, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`. The deployment is manual:
 
 1. SSH to the host.
 2. `git pull` the gc-tour-planner repo.
-3. `cd infra && docker compose up --build -d` — shared reverse proxy picks up the new containers via labels (see [infra/docker-compose.yml](../../infra/docker-compose.yml)).
-4. `docker compose logs -f api web` for the first minute to confirm the stack is healthy.
+3. `cd infra && docker compose up --build -d` — recreates the stack and the `cloudflared` connector (see [infra/docker-compose.yml](../../infra/docker-compose.yml)). The public hostname route (`app.example.com → http://web:80`) and the Access policy are dashboard state in Cloudflare Zero Trust, not in the repo; `CLOUDFLARE_TUNNEL_TOKEN` is the only related env knob.
+4. `docker compose logs -f api web cloudflared` for the first minute to confirm the stack is healthy and the tunnel registers its connections.
 
 DB migrations apply automatically as part of step 3: the one-shot `migrate` service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) runs `node-pg-migrate up` against the live Postgres and exits 0; `api`, `jobs`, and `osm2pgsql-import` all `depends_on: migrate: service_completed_successfully`, so they wait until the schema is at the latest revision. No host-side migrate command is needed. To re-run migrations explicitly (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
 
@@ -82,7 +82,7 @@ It re-downloads the regional PBFs, re-preprocesses OSRM, and re-imports landuse 
 Per [docs/architecture/background-and-deploy.md](../architecture/background-and-deploy.md):
 
 - `NODE_ENV=production` (currently UAT uses `NODE_ENV=uat` so the AuthModule pre-M6 dev-user middleware stays active).
-- TLS via shared reverse proxy + Let's Encrypt (already the case for UAT).
+- TLS is terminated at the Cloudflare edge (the tunnel origin is plain HTTP on the internal network); no on-box cert. Authentication is enforced by Cloudflare Access until the M6 JWT module replaces the dev-user middleware ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)).
 - Backups on `pgdata`, `osrm-data`, and `gctp-uploads` (not yet automated). Losing `gctp-uploads` is not catastrophic — the parsed cache data lives in Postgres — but it removes the ability to re-run `POST /admin/uploads/:id/reprocess` against historical uploads, so users would have to re-upload their PQs to back-fill any new parsed field.
 - Per-host resource limits (CPU/mem) on `mem_limit` in compose for the API and web services.
 
