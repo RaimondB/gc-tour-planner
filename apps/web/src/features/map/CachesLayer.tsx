@@ -379,6 +379,14 @@ export function CachesLayer({
         .then((d) => {
           detail = d;
           renderPopup();
+          // The card just grew (chips). We mutated its DOM via React without
+          // telling MapLibre, so its anchor transform was rounded for the old
+          // size and the resized card can land on a sub-pixel → blurry text.
+          // Re-set the position after React commits (next frame) so MapLibre
+          // re-measures and re-rounds the transform for the final size.
+          requestAnimationFrame(() => {
+            if (popup.isOpen()) popup.setLngLat([lng, lat]);
+          });
         })
         .catch((err) => {
           // Leave the header-only popup; detail just won't fill in.
