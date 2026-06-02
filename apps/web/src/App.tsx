@@ -15,9 +15,12 @@ import { downloadText } from "./lib/download-text.js";
 import {
   type LegPicks,
   planSignature,
+  prunePlanEditKeys,
   useLocalStorageState,
 } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import { useDebouncedValue } from "./lib/use-debounced-value.js";
+import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
 import { CachesLayer, type SelectedParking } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
@@ -59,6 +62,30 @@ import { UploadDropzone } from "./features/upload/UploadDropzone.js";
  */
 type SidebarTab = "filter" | "plan" | "tour";
 
+/**
+ * Stable key over just the settings (+ user-supplied start) that feed
+ * `planLoop`. Used to detect when the Tour tab's controls have drifted from
+ * the settings the current `planResult` was built with, so we can surface a
+ * "settings changed → Replan" affordance. Excludes `avgWalkingKmh`, which is
+ * a client-side display factor (tour stats recompute live, no replan needed).
+ */
+function planLoopSettingsKey(
+  s: PlanSettings,
+  center: readonly [number, number],
+): string {
+  return JSON.stringify({
+    distanceBudgetMeters: s.distanceBudgetMeters,
+    timePerCacheMinutes: s.timePerCacheMinutes,
+    toolBonusMinutes: s.toolBonusMinutes,
+    startPreference: s.startPreference,
+    maxLinkMeters: s.maxLinkMeters,
+    fringeTrimMeters: s.fringeTrimMeters,
+    osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
+    osmParkingFeeFilter: s.osmParkingFeeFilter,
+    userStart: s.startPreference === "user-supplied-point" ? center : null,
+  });
+}
+
 export default function App(): JSX.Element {
   const [params, setParams] = useLocalStorageState<SearchParams>(
     "search",
@@ -81,6 +108,13 @@ export default function App(): JSX.Element {
   );
   const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
   const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  // `planLoopSettingsKey` snapshot captured at the start of the request that
+  // produced the current `planResult`. Compared against the live settings to
+  // light up the Tour tab's "Replan" affordance when they drift. The ref holds
+  // the in-flight request's key (set in mutationFn); the state is promoted from
+  // it on success so the comparison re-renders.
+  const pendingPlanKeyRef = useRef<string | null>(null);
+  const [plannedKey, setPlannedKey] = useState<string | null>(null);
   /**
    * Most recently clicked parking spot — drives the yellow dotted line to
    * the cache that listed it. Set from either a parking-marker click in
@@ -147,6 +181,13 @@ export default function App(): JSX.Element {
       : "plan-edits:none",
     {},
   );
+  // Keep only the current plan's leg-edit entry in localStorage. Without this,
+  // every distinct tour ever planned leaves a `plan-edits:<sig>` key behind
+  // (unbounded growth toward the storage quota). Runs when the active plan
+  // changes; re-planning the same cluster in-session still restores its edits.
+  useEffect(() => {
+    if (currentPlanSignature) prunePlanEditKeys(currentPlanSignature);
+  }, [currentPlanSignature]);
 
   // Clear the focused cluster whenever the real OSRM-routed result lands —
   // the TourLayer takes over and we don't want two polylines fighting on the map.
@@ -202,6 +243,9 @@ export default function App(): JSX.Element {
   const planMutation = useMutation({
     mutationFn: async (cluster: ClusterCandidate) => {
       setChosenClusterId(cluster.clusterId);
+      // Capture the settings this request is built with, so the Tour tab can
+      // detect later drift (promoted to `plannedKey` on success).
+      pendingPlanKeyRef.current = planLoopSettingsKey(planSettings, params.center);
       return planLoop({
         cacheIds: cluster.cacheIds,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
@@ -217,11 +261,34 @@ export default function App(): JSX.Element {
         osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
       });
     },
-    onSuccess: (res) => setPlanResult(res),
+    onSuccess: (res) => {
+      setPlannedKey(pendingPlanKeyRef.current);
+      setPlanResult(res);
+    },
   });
   const planCluster = useCallback(
     (cluster: ClusterCandidate) => planMutation.mutate(cluster),
     [planMutation],
+  );
+  // Selecting a candidate cluster just *chooses* it and moves to the Tour
+  // tab — it does NOT plan. The user triggers the route from the Tour tab's
+  // Plan button, so the map stays exactly where it was until they choose to
+  // route (no auto-fit/replan jump). All tour-planning controls live in the
+  // Tour tab now, so this is the natural "pick a cluster" hand-off.
+  const selectCluster = useCallback(
+    (cluster: ClusterCandidate) => {
+      // Switching to a different cluster: the current result + its staleness
+      // baseline belonged to the previous one. Clear them so the Tour tab
+      // shows a clean "press Plan" state for the new cluster and the map
+      // doesn't fit to the old tour. (Same-cluster reselect keeps the result.)
+      if (cluster.clusterId !== chosenClusterId) {
+        setPlanResult(null);
+        setPlannedKey(null);
+      }
+      setChosenClusterId(cluster.clusterId);
+      setActiveTab("tour");
+    },
+    [chosenClusterId, setActiveTab, setPlanResult],
   );
 
   // ── Discover-clusters mutation lifted from PlannerSidebar ──────────
@@ -262,6 +329,7 @@ export default function App(): JSX.Element {
       setClusters(res.candidates);
       setDiagnostics(res.diagnostics);
       setChosenClusterId(null);
+      setPlannedKey(null);
       setPlanResult(null);
       // FR-UX1: auto-focus the first cluster so the map FAB row
       // (◀ Plan #1/N ▶) pops up immediately — saves the user a
@@ -292,17 +360,35 @@ export default function App(): JSX.Element {
     return [];
   }, [planResult, focusedClusterId, clusters]);
 
+  // Canonical caches-query input: ONLY the server-relevant params (the
+  // client-side toggles hideToolCaches/multiSubtype are deliberately excluded
+  // so flipping them never refetches). Debounced so dragging the radius slider
+  // fires one request after settling rather than one per tick; React Query's
+  // AbortSignal (wired below) cancels any request that is superseded mid-flight
+  // instead of leaving several large responses streaming over the tunnel.
+  const cacheQueryInput = useMemo<ListCachesParams>(
+    () => ({
+      center: params.center,
+      radiusM: params.radiusM,
+      types: params.types.length > 0 ? params.types : undefined,
+      excludeFound: params.excludeFound || undefined,
+      contexts: params.contexts.length > 0 ? params.contexts : undefined,
+      includeDisabled: params.includeDisabled || undefined,
+    }),
+    [
+      params.center,
+      params.radiusM,
+      params.types,
+      params.excludeFound,
+      params.contexts,
+      params.includeDisabled,
+    ],
+  );
+  const debouncedCacheInput = useDebouncedValue(cacheQueryInput, 350);
+
   const cachesQuery = useQuery({
-    queryKey: ["caches", params],
-    queryFn: () =>
-      listCaches({
-        center: params.center,
-        radiusM: params.radiusM,
-        types: params.types.length > 0 ? params.types : undefined,
-        excludeFound: params.excludeFound || undefined,
-        contexts: params.contexts.length > 0 ? params.contexts : undefined,
-        includeDisabled: params.includeDisabled || undefined,
-      }),
+    queryKey: ["caches", debouncedCacheInput],
+    queryFn: ({ signal }) => listCaches(debouncedCacheInput, signal),
     placeholderData: (prev) => prev,
   });
 
@@ -335,9 +421,13 @@ export default function App(): JSX.Element {
       const idx = clusters.findIndex((c) => c.clusterId === focusedClusterId);
       const next = idx + delta;
       if (next < 0 || next >= clusters.length) return;
-      setFocusedClusterId(clusters[next]!.clusterId);
+      const cluster = clusters[next]!;
+      setFocusedClusterId(cluster.clusterId);
+      // Cycling IS selecting: the focused cluster becomes the Tour-tab
+      // context. The middle FAB button then just plans it.
+      selectCluster(cluster);
     },
-    [clusters, focusedClusterId],
+    [clusters, focusedClusterId, selectCluster],
   );
 
   // ── Cluster FAB (mobile-only "Plan this" on the map) ───────────────
@@ -412,7 +502,23 @@ export default function App(): JSX.Element {
   // them earlier in the render).
   const caches = cachesQuery.data?.caches;
   const planTabEnabled = (caches?.length ?? 0) > 0;
-  const tourTabEnabled = planResult !== null;
+  // Tour tab is usable once a cluster is selected (we switch to it while the
+  // plan is still running) or a result exists — not only after the result lands.
+  const tourTabEnabled = planResult !== null || chosenClusterId !== null;
+  // The selected candidate (for the Tour tab's Replan control) + whether the
+  // live settings have drifted from what the current result was planned with.
+  const chosenCluster =
+    clusters?.find((c) => c.clusterId === chosenClusterId) ?? null;
+  const chosenClusterRank = chosenCluster
+    ? (clusters?.findIndex((c) => c.clusterId === chosenClusterId) ?? -1) + 1
+    : 0;
+  const planStale =
+    planResult !== null &&
+    plannedKey !== null &&
+    planLoopSettingsKey(planSettings, params.center) !== plannedKey;
+  const replan = useCallback(() => {
+    if (chosenCluster) planCluster(chosenCluster);
+  }, [chosenCluster, planCluster]);
   // FR-UX1: Discover FAB visibility — caches loaded, no clusters yet
   // (or user clicked Clear). Mobile-only via CSS so desktop's
   // "Discover clusters" button in the Plan tab remains the canonical
@@ -515,8 +621,8 @@ export default function App(): JSX.Element {
 
   // Fit when the user focuses a cluster row in the candidates list.
   // Debounced 150 ms so quick mouse-scrubbing over rows doesn't
-  // ping-pong the map. Click/hover both feed `focusedClusterId`, so
-  // this is the single point where focus → camera flows.
+  // ping-pong the map. Focus is fed only by sidebar hover/keyboard now
+  // (map single-click is a no-op), so this is the single focus → camera path.
   useEffect(() => {
     if (!focusedClusterId || !clusters || !caches) return;
     const handle = setTimeout(() => {
@@ -596,7 +702,7 @@ export default function App(): JSX.Element {
               label="Tour"
               active={activeTab === "tour"}
               enabled={tourTabEnabled}
-              disabledHint="Plan a loop in the Plan tab first."
+              disabledHint="Select a cluster in the Plan tab first."
               onClick={handleTabClick}
             />
           </nav>
@@ -654,7 +760,7 @@ export default function App(): JSX.Element {
                 onStartViaDrag={startViaDrag}
                 onCancelViaDrag={cancelViaDrag}
                 hideResultPanel
-                onPlanCluster={planCluster}
+                onPlanCluster={selectCluster}
                 planPending={planMutation.isPending}
                 planPendingClusterId={
                   planMutation.isPending ? chosenClusterId : null
@@ -671,6 +777,36 @@ export default function App(): JSX.Element {
                   settings={planSettings}
                   onSettingsChange={setPlanSettings}
                 />
+                {chosenCluster && (
+                  <div className="replan-bar field">
+                    <div className="replan-bar__info">
+                      <strong>Cluster #{chosenClusterRank}</strong> —{" "}
+                      {chosenCluster.cacheIds.length} caches
+                      {planStale && !planMutation.isPending && (
+                        <span className="badge badge--stale">
+                          settings changed
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={planStale ? "primary" : ""}
+                      onClick={replan}
+                      disabled={planMutation.isPending}
+                    >
+                      {planMutation.isPending
+                        ? "Planning…"
+                        : planResult
+                          ? "Replan"
+                          : "Plan"}
+                    </button>
+                    {planMutation.error && (
+                      <p className="error">
+                        {(planMutation.error as Error).message}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {planResult ? (
                   <PlanResultPanel
                     result={planResult}
@@ -688,9 +824,15 @@ export default function App(): JSX.Element {
                     onStartViaDrag={startViaDrag}
                     onCancelViaDrag={cancelViaDrag}
                   />
+                ) : planMutation.isPending ? (
+                  <p className="muted">Planning your loop…</p>
+                ) : chosenCluster ? (
+                  <p className="muted">
+                    Press <strong>Plan</strong> above to route this cluster.
+                  </p>
                 ) : (
                   <p className="muted">
-                    No planned tour yet — head to the Plan tab.
+                    Select a cluster in the Plan tab to plan its loop.
                   </p>
                 )}
               </>
@@ -715,6 +857,7 @@ export default function App(): JSX.Element {
             <RadiusLayer params={params} />
             <CachesLayer
               params={params}
+              queryInput={debouncedCacheInput}
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
@@ -723,7 +866,18 @@ export default function App(): JSX.Element {
               candidates={clusters}
               caches={cachesQuery.data?.caches}
               focusedClusterId={focusedClusterId}
-              onCentroidClick={setFocusedClusterId}
+              // Single click on the map is intentionally a no-op: panning and
+              // clicking around the map must NOT change the focused cluster or
+              // yank the camera (the focus→camera effect would refit). Focus is
+              // driven only by the sidebar list. Double click on a centroid =
+              // commit it as the Tour context (same as the list's double-click
+              // / "Open in Tour" button).
+              onCentroidClick={() => {}}
+              onCentroidDblClick={(id) => {
+                setFocusedClusterId(id);
+                const c = clusters?.find((x) => x.clusterId === id);
+                if (c) selectCluster(c);
+              }}
             />
             <TourLayer
               result={planResult}
@@ -784,6 +938,7 @@ export default function App(): JSX.Element {
               params={params}
               maxLinkMeters={planSettings.maxLinkMeters}
               distanceBudgetMeters={planSettings.distanceBudgetMeters}
+              avgWalkingKmh={planSettings.avgWalkingKmh}
               onStatsChange={setWalkingGraphStats}
             />
             <TestRouteLayer result={testRoute} />
@@ -849,14 +1004,14 @@ export default function App(): JSX.Element {
                 title={
                   focusedClusterForFab.isPlannedTour
                     ? "Open tour details"
-                    : "Plan this cluster"
+                    : "Plan this cluster's loop"
                 }
               >
                 {planMutation.isPending
                   ? "Planning…"
                   : focusedClusterForFab.isPlannedTour
                     ? `✓ Tour #${focusedClusterForFab.rank}/${focusedClusterForFab.total}`
-                    : `Plan #${focusedClusterForFab.rank}/${focusedClusterForFab.total} (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
+                    : `Plan tour (${focusedClusterForFab.cluster.cacheIds.length} caches)`}
               </button>
               <button
                 type="button"

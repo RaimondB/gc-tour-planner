@@ -120,6 +120,32 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
     expect(empty.caches).toEqual([]);
   });
 
+  it("getDetail returns full detail for the owner and rejects another user's id", async () => {
+    const all = await cachesService.list(ownerId, {
+      center: [5.12, 52.09],
+      radiusM: 5_000,
+    } as never);
+    const target = all.caches[0];
+    if (!target) throw new Error("test prerequisite: at least one cache");
+
+    const detail = await cachesService.getDetail(ownerId, target.id);
+    expect(detail.id).toBe(target.id);
+    expect(detail.code).toBe(target.code);
+    // Detail carries the popup-only fields the lean /caches list omits.
+    expect(typeof detail.name).toBe("string");
+    expect(Array.isArray(detail.attributeIds)).toBe(true);
+
+    // Per-user GPX isolation: another user cannot read this cache's detail.
+    const stranger = await pg.db
+      .insertInto("users")
+      .values({ email: "stranger@gctp.local", display_name: "Stranger" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    await expect(
+      cachesService.getDetail(stranger.id, target.id),
+    ).rejects.toThrow();
+  });
+
   it("marks-as-found via GPX upload and respects excludeFound", async () => {
     const xml = readFileSync(fixturePath, "utf8");
 

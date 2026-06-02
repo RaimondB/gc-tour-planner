@@ -35,16 +35,17 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
    - **running TSP lower bound** (MST length × 2) ≤ `distanceBudgetMeters`,
    - estimated time ≤ `timeBudgetMinutes` (if set), using `routing.getMatrix` averages.
 2. Build the OD distance matrix via `routing.getMatrix(admittedIds)` — **walking distance**, symmetric, memoized per cache pair.
-3. **TSP loop solver**: Nearest-Neighbor seed, then **2-opt** until no improving swap. Deterministic tie-breaks (lowest cache id wins). Lives in `packages/shared/src/tsp/two-opt.ts`.
+3. **TSP loop solver**: Nearest-Neighbor seed, then **2-opt** until no improving swap. Deterministic tie-breaks (lowest cache id wins). Lives in `packages/shared/src/tsp/two-opt.ts`. The seed is anchored on the cache nearest the **cluster centroid** — a parking-independent choice — so the cache cycle is built *before* parking is selected and can be scored against it (steps 5–6). The pinned start only chooses which 2-opt local optimum we land in; the actual parking attach point comes from step 6.
 4. **Pre-trim** — drop caches whose OSRM-primary marginal `(leg_in + leg_out − skip)` exceeds `input.maxLinkMeters`. Cheap; runs before any leg picking. Threshold migrated from the env-derived `resolveMarginalTrimThreshold` formula to the per-plan `maxLinkMeters` knob so both Pass-1 and Pass-2 trim respect the same user tolerance.
-5. **Parking selection** by `startPreference`:
-   - `parking-waypoint`: pick the `additional_waypoint(type='parking')` nearest the cluster centroid; reason = "Cache-owner parking near cluster centroid".
-   - `osrm-nearest-road`: OSRM `/nearest` on the cluster centroid.
-   - `user-supplied-point`: use `userSuppliedStart` verbatim.
-   - `osm-parking` (ADR-0011): query `parking_facilities` within `maxLinkMeters` of the centroid filtered by `osmParkingAccessFilter` + `osmParkingFeeFilter`, then OSRM-walk each candidate to the cluster's nearest cache and pick the shortest within the cap. Falls back to OSRM-nearest if nothing fits.
-6. **Loop-aware leg picker** (apps/api/src/tours/strategies/greedy/loop-aware-legs.ts): per leg, OSRM `routeAlternatives` (up to 1 + `PLANNER_LOOP_ALT_COUNT`) are scored against an `OverlapGrid` of already-walked coordinates; the least-overlap alternative wins, with a via-waypoint nudge fallback when overlap exceeds `PLANNER_LOOP_NUDGE_THRESHOLD`.
-7. **Post-leg-pick fringe trim** — the alternative-aware companion to the pre-trim. For each cache, compute the *retrace overlap* between leg-in and leg-out via the same `OverlapGrid` (25 m cells by default). If any cache's overlap exceeds `input.fringeTrimMeters` (default 500), drop the worst one, re-2-opt the survivors, rebuild legs from scratch. Capped at 3 iterations. Coherent loop detours have ~0 overlap and survive; true cul-de-sac spurs have overlap ≈ 2 × spur length and get trimmed. See FR-T8 in [../requirements/tour-planning.md](../requirements/tour-planning.md).
-8. Compose `PlanResult` with score breakdown + `droppedCacheIds` (union of pre-trim + post-trim drops; the UI renders these as gray-x markers).
+5. **Parking selection** by `startPreference` (`selectParking` in `greedy-tsp-planner.ts`). Single-candidate modes resolve directly; multi-candidate modes are **loop-aware** — every candidate is scored by its cheapest insertion edge into the step-3 cycle (`bestParkingInsertion` — the same metric step 6 uses) and the **minimum-detour** candidate wins, i.e. the lot that adds the least walking to the *whole tour*, not merely the one closest to a single cache. Distances come from one batched OSRM `/table` (candidates × caches, both directions); candidates whose shortest walk to any cache exceeds `maxLinkMeters` are dropped as bogus cross-barrier routes.
+   - `parking-waypoint`: enumerate the cluster's distinct `additional_waypoint(type='parking')` points (`enumeratePqParking`), then loop-aware pick. Falls back to OSRM-nearest if none reachable.
+   - `osm-parking` (ADR-0011): enumerate `parking_facilities` within `maxLinkMeters` of the centroid filtered by `osmParkingAccessFilter` + `osmParkingFeeFilter` (`enumerateOsmParking`), then loop-aware pick. Falls back to OSRM-nearest if none reachable.
+   - `osrm-nearest-road` (ADR-0012): snap onto **car-accessible** roads, not the foot graph. Enumerate the `PLANNER_ROAD_CANDIDATES` (default 12) eligible road segments closest to the **tour path** (the closed cycle line through the ordered caches — *not* the centroid, so a road hugging a leg out at the cluster's edge can win) from the `car_roads` table (`CarRoadsRepository.findNearestRoadPoints`), reducing each to its `ST_ClosestPoint` "pull-over" point, then loop-aware pick. Eligible = `highway ∈ {residential, living_street, unclassified, service, tertiary}` (coarse, in the Lua import) minus `access`/`motor_vehicle ∈ {no, private}`, `maxspeed ≥ 70`, `service = driveway` (fine, at query time — retunable without a re-import). Falls back to the old OSRM `/nearest` foot-snap of the centroid when no eligible road is reachable (rural gaps, or the table is absent in tests).
+   - `user-supplied-point`: use `userSuppliedStart` verbatim (single candidate).
+6. **Parking-insertion rotation** (`rotateForBestParkingInsertion` in `greedy-tsp-planner.ts`): the loop is always built as `parking → first … last → parking`, so parking splits exactly one cycle edge `(last → first)`. Since the cache-cycle edge sum is invariant under rotation, the loop total is minimised by attaching parking at the edge with the smallest insertion detour `parking→next + prev→parking − prev→next`. The `− prev→next` term is a geometric proxy for retrace: a *long* skipped edge means parking sits on the way (cheap); a *short* one makes it an out-and-back spur (expensive). The cycle is rotated so that edge becomes the entry/exit; `start = 0` reproduces the old fixed `last→first` behaviour and wins ties, so it's a strict, deterministic improvement, and it re-runs after every post-trim 2-opt restart. (For loop-aware modes the chosen parking already minimises this same cost — the rotation then aligns the loop to it.) This changes *where the loop attaches to parking*, not which cache is "nearest"; the first cache is still parking-adjacent by construction.
+7. **Loop-aware leg picker** (apps/api/src/tours/strategies/greedy/loop-aware-legs.ts): per leg, OSRM `routeAlternatives` (up to 1 + `PLANNER_LOOP_ALT_COUNT`) are scored against an `OverlapGrid` of already-walked coordinates; the least-overlap alternative wins, with a via-waypoint nudge fallback when overlap exceeds `PLANNER_LOOP_NUDGE_THRESHOLD`.
+8. **Post-leg-pick fringe trim** — the alternative-aware companion to the pre-trim. For each cache, compute the *retrace overlap* between leg-in and leg-out via the same `OverlapGrid` (25 m cells by default). If any cache's overlap exceeds `input.fringeTrimMeters` (default 500), drop the worst one, re-2-opt the survivors, rebuild legs from scratch. Capped at 3 iterations. Coherent loop detours have ~0 overlap and survive; true cul-de-sac spurs have overlap ≈ 2 × spur length and get trimmed. See FR-T8 in [../requirements/tour-planning.md](../requirements/tour-planning.md).
+9. Compose `PlanResult` with score breakdown + `droppedCacheIds` (union of pre-trim + post-trim drops; the UI renders these as gray-x markers).
 
 ## Why this works
 
@@ -52,6 +53,29 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 - The Gaussian budget-fit term avoids picking the densest possible cluster when it would blow the distance budget (or be trivially short).
 - NN+2-opt is exact-enough for the small N (≤ 50) we cap at; no need for OR-Tools yet.
 - All randomness avoided so the same inputs produce the same output — easy to test, easy to reason about.
+
+## Compute boundary — worker-thread pool (ADR-0014)
+
+The CPU-heavy, **synchronous** parts of both passes run off the API event loop in
+a piscina worker pool (`ComputePool`, `tours/compute/`), so one user's plan can't
+block everyone else (the prerequisite for multi-user). Two task kinds cross the
+boundary, both pure + serializable:
+
+- **`tsp`** — `solveTwoOpt` (Pass 2's initial solve, the marginal-trim re-order,
+  and each fringe-trim re-solve). The greedy planner `await`s the pool instead of
+  calling the solver inline.
+- **`cluster`** — the entire post-context Pass 1 pipeline (`computeClusters` in
+  `discover-compute.ts`: strategy → refine → score → diagnostics).
+
+The split is strict: **all I/O stays on the main thread.** `prepareClusteringContext`
+(OSRM + Postgres), `routing.getMatrix`, the loop-aware leg building, and parking
+selection all run on the main thread, which builds the serializable inputs
+(distance matrix; the clustering context incl. its landuse `Map`) and hands them
+to the pool. The worker imports only pure modules — the strategy registry was
+split into `clustering/registry.ts` precisely so the worker never loads the
+I/O-bearing `clustering/context.ts`. Determinism is unchanged (same pure
+functions, just off-thread). Knobs: `PLANNER_WORKER_THREADS`,
+`PLANNER_WORKER_TIMEOUT_MS` (see [../PLANNER_TUNING.md](../PLANNER_TUNING.md)).
 
 ## Manual edits — leg geometry swap (FR-T11)
 

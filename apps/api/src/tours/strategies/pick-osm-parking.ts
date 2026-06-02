@@ -23,6 +23,44 @@ const logger = new Logger("pick-osm-parking");
  * Returns `null` when no walkable OSM parking is reachable inside the
  * budget; the caller falls back to OSRM-nearest centroid.
  */
+/** A parking facility candidate before any loop-aware scoring. */
+export interface OsmParkingCandidate {
+  point: [number, number];
+  osmId: number;
+  osmType: "N" | "W" | "R";
+  access: string | null;
+  fee: string | null;
+  name: string | null;
+}
+
+/**
+ * Enumerate *all* OSM parking facilities within `maxLinkMeters` of the cluster
+ * centroid, pre-filtered by access + fee — no OSRM routing. Unlike
+ * {@link pickOsmParking} (which walks each to its nearest cache and keeps the
+ * shortest), this returns the raw candidate set so the caller can score every
+ * one against the actual tour loop and pick the cheapest *insertion*, not just
+ * the closest lot. Returns `[]` when nothing matches the filters in range.
+ */
+export async function enumerateOsmParking(
+  repo: ParkingFacilitiesRepository,
+  input: Tours.PlanLoopInput,
+  centroid: [number, number],
+): Promise<OsmParkingCandidate[]> {
+  if (input.startPreference !== "osm-parking") return [];
+  const candidates = await repo.findNear(centroid, input.maxLinkMeters, {
+    access: input.osmParkingAccessFilter as readonly string[],
+    fee: input.osmParkingFeeFilter,
+  });
+  return candidates.map((c) => ({
+    point: c.point,
+    osmId: c.osmId,
+    osmType: c.osmType,
+    access: c.access,
+    fee: c.fee,
+    name: c.name,
+  }));
+}
+
 export async function pickOsmParking(
   repo: ParkingFacilitiesRepository,
   osrm: OsrmClient,

@@ -12,6 +12,7 @@ import { OsmModule } from "../osm/osm.module.js";
 import { LanduseProfilesModule } from "../landuse-profiles/landuse-profiles.module.js";
 import { LanduseProfilesRepository } from "../landuse-profiles/landuse-profiles.repository.js";
 import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
+import { CarRoadsRepository } from "../osm/car-roads.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
@@ -19,6 +20,11 @@ import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
 import { GreedyTspPlanner } from "./strategies/greedy/greedy-tsp-planner.js";
 import { SolverTourPlanner } from "./strategies/solver/solver-tour-planner.js";
+import {
+  COMPUTE_POOL,
+  type ComputePool,
+  PiscinaComputePool,
+} from "./compute/compute-pool.service.js";
 import {
   HttpSolverClient,
   SOLVER_CLIENT,
@@ -53,7 +59,9 @@ const tourPlannerProvider: Provider = {
     osrmVersion: OsrmVersionService,
     solver: SolverClient,
     parkingFacilities: ParkingFacilitiesRepository,
+    carRoads: CarRoadsRepository,
     landuseProfiles: LanduseProfilesRepository,
+    computePool: ComputePool,
   ) => {
     const greedy = new GreedyTspPlanner(
       caches,
@@ -64,7 +72,9 @@ const tourPlannerProvider: Provider = {
       osrm,
       osrmVersion,
       parkingFacilities,
+      carRoads,
       landuseProfiles,
+      computePool,
     );
     const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
     switch (flavor) {
@@ -93,7 +103,9 @@ const tourPlannerProvider: Provider = {
     OsrmVersionService,
     SOLVER_CLIENT,
     ParkingFacilitiesRepository,
+    CarRoadsRepository,
     LanduseProfilesRepository,
+    COMPUTE_POOL,
   ],
 };
 
@@ -103,6 +115,7 @@ const tourPlannerProvider: Provider = {
   providers: [
     ToursService,
     { provide: SOLVER_CLIENT, useClass: HttpSolverClient },
+    { provide: COMPUTE_POOL, useClass: PiscinaComputePool },
     tourPlannerProvider,
   ],
   exports: [Tours.TOUR_PLANNER, ToursService],

@@ -88,6 +88,11 @@ echo "[landuse-import] importing ${TARGET_PBF} into ${PG_DATABASE}@${PG_HOST}"
 # (ADR-0011); both tables refresh atomically.
 ${PSQL} -c "TRUNCATE landuse_polygons RESTART IDENTITY CASCADE;"
 ${PSQL} -c "TRUNCATE parking_facilities RESTART IDENTITY CASCADE;"
+# car_roads (ADR-0012) refreshes in the same Lua pass. Guarded with
+# to_regclass so this stays a no-op (not a hard ON_ERROR_STOP failure) if a
+# stack somehow runs the import before the migration created the table —
+# osm2pgsql's flex DROP+CREATE will materialise it from the Lua either way.
+${PSQL} -c "DO \$\$ BEGIN IF to_regclass('car_roads') IS NOT NULL THEN TRUNCATE car_roads RESTART IDENTITY CASCADE; END IF; END \$\$;"
 
 # Wipe any in-flight flat.bin from a previous failed import.
 rm -f /var/lib/osm2pgsql/flat.bin

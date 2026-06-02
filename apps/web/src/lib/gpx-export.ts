@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 
 /**
@@ -69,7 +69,7 @@ interface GpxStop {
 
 function buildStops(
   result: PlanResult,
-  cacheById: ReadonlyMap<number, CacheDTO>,
+  cacheById: ReadonlyMap<number, CacheSummaryDTO>,
 ): GpxStop[] {
   const stops: GpxStop[] = [];
   const parkingPoint = result.parking.point.coordinates;
@@ -119,7 +119,7 @@ function buildHeader(name: string): string {
  */
 export function planToGpxTrack(
   result: PlanResult,
-  caches: readonly CacheDTO[] | undefined,
+  caches: readonly CacheSummaryDTO[] | undefined,
   name = "gc-tour-planner — track",
   /**
    * When the user has applied manual leg-route swaps the displayed
@@ -129,7 +129,7 @@ export function planToGpxTrack(
    */
   overridePolyline?: PlanResult["polyline"],
 ): string {
-  const cacheById = new Map<number, CacheDTO>();
+  const cacheById = new Map<number, CacheSummaryDTO>();
   for (const c of caches ?? []) cacheById.set(c.id, c);
   const stops = buildStops(result, cacheById);
   const trkpts = (overridePolyline ?? result.polyline).coordinates
@@ -156,10 +156,10 @@ export function planToGpxTrack(
  */
 export function planToGpxRoute(
   result: PlanResult,
-  caches: readonly CacheDTO[] | undefined,
+  caches: readonly CacheSummaryDTO[] | undefined,
   name = "gc-tour-planner — route",
 ): string {
-  const cacheById = new Map<number, CacheDTO>();
+  const cacheById = new Map<number, CacheSummaryDTO>();
   for (const c of caches ?? []) cacheById.set(c.id, c);
   const stops = buildStops(result, cacheById);
   // Close the loop — the planner's polyline ends back at parking, but

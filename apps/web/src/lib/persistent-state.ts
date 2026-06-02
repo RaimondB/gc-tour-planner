@@ -102,6 +102,30 @@ export function planSignature(result: PlanResult): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
+/**
+ * Evict persisted leg-edit entries (`plan-edits:*`) for every plan except
+ * `keepSignature`. Each distinct planned tour writes its own key, and nothing
+ * else ever removes them, so without pruning they grow unbounded toward the
+ * per-origin localStorage quota over a long session (each `via` pick stores a
+ * full OSRM geometry). Called whenever a plan is active to keep only the
+ * current plan's edits. No-op when localStorage is unavailable. Pass `null` to
+ * drop them all.
+ */
+export function prunePlanEditKeys(keepSignature: string | null): void {
+  try {
+    const prefix = `${PREFIX}plan-edits:`;
+    const keep = keepSignature !== null ? `${prefix}${keepSignature}` : null;
+    const stale: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k !== null && k.startsWith(prefix) && k !== keep) stale.push(k);
+    }
+    for (const k of stale) localStorage.removeItem(k);
+  } catch {
+    /* localStorage unavailable (private mode, quota) — nothing to prune */
+  }
+}
+
 // ── Per-leg pick (FR-T11) ────────────────────────────────────────────
 //
 // Two kinds of edit are persisted per leg:

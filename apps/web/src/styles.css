@@ -218,6 +218,15 @@ body,
   inset: 0;
 }
 
+/* The drawer backdrop is a MOBILE-only overlay. It must not exist in the
+   desktop layout: it's rendered as a direct child of `.app-body` (the
+   320px 1fr grid), so if it were visible it would consume a grid track and
+   shove the map out of place. Hidden by default; the media query below makes
+   it a fixed overlay on phones. */
+.sidebar-backdrop {
+  display: none;
+}
+
 .app-footer {
   padding: 0.5rem 1rem;
   border-top: 1px solid #e5e7eb;
@@ -288,6 +297,64 @@ body,
   background: #f3f4f6;
 }
 
+/* --- Tour-tab Replan control (planning controls moved to the Tour tab) --- */
+.replan-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.replan-bar__info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #1f2937;
+}
+.replan-bar .badge--stale {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.replan-bar button {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.8rem;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.replan-bar button:hover {
+  background: #f3f4f6;
+}
+.replan-bar button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.replan-bar button.primary {
+  background: #d84315;
+  border-color: #d84315;
+  color: white;
+}
+.replan-bar button.primary:hover {
+  background: #bf360c;
+}
+.replan-bar .error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #b91c1c;
+}
+
 .sidebar .checkbox {
   display: flex;
   flex-direction: row;
@@ -351,6 +418,19 @@ body,
   color: #991b1b;
 }
 
+.dropzone__hint {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #6b7280;
+}
+
+.dropzone__myfinds {
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+  color: #c2410c;
+}
+
 .dropzone details {
   margin-top: 0.4rem;
   text-align: left;
@@ -361,21 +441,12 @@ body,
   padding: 0;
 }
 
-/* --- Upload mode --------------------------------------------------------*/
+/* --- Upload ------------------------------------------------------------*/
 
 .upload {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.upload__mode {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  color: #4b5563;
-  padding: 0 0.25rem;
 }
 
 /* --- MapLibre popups --------------------------------------------------- */
@@ -392,7 +463,11 @@ body,
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  min-width: 180px;
+  /* Fixed EVEN width avoids blurry text: MapLibre anchors popups with a
+     `translate(-50%, …)` whose horizontal half lands on a sub-pixel when the
+     content width is odd. 220 + the popup's 20px padding = 240 (MapLibre's
+     default max-width) → -50% is a whole pixel → crisp. */
+  width: 220px;
 }
 
 .cache-popup__title {
@@ -420,6 +495,16 @@ body,
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.cache-popup__link {
+  font-size: 0.78rem;
+  color: #1565c0;
+  text-decoration: none;
+}
+
+.cache-popup__link:hover {
+  text-decoration: underline;
 }
 
 .cache-popup__btn {
@@ -474,6 +559,49 @@ body,
   padding-top: 0.5rem;
 }
 
+/* --- GPX export (the primary "take it to the field" action) ------------ */
+
+.gpx-export {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #eceff1;
+}
+
+.gpx-export h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.gpx-export__buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gpx-export__buttons button {
+  flex: 1;
+}
+
+.gpx-export__hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #6b7280;
+}
+
+/* Diagnostic JSON downloads tucked behind a disclosure — not field-facing. */
+.planner-actions-advanced {
+  margin-top: 0.5rem;
+}
+.planner-actions-advanced > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #6b7280;
+  user-select: none;
+}
+.planner-actions-advanced .planner-actions {
+  flex-wrap: wrap;
+}
+
 .planner-error {
   color: #991b1b;
   background: #fee2e2;
@@ -487,6 +615,24 @@ body,
   font-size: 0.8rem;
   color: #6b7280;
   font-style: italic;
+}
+
+/* First-run guidance: shown when a tab has nothing yet and the user needs
+   to be told what action loads it (cold-start cue, not a "no results" note). */
+.empty-hint {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #374151;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #fb923c;
+  border-radius: 6px;
+}
+
+.empty-hint strong {
+  color: #c2410c;
 }
 
 /* --- Cluster picker ---------------------------------------------------- */
@@ -554,6 +700,45 @@ body,
   color: #374151;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
+}
+
+/* Humanised cluster card (UX P0): plain summary up front, dev metrics tucked
+   into a "details" disclosure. */
+.cluster-summary {
+  color: #4b5563;
+}
+.cluster-metrics > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #9ca3af;
+  list-style: none;
+}
+.cluster-metrics[open] > summary {
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+}
+
+/* Progressive-disclosure "Advanced …" sections in the Plan/Tour panels. */
+.sidebar details.advanced {
+  margin: 0.1rem 0 0.4rem;
+  border-top: 1px solid #eceff1;
+  padding-top: 0.4rem;
+}
+.sidebar details.advanced > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #6b7280;
+  user-select: none;
+}
+.sidebar details.advanced[open] > summary {
+  color: #1f2937;
+  margin-bottom: 0.4rem;
+}
+/* Slider hint text under a labelled control. */
+.sidebar label small.muted {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
 }
 
 /* --- Cache-attribute chips (FR-SF4 / FR-SF8) ---------------------------- */
@@ -799,6 +984,7 @@ body,
   }
 
   .sidebar-backdrop {
+    display: block;
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.25);

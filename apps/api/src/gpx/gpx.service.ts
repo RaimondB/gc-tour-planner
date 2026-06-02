@@ -31,13 +31,21 @@ export interface GpxUploadResult {
    * new vs updated vs stale).
    */
   stats: UploadStats;
+  /**
+   * True when the upload was auto-detected as a Groundspeak "My Finds"
+   * Pocket Query (top-level `<gpx><name>`), which triggers the automatic
+   * mark-as-found. The dropzone surfaces this so the detection is visible.
+   */
+  myFinds: boolean;
 }
 
 export interface IngestOptions {
   /**
-   * When true, every cache in the upload is also marked as found by the
-   * uploader (idempotent — existing finds aren't disturbed). Intended for
-   * Groundspeak "My Finds" Pocket Queries.
+   * Force every cache in the upload to be marked as found by the uploader
+   * (idempotent — existing finds aren't disturbed), regardless of the file
+   * contents. A Groundspeak "My Finds" Pocket Query is auto-detected and
+   * always marked found whether or not this is set; this flag is the manual
+   * override for marking a *regular* PQ as found.
    */
   markAsFound?: boolean;
 }
@@ -146,8 +154,11 @@ export class GpxService {
         exportedAtDate,
       );
 
+    // Auto-detected "My Finds" PQ marks finds without the user asking;
+    // `opts.markAsFound` is the manual override for a regular PQ.
+    const shouldMarkFound = parsed.isMyFinds || opts.markAsFound === true;
     let findsRecorded = 0;
-    if (opts.markAsFound && cacheIdByCode.size > 0) {
+    if (shouldMarkFound && cacheIdByCode.size > 0) {
       findsRecorded = await this.repo.recordFinds(
         ownerId,
         Array.from(cacheIdByCode.values()),
@@ -176,6 +187,7 @@ export class GpxService {
       findsRecorded,
       warnings: parsed.warnings,
       stats,
+      myFinds: parsed.isMyFinds,
     };
   }
 

@@ -36,7 +36,7 @@ describe("medianInterCacheDistance", () => {
 });
 
 describe("trimMarginalCaches", () => {
-  it("keeps every cache when no marginal exceeds the threshold", () => {
+  it("keeps every cache when no marginal exceeds the threshold", async () => {
     // 4 caches in a roughly linear arrangement; consecutive walks ~500 m.
     const ids = [10, 11, 12, 13];
     const d = [
@@ -45,7 +45,7 @@ describe("trimMarginalCaches", () => {
       [1000, 500, 0, 500],
       [1500, 1000, 500, 0],
     ];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,
@@ -57,7 +57,7 @@ describe("trimMarginalCaches", () => {
     expect(out.savedMeters).toBe(0);
   });
 
-  it("drops the interior cache that's the worst detour", () => {
+  it("drops the interior cache that's the worst detour", async () => {
     // 4 caches; cache 12 is the marginal one — it costs 4000 m total to
     // visit (prev/next), but the prev→next leg without it is only 100 m.
     const ids = [10, 11, 12, 13];
@@ -67,7 +67,7 @@ describe("trimMarginalCaches", () => {
       [100, 2000, 0, 2000],
       [100, 100, 2000, 0],
     ];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,
@@ -79,7 +79,7 @@ describe("trimMarginalCaches", () => {
     expect(out.savedMeters).toBeGreaterThan(0);
   });
 
-  it("conservatively keeps endpoints when parking distances are not supplied", () => {
+  it("conservatively keeps endpoints when parking distances are not supplied", async () => {
     // 3-cache tour where the FIRST cache looks bad but the trim has no
     // parking-distance arrays, so it can't compute endpoint marginals.
     // Test verifies we don't accidentally trim endpoints without the data.
@@ -89,7 +89,7 @@ describe("trimMarginalCaches", () => {
       [100, 0, 100],
       [5000, 100, 0],
     ];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,
@@ -101,7 +101,7 @@ describe("trimMarginalCaches", () => {
     expect(out.orderedIds[out.orderedIds.length - 1]).toBe(12);
   });
 
-  it("trims the LAST cache when parking distances flag it as the worst", () => {
+  it("trims the LAST cache when parking distances flag it as the worst", async () => {
     // 4-cache tour. Cache 13 (last) is a barrier-stuck cache:
     //   secondLast(12) → last(13)  = 2300 m
     //   last(13) → parking         = 1200 m
@@ -116,7 +116,7 @@ describe("trimMarginalCaches", () => {
     ];
     const parkingToCacheM = [200, 200, 200, 1200]; // last is far via parking
     const cacheToParkingM = [200, 200, 200, 1200];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,
@@ -129,7 +129,7 @@ describe("trimMarginalCaches", () => {
     expect(out.orderedIds).not.toContain(13);
   });
 
-  it("respects minRemaining as a hard floor", () => {
+  it("respects minRemaining as a hard floor", async () => {
     // Construct a tour where every interior cache is marginal. With
     // minRemaining=3, we should stop trimming once we'd go below.
     const ids = [10, 11, 12, 13, 14];
@@ -140,7 +140,7 @@ describe("trimMarginalCaches", () => {
       [2000, 2000, 2000, 0, 2000],
       [100, 100, 2000, 2000, 0],
     ];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,
@@ -150,14 +150,14 @@ describe("trimMarginalCaches", () => {
     expect(out.orderedIds.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("returns input unchanged when thresholdMeters is 0 (disabled)", () => {
+  it("returns input unchanged when thresholdMeters is 0 (disabled)", async () => {
     const ids = [10, 11, 12];
     const d = [
       [0, 1, 1],
       [1, 0, 1],
       [1, 1, 0],
     ];
-    const out = trimMarginalCaches({
+    const out = await trimMarginalCaches({
       orderedIds: ids,
       originalIds: ids,
       distances: d,

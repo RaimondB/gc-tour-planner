@@ -89,5 +89,13 @@ export const ParsedGpx = z.object({
    * The upsert path copies this onto each cache's `source_exported_at`.
    */
   exportedAt: z.string().datetime({ offset: true }).nullable(),
+  /**
+   * True when the source is a Groundspeak "My Finds" Pocket Query —
+   * detected from the top-level `<gpx><name>My Finds Pocket Query</name>`
+   * that geocaching.com stamps on the My-Finds export. The ingest path
+   * uses this to mark every cache in the upload as found automatically,
+   * so the user doesn't have to flag it manually.
+   */
+  isMyFinds: z.boolean(),
 });
 export type ParsedGpx = z.infer<typeof ParsedGpx>;

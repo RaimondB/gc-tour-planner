@@ -83,7 +83,8 @@ export class CachesController {
   })
   @ApiResponse({
     status: 200,
-    description: "Caches plus a coarse grid clusterHint.",
+    description:
+      "Lean per-cache summaries (CacheSummaryDTO) plus a coarse grid clusterHint. Popup-only fields (difficulty, terrain, attributes, hints) are fetched per cache via GET /caches/:id.",
   })
   async list(
     @CurrentUser() user: AuthUser,
@@ -96,7 +97,7 @@ export class CachesController {
     @Query("contexts") contextsRaw?: string | string[],
     @Query("includeDisabled") includeDisabledRaw?: string,
     @Query("includeArchived") includeArchivedRaw?: string,
-  ): Promise<Caches.CachesResponse> {
+  ): Promise<Caches.CachesSummaryResponse> {
     const types =
       typesRaw === undefined
         ? undefined
@@ -137,7 +138,30 @@ export class CachesController {
       throw new BadRequestException(parsed.error.flatten());
     }
 
-    return this.service.list(user.id, parsed.data);
+    // Map the full internal result down to the lean wire shape. The DB work
+    // (and internal planner callers of service.list) keep the full DTO; only
+    // the network response is slimmed. Popup-only fields come from /caches/:id.
+    const full = await this.service.list(user.id, parsed.data);
+    return {
+      caches: full.caches.map(Caches.toCacheSummary),
+      clustersHint: full.clustersHint,
+    };
+  }
+
+  @Get(":id")
+  @ApiOperation({
+    summary: "Full detail for one cache (the popup-only fields /caches omits)",
+  })
+  @ApiResponse({ status: 200, description: "The full CacheDTO." })
+  @ApiResponse({
+    status: 404,
+    description: "No such cache for the current user.",
+  })
+  detail(
+    @CurrentUser() user: AuthUser,
+    @Param("id", ParseIntPipe) id: number,
+  ): Promise<Caches.CacheDTO> {
+    return this.service.getDetail(user.id, id);
   }
 
   @Post(":id/finds")

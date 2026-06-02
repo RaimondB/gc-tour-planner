@@ -74,6 +74,16 @@ export interface MarginalTrimInput {
   parkingToCacheM?: readonly number[];
   /** Walking distance from each cache back to parking. Symmetry partner to `parkingToCacheM`. */
   cacheToParkingM?: readonly number[];
+  /**
+   * Async TSP solve used to re-order the survivors after a drop. Injected so
+   * the planner runs it on the worker pool (ADR-0014) instead of blocking the
+   * event loop. Defaults to a synchronous in-process `Tsp.solveTwoOpt` (used by
+   * unit tests, which don't have a pool).
+   */
+  solve?: (
+    distances: readonly (readonly (number | null)[])[],
+    startIndex: number,
+  ) => Promise<{ order: number[] }>;
 }
 
 export interface MarginalTrimResult {
@@ -85,7 +95,9 @@ export interface MarginalTrimResult {
   savedMeters: number;
 }
 
-export function trimMarginalCaches(input: MarginalTrimInput): MarginalTrimResult {
+export async function trimMarginalCaches(
+  input: MarginalTrimInput,
+): Promise<MarginalTrimResult> {
   const {
     originalIds,
     distances,
@@ -93,6 +105,9 @@ export function trimMarginalCaches(input: MarginalTrimInput): MarginalTrimResult
     minRemaining,
     maxIterations = input.orderedIds.length,
   } = input;
+  // Worker-pool solve when injected; synchronous fallback otherwise (tests).
+  const solve =
+    input.solve ?? ((d, s): Promise<{ order: number[] }> => Promise.resolve(Tsp.solveTwoOpt(d, s)));
 
   // No-op fast path.
   if (
@@ -230,7 +245,7 @@ export function trimMarginalCaches(input: MarginalTrimInput): MarginalTrimResult
     const finite = subDist.map((row) =>
       row.map((v) => (v === null || !Number.isFinite(v) ? Number.MAX_SAFE_INTEGER : v)),
     );
-    const { order } = Tsp.solveTwoOpt(finite, 0);
+    const { order } = await solve(finite, 0);
     surviving = order.map((i) => surviving[i]!);
   }
 

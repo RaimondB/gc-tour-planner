@@ -146,24 +146,38 @@ export function MapView({
     // Forcing a resize + repaint on `visibilitychange` covers it.
     // `pageshow` with `persisted=true` covers the BFCache restore case
     // (mobile Safari especially).
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
+    const recover = () => {
       map.resize();
       map.triggerRepaint();
     };
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) {
-        map.resize();
-        map.triggerRepaint();
-      }
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      recover();
     };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) recover();
+    };
+    // Switching to ANOTHER APP (not another tab) blurs the window without
+    // changing `document.visibilityState`, so `visibilitychange` never fires
+    // — yet the browser still pauses rAF for the unfocused window, leaving the
+    // basemap stale/blank on return. `window` focus covers that gap.
+    const onWindowFocus = () => recover();
+    // If the OS / browser reclaimed GPU memory while backgrounded the WebGL
+    // context is lost and the canvas comes back blank; repaint once it's
+    // restored. (Belt-and-braces for the memory-pressure discard case.)
+    const canvas = map.getCanvas();
+    const onContextRestored = () => recover();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onWindowFocus);
+    canvas.addEventListener("webglcontextrestored", onContextRestored);
 
     return () => {
       ro.disconnect();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onWindowFocus);
+      canvas.removeEventListener("webglcontextrestored", onContextRestored);
       map.off("click", clickHandler);
       map.off("moveend", onMoveEnd);
       onReadyRef.current?.(null);

@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo } from "react";
 import type maplibregl from "maplibre-gl";
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { ClusterCandidate } from "@gctp/shared/tours";
 import { useMap } from "./MapContext.js";
 
@@ -35,16 +35,21 @@ export function ClustersPreviewLayer({
   caches,
   focusedClusterId,
   onCentroidClick,
+  onCentroidDblClick,
 }: {
   candidates: ClusterCandidate[] | null;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   focusedClusterId: string | null;
+  /** Single click — currently a no-op (App passes `() => {}`) so clicking
+   *  around the map never changes focus or moves the camera. Kept as a hook. */
   onCentroidClick: (clusterId: string) => void;
+  /** Double click — commit the cluster as the Tour context. */
+  onCentroidDblClick: (clusterId: string) => void;
 }): null {
   const { map, ready } = useMap();
 
   const cacheById = useMemo(() => {
-    const out = new Map<number, CacheDTO>();
+    const out = new Map<number, CacheSummaryDTO>();
     for (const c of caches ?? []) out.set(c.id, c);
     return out;
   }, [caches]);
@@ -139,7 +144,7 @@ export function ClustersPreviewLayer({
       const focused = cluster.clusterId === focusedClusterId ? 1 : 0;
       const memberCaches = cluster.cacheIds
         .map((id) => cacheById.get(id))
-        .filter((c): c is CacheDTO => c != null);
+        .filter((c): c is CacheSummaryDTO => c != null);
 
       for (const c of memberCaches) {
         cacheFeatures.push({
@@ -235,6 +240,18 @@ export function ClustersPreviewLayer({
       const id = (f.properties as { clusterId?: string }).clusterId;
       if (id) onCentroidClick(id);
     };
+    const dblHandler = (
+      e: maplibregl.MapMouseEvent & {
+        features?: maplibregl.MapGeoJSONFeature[];
+      },
+    ) => {
+      const f = e.features?.[0];
+      if (!f) return;
+      // Stop the map's default double-click zoom — here a dbl-click selects.
+      e.preventDefault();
+      const id = (f.properties as { clusterId?: string }).clusterId;
+      if (id) onCentroidDblClick(id);
+    };
     const enter = () => {
       map.getCanvas().style.cursor = "pointer";
     };
@@ -242,14 +259,16 @@ export function ClustersPreviewLayer({
       map.getCanvas().style.cursor = "";
     };
     map.on("click", CENTROIDS_LAYER, handler);
+    map.on("dblclick", CENTROIDS_LAYER, dblHandler);
     map.on("mouseenter", CENTROIDS_LAYER, enter);
     map.on("mouseleave", CENTROIDS_LAYER, leave);
     return () => {
       map.off("click", CENTROIDS_LAYER, handler);
+      map.off("dblclick", CENTROIDS_LAYER, dblHandler);
       map.off("mouseenter", CENTROIDS_LAYER, enter);
       map.off("mouseleave", CENTROIDS_LAYER, leave);
     };
-  }, [map, ready, onCentroidClick]);
+  }, [map, ready, onCentroidClick, onCentroidDblClick]);
 
   return null;
 }

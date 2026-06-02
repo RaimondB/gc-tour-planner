@@ -9,10 +9,15 @@ import {
   RetriggerStaleResponse,
   StaleCacheListResponse,
 } from "@gctp/shared/admin";
-import { CachesResponse, type CachesQuery } from "@gctp/shared/caches";
+import {
+  CacheDTO,
+  CachesSummaryResponse,
+  type CachesQuery,
+} from "@gctp/shared/caches";
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
+import { Leg } from "@gctp/shared/routing";
 import {
   ParkingFacilitiesResponse,
   type ParkingAccessChip,
@@ -78,7 +83,10 @@ export interface ListCachesParams {
   includeArchived?: boolean;
 }
 
-export async function listCaches(params: ListCachesParams) {
+export async function listCaches(
+  params: ListCachesParams,
+  signal?: AbortSignal,
+) {
   const search = new URLSearchParams();
   search.set("lng", String(params.center[0]));
   search.set("lat", String(params.center[1]));
@@ -91,8 +99,20 @@ export async function listCaches(params: ListCachesParams) {
   for (const c of params.contexts ?? []) search.append("contexts", c);
   if (params.includeDisabled) search.set("includeDisabled", "true");
   if (params.includeArchived) search.set("includeArchived", "true");
-  const raw = await request<unknown>(`/caches?${search.toString()}`);
-  return CachesResponse.parse(raw);
+  const raw = await request<unknown>(`/caches?${search.toString()}`, {
+    signal,
+  });
+  return CachesSummaryResponse.parse(raw);
+}
+
+/**
+ * Full detail for a single cache — the popup-only fields (`difficulty`,
+ * `terrain`, `attributeIds`, `descriptionHints`, …) that the lean `/caches`
+ * list omits. Fetched lazily when a cache popup opens. Owner-scoped server-side.
+ */
+export async function fetchCacheDetail(id: number) {
+  const raw = await request<unknown>(`/caches/${id}`);
+  return CacheDTO.parse(raw);
 }
 
 export interface ListLanduseParams {
@@ -155,6 +175,8 @@ export interface UploadGpxResult {
     stale: number;
     exportedAt: string | null;
   };
+  /** Auto-detected as a Groundspeak "My Finds" Pocket Query. */
+  myFinds: boolean;
 }
 
 export interface UploadGpxOptions {
@@ -228,6 +250,24 @@ export async function fetchWalkingGraph(input: WalkingGraphInput) {
     body: JSON.stringify(input),
   });
   return WalkingGraphResponse.parse(raw);
+}
+
+/**
+ * Cache-first OSRM walking leg (route geometry + meters + seconds) between two
+ * of the current user's caches. Used by the walking-graph debug overlay to show
+ * the real shortest path for a selected edge. Returns `null` when OSRM can't
+ * route the pair. First call per pair hits OSRM once; the server persists it to
+ * `route_legs`, so repeats are a cheap DB read.
+ */
+export async function fetchLeg(
+  fromId: number,
+  toId: number,
+  profile = "foot",
+): Promise<Leg | null> {
+  const raw = await request<unknown>(
+    `/routing/leg/${fromId}/${toId}?profile=${profile}`,
+  );
+  return Leg.nullable().parse(raw);
 }
 
 export async function testOsrmRoute(input: TestRouteInput) {

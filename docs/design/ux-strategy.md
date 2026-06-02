@@ -76,3 +76,60 @@ When adding a control:
 4. Anything not in those three buckets should be questioned — maybe it doesn't belong in the UI yet.
 
 A new setting that requires a drawer trip for every plan would be a regression of the single-screen principle. Push back before adding it.
+
+## Intuitiveness review — backlog (heuristic review, 2026-06)
+
+Expert review (Nielsen heuristics + progressive disclosure + mobile-first +
+WCAG 2.2). **Shipped (P0):** progressive disclosure — Plan/Tour panels split into
+plain-language Basics + an `<details>` "Advanced …" (max-gap, fringe-trim,
+clustering algorithm, min-cluster-size, clusters-to-show); humanised cluster
+cards (`N caches · ~X km loop · ~time`, dev metrics behind a `details`);
+double-click to select a cluster (list row + map centroid), single-click =
+preview. The items below are planned for later.
+
+### P1 — mobile select feedback
+**Problem:** on a phone, tapping the map "Plan #N" FAB now sets the Tour context
+but (by design) doesn't open the drawer, so **nothing visibly happens** —
+violates *visibility of system status*.
+**Approach:** on `selectCluster` from a map affordance, show a brief toast
+("Cluster selected — open Tour to plan") and/or pulse the Tour tab + hamburger.
+Add a lightweight toast (no dep; a timed element) or a transient highlight class.
+**Files:** `apps/web/src/App.tsx` (selectCluster + a toast state), small CSS.
+**Effort:** S.
+
+### ✅ P1 — first-run / empty-state guidance (shipped 2026-06)
+**Problem:** new users hit blank tabs with no next step.
+**Shipped:** a shared `.empty-hint` callout. Filter with no caches → "Upload a
+GPX above … then open the Plan tab"; Plan before discovery (`clusters === null`)
+→ "Press Discover clusters … then pick a candidate to open it in the Tour tab";
+the post-discovery "no clusters found" note and the Tour empty state already
+existed. **Files:** `FilterSidebar.tsx`, `PlannerSidebar.tsx`, `styles.css`.
+
+### P2 — telegraph the Filter → Plan → Tour sequence
+**Problem:** tabs read as parallel sections; the flow is actually a sequence.
+**Approach:** number the tabs ("1 Filter · 2 Plan · 3 Tour") or a thin stepper;
+keep the existing disabled-with-hint gating.
+**Files:** `App.tsx` `TabButton` + CSS. **Effort:** S.
+
+### P2 — dominant landuse on cluster cards
+**Problem:** cards say "N caches · km · time" but not terrain ("mostly forest"),
+which is what cachers actually choose on. The wire `ClusterCandidate` has no
+landuse field today.
+**Approach:** add a `dominantLanduse` (or top-2 kinds) to `ClusterCandidate` in
+`packages/shared/src/tours/cluster-candidate.ts`, populate it in
+`discover-compute.ts` from `ctx.landuseKindsByCacheId`, surface it on the card.
+**Files:** shared schema + `discover-compute.ts` + `PlannerSidebar` card.
+**Effort:** M (backend + wire change → docs-sync per CLAUDE.md).
+
+### P2 — accessibility pass (WCAG 2.2)
+- Keyboard parity: everything pickable on the map must also be reachable in the
+  sidebar (map is pointer-only). Audit clusters/edges/parking.
+- Color-only encoding (edge blue/red/green): keep pairing colour with
+  shape/label; run a contrast check on the muted greys + chips.
+- Focus management: ESC closes the edge popup; trap/return focus sensibly.
+- Run Lighthouse for the a11y/contrast numbers.
+**Effort:** M.
+
+### Validation methods (no UX skill installed here)
+Heuristic walkthrough, 5-second test ("what does this screen do?"), first-click
+test ("where would you tap to plan a tour?"), Lighthouse for a11y/perf.

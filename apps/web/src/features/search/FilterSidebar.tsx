@@ -184,8 +184,8 @@ export function FilterSidebar({
           Exclude caches I have found
         </label>
         <small>
-          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX with the toggle below,
-          or mark caches one-by-one from the map popup.
+          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX (detected
+          automatically), or mark caches one-by-one from the map popup.
         </small>
       </fieldset>
 
@@ -275,6 +275,14 @@ export function FilterSidebar({
             ? "—"
             : `${cacheCount} cache${cacheCount === 1 ? "" : "s"} in radius`}
       </div>
+
+      {!loading && !cacheCount && (
+        <div className="empty-hint">
+          No caches here yet. <strong>Upload a GPX</strong> above to load your
+          caches, or widen the radius / move the search center (click the map).
+          Then open the <strong>Plan</strong> tab.
+        </div>
+      )}
     </aside>
   );
 }

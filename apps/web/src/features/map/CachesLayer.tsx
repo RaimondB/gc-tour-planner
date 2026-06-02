@@ -6,8 +6,14 @@ import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheType } from "@gctp/shared/caches";
-import { classifyMulti, hasToolRequirement } from "@gctp/shared/caches";
-import { listCaches, markCacheFound, unmarkCacheFound } from "../../lib/api.js";
+import { classifyMulti } from "@gctp/shared/caches";
+import {
+  fetchCacheDetail,
+  listCaches,
+  markCacheFound,
+  unmarkCacheFound,
+  type ListCachesParams,
+} from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
@@ -38,21 +44,11 @@ interface CacheProps {
   code: string;
   name: string;
   type: CacheType;
-  difficulty: number | null;
-  terrain: number | null;
   color: string;
   foundByMe: number; // 0/1 — MapLibre filter expressions don't accept booleans
   selected: number; // 0/1 — same MapLibre-filter caveat
   /** 1 when the cache owner has temporarily disabled it (FR-I10). */
   disabled: number;
-  /**
-   * Comma-joined attribute ids + description-hint keys. GeoJSON
-   * feature properties don't round-trip arrays through MapLibre's
-   * JSON encode/decode reliably — joining + splitting on the popup
-   * side is the established workaround in this codebase.
-   */
-  attributeIds: string;
-  descriptionHints: string;
   /** FR-SF1 count of `stages` additional waypoints. */
   stageCount: number;
 }
@@ -66,6 +62,14 @@ export interface SelectedParking {
 
 export interface CachesLayerProps {
   params: SearchParams;
+  /**
+   * Canonical, debounced caches-query input owned by App (server-relevant
+   * params only). Used as both the React Query key and the fetch args so this
+   * layer and App share one query/cache entry. `params` is still used for the
+   * client-side-only filters (hideToolCaches, multiSubtype) so those stay
+   * instant and never refetch.
+   */
+  queryInput: ListCachesParams;
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
   selectedCacheIds?: ReadonlySet<number>;
   /** Shift-click toggles a cache in/out of the selection. */
@@ -80,6 +84,7 @@ export interface CachesLayerProps {
 
 export function CachesLayer({
   params,
+  queryInput,
   selectedCacheIds,
   onSelectionChange,
   onParkingSelect,
@@ -87,14 +92,8 @@ export function CachesLayer({
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["caches", params],
-    queryFn: () =>
-      listCaches({
-        center: params.center,
-        radiusM: params.radiusM,
-        types: params.types.length > 0 ? params.types : undefined,
-        excludeFound: params.excludeFound || undefined,
-      }),
+    queryKey: ["caches", queryInput],
+    queryFn: ({ signal }) => listCaches(queryInput, signal),
     placeholderData: (prev) => prev,
   });
 
@@ -107,8 +106,10 @@ export function CachesLayer({
     // user can toggle without a server round-trip. The server still
     // does the heavy spatial + type filtering; we only narrow further.
     const caches = rawCaches.filter((c) => {
-      if (params.hideToolCaches && hasToolRequirement(c.attributeIds, c.descriptionHints))
-        return false;
+      // `requiresTool` is computed server-side (= hasToolRequirement over the
+      // attribute ids + description hints) so this stays an instant client
+      // filter without the lean list shipping those arrays.
+      if (params.hideToolCaches && c.requiresTool) return false;
       if (params.multiSubtype !== "all" && c.type === "Multi") {
         // classifyMulti distinguishes field-puzzle (stages=0) from
         // mini (1-2) and full (3+). Bucketing 0-stage Multis as
@@ -130,16 +131,10 @@ export function CachesLayer({
         code: c.code,
         name: c.name,
         type: c.type,
-        difficulty: c.difficulty,
-        terrain: c.terrain,
         color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
         foundByMe: c.foundByMe ? 1 : 0,
         selected: selectedCacheIds?.has(c.id) ? 1 : 0,
         disabled: c.disabled ? 1 : 0,
-        // Arrays don't round-trip through MapLibre's JSON pipeline
-        // reliably — comma-join here, split on the popup side.
-        attributeIds: c.attributeIds.join(","),
-        descriptionHints: c.descriptionHints.join(","),
         stageCount: c.stageCount,
       },
     }));
@@ -344,37 +339,31 @@ export function CachesLayer({
         .setDOMContent(container)
         .addTo(map);
 
-      // MapLibre's JSON round-trip stringifies arrays; split back
-      // here. Empty string → `[]`, otherwise parse the comma-joined
-      // values. Numeric attribute ids need to come back as numbers.
-      const attributeIds =
-        props.attributeIds.length > 0
-          ? props.attributeIds.split(",").map((s) => Number(s))
-          : [];
-      const descriptionHints =
-        props.descriptionHints.length > 0
-          ? props.descriptionHints.split(",")
-          : [];
-      const renderPopup = (foundByMe: boolean) => {
+      const id = Number(props.id);
+      // The lean /caches list omits popup-only fields (difficulty, terrain,
+      // attributes, hints); fetch them lazily on open. Header fields come from
+      // the summary props so the popup paints instantly, then detail fills in.
+      let detail: CacheDTO | null = null;
+      let found = props.foundByMe === 1;
+      const renderPopup = () => {
         root.render(
           <CachePopup
             code={props.code}
             name={props.name}
             type={props.type}
-            difficulty={props.difficulty}
-            terrain={props.terrain}
-            foundByMe={foundByMe}
-            attributeIds={attributeIds}
-            descriptionHints={descriptionHints}
+            difficulty={detail?.difficulty ?? null}
+            terrain={detail?.terrain ?? null}
+            foundByMe={found}
+            attributeIds={detail?.attributeIds ?? []}
+            descriptionHints={detail?.descriptionHints ?? []}
             stageCount={props.stageCount}
+            loadingDetail={detail === null}
             onToggleFound={async () => {
               try {
-                if (foundByMe) {
-                  await unmarkCacheFound(props.id);
-                } else {
-                  await markCacheFound(props.id);
-                }
-                renderPopup(!foundByMe);
+                if (found) await unmarkCacheFound(id);
+                else await markCacheFound(id);
+                found = !found;
+                renderPopup();
                 void queryClient.invalidateQueries({ queryKey: ["caches"] });
               } catch (err) {
                 console.error("toggle found failed", err);
@@ -384,7 +373,29 @@ export function CachesLayer({
         );
       };
 
-      renderPopup(props.foundByMe === 1);
+      renderPopup();
+      void queryClient
+        .fetchQuery({
+          queryKey: ["cache-detail", id],
+          queryFn: () => fetchCacheDetail(id),
+          gcTime: 60_000,
+        })
+        .then((d) => {
+          detail = d;
+          renderPopup();
+          // The card just grew (chips). We mutated its DOM via React without
+          // telling MapLibre, so its anchor transform was rounded for the old
+          // size and the resized card can land on a sub-pixel → blurry text.
+          // Re-set the position after React commits (next frame) so MapLibre
+          // re-measures and re-rounds the transform for the final size.
+          requestAnimationFrame(() => {
+            if (popup.isOpen()) popup.setLngLat([lng, lat]);
+          });
+        })
+        .catch((err) => {
+          // Leave the header-only popup; detail just won't fill in.
+          console.error("cache detail fetch failed", err);
+        });
 
       popup.on("close", () => {
         // Defer to next microtask so React doesn't unmount mid-event.

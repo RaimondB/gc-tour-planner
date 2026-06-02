@@ -3,8 +3,7 @@
 
 import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
-import type { CacheDTO } from "@gctp/shared/caches";
-import { hasToolRequirement } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
 import { useMap } from "./MapContext.js";
@@ -67,7 +66,7 @@ export function TourLayer({
   onLegSelect,
 }: {
   result: PlanResult | null;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   /** When true, splits the tour into per-leg clickable features. */
   editMode?: boolean;
   /**
@@ -151,7 +150,7 @@ export function TourLayer({
     // we'd need a separate fetch just to get coordinates the page already
     // has. If `caches` hasn't loaded yet we render an empty FC and the
     // layer simply has nothing to draw.
-    const cacheById = new Map<number, CacheDTO>();
+    const cacheById = new Map<number, CacheSummaryDTO>();
     for (const c of caches ?? []) cacheById.set(c.id, c);
     const stopsFc: GeoJSON.FeatureCollection = result
       ? {
@@ -167,12 +166,8 @@ export function TourLayer({
                   order: i + 1,
                   code: cache.code,
                   // FR-SF5 0/1 flag drives the STOP_TOOL_LAYER filter.
-                  hasTool: hasToolRequirement(
-                    cache.attributeIds,
-                    cache.descriptionHints,
-                  )
-                    ? 1
-                    : 0,
+                  // `requiresTool` is computed server-side (= hasToolRequirement).
+                  hasTool: cache.requiresTool ? 1 : 0,
                 },
               };
             })

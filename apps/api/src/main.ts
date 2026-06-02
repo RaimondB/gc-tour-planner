@@ -17,6 +17,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
+  // Fire OnModuleDestroy on SIGTERM/SIGINT so the ComputePool drains its
+  // worker threads cleanly instead of being hard-killed mid-task (ADR-0014).
+  app.enableShutdownHooks();
 
   // CORS: opt-in via env. The dev setup proxies the API through Vite (same
   // origin), so CORS is unnecessary there. Production deploys that put the

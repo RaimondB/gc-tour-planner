@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { GeoJsonPoint, LngLat } from "../geo/index.js";
+import { hasToolRequirement } from "./attributes.js";
 
 export * from "./attributes.js";
 export * from "./description-hints.js";
@@ -117,8 +118,63 @@ export const ClustersHint = z.array(
 );
 export type ClustersHint = z.infer<typeof ClustersHint>;
 
+/**
+ * Full server-side response. `CachesService.list` returns this so internal
+ * callers (the tour planner: clustering, walking-graph, greedy planner) keep
+ * every `CacheDTO` field. The HTTP `GET /caches` endpoint maps it down to the
+ * lean `CachesSummaryResponse` for the wire — see [api-surface.md].
+ */
 export const CachesResponse = z.object({
   caches: z.array(CacheDTO),
   clustersHint: ClustersHint,
 });
 export type CachesResponse = z.infer<typeof CachesResponse>;
+
+/**
+ * Lean per-cache shape sent over the wire for the map. Drops the popup-only
+ * and unused fields (difficulty, terrain, size, source, sourceId, archived,
+ * attributeIds, descriptionHints) — those are fetched lazily per cache via
+ * `GET /caches/:id` when a popup opens. A wide `/caches` query is thousands of
+ * caches, so this cuts both transfer (post-gzip) and client parse/render cost.
+ *
+ * `name` is kept (GPX export labels + selection lists need it). `requiresTool`
+ * is server-computed from the attribute ids + description hints so the
+ * "hide tool caches" filter and the tour-stop tool badge stay client-side and
+ * instant without shipping those arrays.
+ */
+export const CacheSummaryDTO = z.object({
+  id: z.number().int().positive(),
+  code: z.string(),
+  type: CacheType,
+  name: z.string(),
+  location: GeoJsonPoint,
+  disabled: z.boolean(),
+  foundByMe: z.boolean(),
+  stageCount: z.number().int().nonnegative().default(0),
+  parkingPoints: z.array(LngLat),
+  /** = hasToolRequirement(attributeIds, descriptionHints), computed server-side. */
+  requiresTool: z.boolean(),
+});
+export type CacheSummaryDTO = z.infer<typeof CacheSummaryDTO>;
+
+export const CachesSummaryResponse = z.object({
+  caches: z.array(CacheSummaryDTO),
+  clustersHint: ClustersHint,
+});
+export type CachesSummaryResponse = z.infer<typeof CachesSummaryResponse>;
+
+/** Project a full `CacheDTO` to the lean wire shape (computes `requiresTool`). */
+export function toCacheSummary(c: CacheDTO): CacheSummaryDTO {
+  return {
+    id: c.id,
+    code: c.code,
+    type: c.type,
+    name: c.name,
+    location: c.location,
+    disabled: c.disabled,
+    foundByMe: c.foundByMe,
+    stageCount: c.stageCount,
+    parkingPoints: c.parkingPoints,
+    requiresTool: hasToolRequirement(c.attributeIds, c.descriptionHints),
+  };
+}

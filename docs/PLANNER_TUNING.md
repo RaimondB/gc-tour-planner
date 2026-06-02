@@ -113,12 +113,46 @@ in the sidebar:
 | `osmParkingAccessFilter` | `["yes", "customers"]` | OSM `access` values eligible as tour starts. `permit` is opt-in (a permit you don't have ≈ private). `private`/`no` are never offered. |
 | `osmParkingFeeFilter` | `"any"` | `"free"` requires `fee=no`; `"paid"` requires `fee=yes`; `"any"` allows both. `parking:condition=disc` (NL blue zones) is normalised to `fee=no` upstream by the Lua import. |
 
-Selection is "shortest OSRM walk to the cluster's nearest cache, within
-`maxLinkMeters`". Candidates whose walk exceeds the cap (usually an OSM
-data gap, e.g. missing footway connector) are silently dropped — the
-planner falls back to OSRM-nearest-road if no facility survives the cap.
-The chosen `ParkingChoice.reason` always includes the OSM id, access,
-fee, and rounded walking distance so the UI can explain the pick.
+Selection is **loop-aware**: every candidate within `maxLinkMeters` is
+scored by its cheapest insertion edge into the planned loop
+(`parking→next + prev→parking − prev→next`) and the lowest-detour one
+wins — the lot that adds the least walking to the *tour*, not merely the
+one closest to a single cache. Candidates whose nearest-cache walk exceeds
+the cap (usually an OSM data gap, e.g. a missing footway connector) are
+dropped; the planner falls back to OSRM-nearest-road if none survive. The
+chosen `ParkingChoice.reason` includes the OSM id, access, fee, and the
+detour it added. (PQ `parking-waypoint` selection uses the same loop-aware
+scorer.)
+
+## Pass 2 — car-accessible nearest-road start (ADR-0012)
+
+When `startPreference="osrm-nearest-road"` is selected, the planner snaps
+parking onto quiet, **car-accessible** roads from the `car_roads` table
+(not the foot graph) and scores the candidates loop-aware, exactly like
+OSM/PQ parking. Eligible roads: `highway ∈ {residential, living_street,
+unclassified, service, tertiary}` (coarse filter in the osm2pgsql Lua),
+minus `access`/`motor_vehicle ∈ {no, private}`, `maxspeed ≥ 70`, and
+`service = driveway` (fine filter at query time — retunable without a
+re-import). If no eligible road is reachable, it falls back to the old
+OSRM `/nearest` foot-snap of the centroid.
+
+| Knob | Default | Effect |
+|---|---|---|
+| `PLANNER_ROAD_CANDIDATES` | `12` | Number of eligible road segments enumerated as parking candidates — the ones closest to the **tour path** (the closed cycle line, not the centroid), clamped 1..50. Each becomes one `ST_ClosestPoint` snap point fed to the loop-aware scorer's batched OSRM `/table`. Higher = more thorough placement at the cost of a larger `/table`; lower = cheaper, coarser. |
+
+## Compute worker pool (ADR-0014)
+
+The planner's CPU-heavy pure computations — the TSP solver (`solveTwoOpt`, used
+by `planLoop` + the marginal/fringe re-solves) and the whole cluster-discovery
+pipeline (Louvain + refine + score) — run in a **piscina worker-thread pool**, not
+on the API event loop. This keeps the API responsive to other users while one
+request crunches; only serializable pure functions cross the boundary (all OSRM
++ Postgres I/O stays on the main thread).
+
+| Knob | Default | Effect |
+|---|---|---|
+| `PLANNER_WORKER_THREADS` | `max(1, cpus-1)` capped at 4 | Pool size — how many planner CPU tasks run in parallel across cores. Raise for more concurrent planning throughput on a bigger box; the default leaves a core for the event loop + OSRM (the host is 4C/8T and OSRM already uses ~4). Clamped 1..16. |
+| `PLANNER_WORKER_TIMEOUT_MS` | `30000` | Per-task abort budget. A task exceeding it is aborted (surfaced as an error) so a pathological input can't tie up a worker. The TSP VND cap still bounds a single solve; this is the outer safety net. |
 
 ## Symptom → knob
 

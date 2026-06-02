@@ -5,20 +5,15 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, uploadGpx, type UploadGpxResult } from "../../lib/api.js";
 
-interface MutationInput {
-  file: File;
-  markAsFound: boolean;
-}
-
 export function UploadDropzone(): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const [dragging, setDragging] = useState(false);
-  const [markAsFound, setMarkAsFound] = useState(false);
 
-  const mutation = useMutation<UploadGpxResult, Error, MutationInput>({
-    mutationFn: ({ file, markAsFound: m }) =>
-      uploadGpx(file, { markAsFound: m }),
+  const mutation = useMutation<UploadGpxResult, Error, File>({
+    // A Groundspeak "My Finds" PQ is auto-detected server-side (top-level
+    // <name>) and its caches are marked found automatically — no toggle.
+    mutationFn: (file) => uploadGpx(file),
     onSuccess: () => {
       // Invalidate every /caches view; new rows + finds show up on the map immediately.
       void queryClient.invalidateQueries({ queryKey: ["caches"] });
@@ -32,7 +27,7 @@ export function UploadDropzone(): JSX.Element {
       mutation.reset();
       return;
     }
-    mutation.mutate({ file, markAsFound });
+    mutation.mutate(file);
   };
 
   return (
@@ -70,10 +65,14 @@ export function UploadDropzone(): JSX.Element {
         <div className="dropzone__primary">
           {mutation.isPending
             ? "Uploading…"
-            : markAsFound
-              ? "Drop a 'My Finds' GPX here or click to choose"
-              : "Drop a GPX here or click to choose"}
+            : "Drop a GPX here or click to choose"}
         </div>
+        {!mutation.isPending && !mutation.isSuccess && (
+          <div className="dropzone__hint">
+            Pocket Query or &ldquo;My Finds&rdquo; — a My&nbsp;Finds export is
+            detected automatically and its caches marked as found.
+          </div>
+        )}
         {mutation.isSuccess && (
           <UploadSummary result={mutation.data} />
         )}
@@ -85,18 +84,6 @@ export function UploadDropzone(): JSX.Element {
           </div>
         )}
       </div>
-
-      <label
-        className="checkbox upload__mode"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          type="checkbox"
-          checked={markAsFound}
-          onChange={(e) => setMarkAsFound(e.target.checked)}
-        />
-        Upload as &ldquo;My Finds&rdquo; (mark each cache as found)
-      </label>
     </div>
   );
 }
@@ -107,13 +94,19 @@ export function UploadDropzone(): JSX.Element {
  * glance: total + per-type + new/updated/stale + disabled/archived.
  */
 function UploadSummary({ result }: { result: UploadGpxResult }): JSX.Element {
-  const { stats, waypointsInserted, findsRecorded, warnings } = result;
+  const { stats, waypointsInserted, findsRecorded, warnings, myFinds } = result;
   // Sort cache types by count desc so the dominant types lead.
   const typeRows = Object.entries(stats.byType).sort(
     ([, a], [, b]) => b - a,
   );
   return (
     <div className="dropzone__success">
+      {myFinds && (
+        <div className="dropzone__myfinds">
+          Detected a “My Finds” Pocket Query — {findsRecorded} cache
+          {findsRecorded === 1 ? "" : "s"} marked as found.
+        </div>
+      )}
       <strong>{stats.total} caches</strong> ({stats.new} new, {stats.updated}{" "}
       updated
       {stats.stale > 0 && (

@@ -26,7 +26,11 @@ else
 fi
 
 DATA_DIR="/data"
-PROFILE="/opt/foot.lua"
+# Custom foot profile (ADR-0013): stock foot.lua + walkable cycleways.
+# Bind-mounted to /opt/foot-gctp.lua; falls back to the stock profile if the
+# mount is somehow absent so OSRM still boots.
+PROFILE="/opt/foot-gctp.lua"
+[ -f "${PROFILE}" ] || PROFILE="/opt/foot.lua"
 
 REGIONS=$(echo "${REGION_LIST}" | tr ',' ' ' | tr -s ' ')
 REGION_COUNT=$(echo "${REGIONS}" | wc -w)
@@ -52,25 +56,33 @@ fi
 # slower /table queries on very large matrices, which is fine for our cluster
 # discovery sizes (≤ 300×300).
 #
+# Extract version folds in BOTH the PBF and the profile (ADR-0013): a profile
+# change must bump the version so cached route_legs from the old graph are
+# ignored AND the re-extract below self-triggers. Cheap — the PBF is hashed
+# once and we hash the two digests together.
+VERSION_FILE="${DATA_DIR}/osrm-version.txt"
+CURRENT_VERSION=$( (sha256sum "${TARGET_PBF}"; sha256sum "${PROFILE}") | sha256sum | cut -c1-16 )
+BUILT_MARKER="${OSRM_BASE}.built-version"
+BUILT_VERSION=$(cat "${BUILT_MARKER}" 2>/dev/null || true)
+
 # Readiness probe: .partition + .cell_metrics are the MLD-specific outputs.
-# If either is missing we redo extract + partition + customize. Re-running
-# extract is idempotent (overwrites .osrm.*) and cheap (~4 min on NL).
-if [ ! -f "${OSRM_BASE}.partition" ] || [ ! -f "${OSRM_BASE}.cell_metrics" ]; then
-  echo "[osrm] osrm-extract (foot profile) on ${TARGET_PBF}"
+# Re-extract when either is missing OR the PBF/profile changed since the
+# graph was last built. Re-running extract is idempotent (overwrites .osrm.*).
+if [ ! -f "${OSRM_BASE}.partition" ] || [ ! -f "${OSRM_BASE}.cell_metrics" ] \
+   || [ "${BUILT_VERSION}" != "${CURRENT_VERSION}" ]; then
+  echo "[osrm] (re)building foot graph with ${PROFILE} (version ${BUILT_VERSION:-none} -> ${CURRENT_VERSION})"
   osrm-extract -p "${PROFILE}" "${TARGET_PBF}"
   echo "[osrm] osrm-partition"
   osrm-partition "${OSRM_BASE}"
   echo "[osrm] osrm-customize"
   osrm-customize "${OSRM_BASE}"
+  echo "${CURRENT_VERSION}" > "${BUILT_MARKER}"
 fi
 
-# Publish a stable identifier for the live extract so route_legs rows can be
-# tagged with it and any leftovers from a previous extract are ignored on
-# read. Short sha256 of the PBF is deterministic, cheap (PBF is local), and
-# changes only when the operator pulls a new Geofabrik extract. Written
+# Publish the live extract identifier so route_legs rows can be tagged with it
+# and leftovers from a previous extract/profile are ignored on read. Written
 # every boot so a manual file delete self-heals on the next start.
-VERSION_FILE="${DATA_DIR}/osrm-version.txt"
-sha256sum "${TARGET_PBF}" | cut -c1-16 > "${VERSION_FILE}"
+echo "${CURRENT_VERSION}" > "${VERSION_FILE}"
 echo "[osrm] extract version $(cat "${VERSION_FILE}") -> ${VERSION_FILE}"
 
 echo "[osrm] osrm-routed listening on :5000 (MLD)"

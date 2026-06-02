@@ -164,4 +164,46 @@ describe("parseGpx", () => {
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toMatch(/missing lat\/lon/);
   });
+
+  it("detects a Groundspeak 'My Finds' Pocket Query from the top-level <name>", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0">
+        <name>My Finds Pocket Query</name>
+        <wpt lat="52.0" lon="5.0"><name>GCX1</name>
+          <groundspeak:cache xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    expect(parseGpx(xml).isMyFinds).toBe(true);
+  });
+
+  it("matches the 'My Finds' name leniently (case-insensitive substring)", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0">
+        <name>my finds 2026</name>
+        <wpt lat="52.0" lon="5.0"><name>GCX1</name>
+          <groundspeak:cache xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    expect(parseGpx(xml).isMyFinds).toBe(true);
+  });
+
+  it("does not flag a regular Pocket Query as 'My Finds'", () => {
+    // Sample fixture is a normal PQ with no top-level <gpx><name>.
+    expect(parseGpx(gpxText).isMyFinds).toBe(false);
+
+    const named = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0">
+        <name>Weekend Trail PQ</name>
+        <wpt lat="52.0" lon="5.0"><name>GCX1</name>
+          <groundspeak:cache xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    expect(parseGpx(named).isMyFinds).toBe(false);
+  });
 });

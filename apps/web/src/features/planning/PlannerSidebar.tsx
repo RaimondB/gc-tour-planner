@@ -6,7 +6,7 @@ import {
   useMutation,
   useQuery,
 } from "@tanstack/react-query";
-import type { CacheDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
@@ -150,7 +150,7 @@ export interface PlannerSidebarProps {
   result: PlanResult | null;
   onResultChange: (next: PlanResult | null) => void;
   /** Caches currently in the search radius — used for the JSON debug export. */
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   /** Manually selected cache ids (shift-click on the map). Used by Cluster Lab. */
   selectedCacheIds: ReadonlySet<number>;
   onSelectionChange: (next: ReadonlySet<number>) => void;
@@ -332,12 +332,17 @@ export function PlannerSidebar({
 
   return (
     <aside className="sidebar planner-sidebar">
-      <h2>Plan a tour</h2>
+      <h2>Find clusters</h2>
+      <p className="muted">
+        These settings shape which clusters are discovered. Pick a candidate
+        below to open it in the Tour tab, where you set the start preference
+        and plan the route.
+      </p>
 
       <div className="field">
         <label>
-          Distance budget (m):{" "}
-          {settings.distanceBudgetMeters.toLocaleString("en-US")}
+          Tour length budget:{" "}
+          {settings.distanceBudgetMeters.toLocaleString("en-US")} m
           <input
             type="range"
             min={1_000}
@@ -351,9 +356,12 @@ export function PlannerSidebar({
               })
             }
           />
+          <small className="muted">
+            Roughly how far you want to walk in one loop.
+          </small>
         </label>
         <label>
-          Max caches: {settings.maxCaches}
+          Max caches in a loop: {settings.maxCaches}
           <input
             type="range"
             min={2}
@@ -368,73 +376,7 @@ export function PlannerSidebar({
             }
           />
         </label>
-        <label>
-          Min cluster size: {settings.minClusterSize}
-          <input
-            type="range"
-            min={2}
-            max={Math.max(2, settings.maxCaches)}
-            step={1}
-            value={settings.minClusterSize}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                minClusterSize: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Candidates to return: {settings.topNClusters}
-          <input
-            type="range"
-            min={1}
-            max={20}
-            step={1}
-            value={settings.topNClusters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                topNClusters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Max link distance (m):{" "}
-          {settings.maxLinkMeters.toLocaleString("en-US")}
-          <input
-            type="range"
-            min={200}
-            max={5_000}
-            step={100}
-            value={settings.maxLinkMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                maxLinkMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
       </div>
-
-      <fieldset className="field">
-        <legend>Clustering algorithm</legend>
-        {STRATEGY_OPTIONS.map(([val, label]) => (
-          <label key={val} className="checkbox">
-            <input
-              type="radio"
-              name="clustering-strategy"
-              checked={settings.clusteringStrategy === val}
-              onChange={() =>
-                onSettingsChange({ ...settings, clusteringStrategy: val })
-              }
-            />
-            {label}
-          </label>
-        ))}
-      </fieldset>
 
       <fieldset className="field">
         <legend>Landuse preference</legend>
@@ -488,6 +430,82 @@ export function PlannerSidebar({
         </label>
       </fieldset>
 
+      <details className="advanced">
+        <summary>Advanced cluster settings</summary>
+        <div className="field">
+          <label>
+            Min caches per cluster: {settings.minClusterSize}
+            <input
+              type="range"
+              min={2}
+              max={Math.max(2, settings.maxCaches)}
+              step={1}
+              value={settings.minClusterSize}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  minClusterSize: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Clusters to show: {settings.topNClusters}
+            <input
+              type="range"
+              min={1}
+              max={20}
+              step={1}
+              value={settings.topNClusters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  topNClusters: Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Max gap between caches:{" "}
+            {settings.maxLinkMeters.toLocaleString("en-US")} m
+            <input
+              type="range"
+              min={200}
+              max={5_000}
+              step={100}
+              value={settings.maxLinkMeters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  maxLinkMeters: Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">
+              Caches farther apart than this on foot aren&rsquo;t linked into the
+              same loop.
+            </small>
+          </label>
+        </div>
+
+        <fieldset className="field">
+          <legend>Clustering algorithm</legend>
+          {STRATEGY_OPTIONS.map(([val, label]) => (
+            <label key={val} className="checkbox">
+              <input
+                type="radio"
+                name="clustering-strategy"
+                checked={settings.clusteringStrategy === val}
+                onChange={() =>
+                  onSettingsChange({ ...settings, clusteringStrategy: val })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      </details>
+
       {!hideDebugOverlays && (
         <DebugOverlaysPanel
           search={search}
@@ -527,6 +545,14 @@ export function PlannerSidebar({
         <div className="planner-error">{discoverError.message}</div>
       )}
 
+      {clusters === null && !discoverPending && (
+        <div className="empty-hint">
+          Press <strong>Discover clusters</strong> to find walkable loops from
+          your caches. Then pick a candidate to open it in the{" "}
+          <strong>Tour</strong> tab and plan the route.
+        </div>
+      )}
+
       {clusters !== null && clusters.length === 0 && (
         <div className="planner-empty">
           No clusters found in this area. Try widening the radius or loosening
@@ -538,7 +564,20 @@ export function PlannerSidebar({
         <div className="cluster-picker">
           <h3>Candidate clusters</h3>
           <ol>
-            {clusters.map((c, i) => (
+            {clusters.map((c, i) => {
+              // Humanised summary: estimated loop length (fall back to MST×2
+              // when the estimate is absent) + a rough total time = walking at
+              // the user's avg speed + visit time per cache.
+              const loopKm =
+                (c.estimatedTourMeters > 0
+                  ? c.estimatedTourMeters
+                  : c.mstLengthMeters * 2) / 1000;
+              const totalMin =
+                (settings.avgWalkingKmh > 0
+                  ? (loopKm / settings.avgWalkingKmh) * 60
+                  : 0) +
+                settings.timePerCacheMinutes * c.cacheIds.length;
+              return (
               <li
                 key={c.clusterId}
                 ref={(el) => rowRefs.current.set(c.clusterId, el)}
@@ -553,35 +592,43 @@ export function PlannerSidebar({
                 // only changes when the user picks a different row or clears.
                 onMouseEnter={() => onFocusClusterChange(c.clusterId)}
                 onFocus={() => onFocusClusterChange(c.clusterId)}
+                // Hover/focus previews; double-click commits to the Tour tab
+                // (same as the "Open in Tour" button).
+                onDoubleClick={() => onPlanCluster(c)}
                 tabIndex={0}
+                title="Double-click to plan this cluster in the Tour tab"
               >
                 <div className="cluster-head">
                   <span className="cluster-rank">#{i + 1}</span>
-                  <span className="cluster-caches">
+                  <strong className="cluster-caches">
                     {c.cacheIds.length} caches
-                  </span>
-                  <span className="cluster-mst">
-                    MST {(c.mstLengthMeters / 1000).toFixed(2)} km
-                  </span>
-                  {c.estimatedTourMeters > 0 && (
-                    <span
-                      className="cluster-est-tour"
-                      title="Estimated tour length (NN+2-opt × 1.4 haversine→walking). Pass-2 produces the real OSRM-routed value."
-                    >
-                      est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
-                    </span>
-                  )}
-                  <span className="cluster-score">
-                    score {c.score.toFixed(3)}
+                  </strong>
+                  <span className="cluster-summary">
+                    ~{loopKm.toFixed(1)} km loop · ~{minutes(totalMin)}
                   </span>
                 </div>
-                <div className="cluster-breakdown">
-                  {Object.entries(c.scoreBreakdown).map(([k, v]) => (
-                    <span key={k} className="chip">
-                      {k}: {v.toFixed(2)}
+                <details className="cluster-metrics">
+                  <summary>details</summary>
+                  <div className="cluster-breakdown">
+                    <span className="chip">
+                      MST {(c.mstLengthMeters / 1000).toFixed(2)} km
                     </span>
-                  ))}
-                </div>
+                    {c.estimatedTourMeters > 0 && (
+                      <span
+                        className="chip"
+                        title="NN+2-opt × 1.4 haversine→walking; Pass-2 produces the real OSRM-routed value."
+                      >
+                        est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
+                      </span>
+                    )}
+                    <span className="chip">score {c.score.toFixed(3)}</span>
+                    {Object.entries(c.scoreBreakdown).map(([k, v]) => (
+                      <span key={k} className="chip">
+                        {k}: {v.toFixed(2)}
+                      </span>
+                    ))}
+                  </div>
+                </details>
                 <div className="cluster-row-actions">
                   <button
                     type="button"
@@ -590,7 +637,7 @@ export function PlannerSidebar({
                   >
                     {planPending && c.clusterId === planPendingClusterId
                       ? "Planning…"
-                      : "Plan this loop"}
+                      : "Open in Tour ▸"}
                   </button>
                   <button
                     type="button"
@@ -601,7 +648,8 @@ export function PlannerSidebar({
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </div>
       )}
@@ -662,7 +710,7 @@ export function PlanResultPanel({
 }: {
   result: PlanResult;
   avgWalkingKmh: number;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   editMode: boolean;
   onEditModeChange: (next: boolean) => void;
   selectedLegIndex: number | null;
@@ -956,37 +1004,55 @@ export function PlanResultPanel({
         />
       )}
 
-      <div className="planner-actions">
-        <button
-          type="button"
-          onClick={downloadPlan}
-          title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
-        >
-          Download plan JSON
-        </button>
-        <button
-          type="button"
-          onClick={downloadParkingOptions}
-          disabled={!parkingQuery.data || parkingQuery.data.options.length === 0}
-          title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
-        >
-          Download parking options JSON
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadGpx("track")}
-          title="Download as a GPX track — the Garmin follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
-        >
-          Download GPX track
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadGpx("route")}
-          title="Download as a GPX route — the Garmin treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
-        >
-          Download GPX route
-        </button>
+      <div className="gpx-export">
+        <h4>Save to your GPS</h4>
+        <div className="gpx-export__buttons">
+          <button
+            type="button"
+            className="primary"
+            onClick={() => downloadGpx("track")}
+            title="Download as a GPX track — your device follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
+          >
+            GPX track
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadGpx("route")}
+            title="Download as a GPX route — your device treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
+          >
+            GPX route
+          </button>
+        </div>
+        <p className="gpx-export__hint">
+          <strong>Track</strong> = the exact path drawn on the map; your device
+          just follows it. <strong>Route</strong> = parking and each cache as
+          waypoints; your device navigates between them and recomputes if you
+          stray. Not sure? Pick <strong>track</strong>.
+        </p>
       </div>
+
+      <details className="planner-actions-advanced">
+        <summary>Developer downloads</summary>
+        <div className="planner-actions">
+          <button
+            type="button"
+            onClick={downloadPlan}
+            title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
+          >
+            Download plan JSON
+          </button>
+          <button
+            type="button"
+            onClick={downloadParkingOptions}
+            disabled={
+              !parkingQuery.data || parkingQuery.data.options.length === 0
+            }
+            title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
+          >
+            Download parking options JSON
+          </button>
+        </div>
+      </details>
     </div>
   );
 }
@@ -1027,13 +1093,13 @@ function LegAlternativesPanel({
   onApplyAlt: (altIndex: number) => void;
   onResetLeg: () => void;
   onClose: () => void;
-  caches: readonly CacheDTO[] | undefined;
+  caches: readonly CacheSummaryDTO[] | undefined;
   /** True while this leg is the one being via-dragged on the map. */
   viaDragActive: boolean;
   onStartViaDrag: () => void;
   onCancelViaDrag: () => void;
 }) {
-  const cacheById = new Map<number, CacheDTO>();
+  const cacheById = new Map<number, CacheSummaryDTO>();
   for (const c of caches ?? []) cacheById.set(c.id, c);
   const label = (id: number): string => {
     if (id === 0) return "Parking";
@@ -1346,22 +1412,6 @@ export function TourSettingsPanel({
 
       <div className="field">
         <label>
-          Fringe trim (m): {settings.fringeTrimMeters}
-          <input
-            type="range"
-            min={100}
-            max={3000}
-            step={50}
-            value={settings.fringeTrimMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                fringeTrimMeters: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
           Visit time per cache (min): {settings.timePerCacheMinutes}
           <input
             type="range"
@@ -1378,7 +1428,7 @@ export function TourSettingsPanel({
           />
         </label>
         <label>
-          Tool-cache bonus (min): {settings.toolBonusMinutes}
+          Extra time for tool caches (min): {settings.toolBonusMinutes}
           <input
             type="range"
             min={0}
@@ -1416,7 +1466,7 @@ export function TourSettingsPanel({
         {(
           [
             ["parking-waypoint", "Cache-owner parking (PQ)"],
-            ["osrm-nearest-road", "OSRM nearest road"],
+            ["osrm-nearest-road", "Nearest car-accessible road"],
             ["user-supplied-point", "Use current search center"],
             ["osm-parking", "OSM amenity=parking (ADR-0011)"],
           ] as const
@@ -1495,6 +1545,32 @@ export function TourSettingsPanel({
           </div>
         )}
       </fieldset>
+
+      <details className="advanced">
+        <summary>Advanced tour settings</summary>
+        <div className="field">
+          <label>
+            Trim out-and-back spurs: {settings.fringeTrimMeters} m
+            <input
+              type="range"
+              min={100}
+              max={3000}
+              step={50}
+              value={settings.fringeTrimMeters}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  fringeTrimMeters: Number(e.target.value),
+                })
+              }
+            />
+            <small className="muted">
+              Drop a cache whose in-and-out path retraces more than this much of
+              itself (a dead-end spur).
+            </small>
+          </label>
+        </div>
+      </details>
     </aside>
   );
 }
@@ -1672,7 +1748,7 @@ function labelForParking(t: PlanResult["parking"]["type"]): string {
     case "pq":
       return "Cache-owner parking (PQ)";
     case "osrm-nearest":
-      return "OSRM nearest road";
+      return "Nearest road";
     case "user":
       return "User-supplied point";
     case "osm":
