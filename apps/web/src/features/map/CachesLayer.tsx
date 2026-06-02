@@ -12,6 +12,7 @@ import {
   listCaches,
   markCacheFound,
   unmarkCacheFound,
+  type ListCachesParams,
 } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
@@ -61,6 +62,14 @@ export interface SelectedParking {
 
 export interface CachesLayerProps {
   params: SearchParams;
+  /**
+   * Canonical, debounced caches-query input owned by App (server-relevant
+   * params only). Used as both the React Query key and the fetch args so this
+   * layer and App share one query/cache entry. `params` is still used for the
+   * client-side-only filters (hideToolCaches, multiSubtype) so those stay
+   * instant and never refetch.
+   */
+  queryInput: ListCachesParams;
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
   selectedCacheIds?: ReadonlySet<number>;
   /** Shift-click toggles a cache in/out of the selection. */
@@ -75,6 +84,7 @@ export interface CachesLayerProps {
 
 export function CachesLayer({
   params,
+  queryInput,
   selectedCacheIds,
   onSelectionChange,
   onParkingSelect,
@@ -82,14 +92,8 @@ export function CachesLayer({
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["caches", params],
-    queryFn: () =>
-      listCaches({
-        center: params.center,
-        radiusM: params.radiusM,
-        types: params.types.length > 0 ? params.types : undefined,
-        excludeFound: params.excludeFound || undefined,
-      }),
+    queryKey: ["caches", queryInput],
+    queryFn: ({ signal }) => listCaches(queryInput, signal),
     placeholderData: (prev) => prev,
   });
 

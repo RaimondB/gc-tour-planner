@@ -19,6 +19,8 @@ import {
   useLocalStorageState,
 } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import { useDebouncedValue } from "./lib/use-debounced-value.js";
+import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
 import { CachesLayer, type SelectedParking } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
@@ -358,17 +360,35 @@ export default function App(): JSX.Element {
     return [];
   }, [planResult, focusedClusterId, clusters]);
 
+  // Canonical caches-query input: ONLY the server-relevant params (the
+  // client-side toggles hideToolCaches/multiSubtype are deliberately excluded
+  // so flipping them never refetches). Debounced so dragging the radius slider
+  // fires one request after settling rather than one per tick; React Query's
+  // AbortSignal (wired below) cancels any request that is superseded mid-flight
+  // instead of leaving several large responses streaming over the tunnel.
+  const cacheQueryInput = useMemo<ListCachesParams>(
+    () => ({
+      center: params.center,
+      radiusM: params.radiusM,
+      types: params.types.length > 0 ? params.types : undefined,
+      excludeFound: params.excludeFound || undefined,
+      contexts: params.contexts.length > 0 ? params.contexts : undefined,
+      includeDisabled: params.includeDisabled || undefined,
+    }),
+    [
+      params.center,
+      params.radiusM,
+      params.types,
+      params.excludeFound,
+      params.contexts,
+      params.includeDisabled,
+    ],
+  );
+  const debouncedCacheInput = useDebouncedValue(cacheQueryInput, 350);
+
   const cachesQuery = useQuery({
-    queryKey: ["caches", params],
-    queryFn: () =>
-      listCaches({
-        center: params.center,
-        radiusM: params.radiusM,
-        types: params.types.length > 0 ? params.types : undefined,
-        excludeFound: params.excludeFound || undefined,
-        contexts: params.contexts.length > 0 ? params.contexts : undefined,
-        includeDisabled: params.includeDisabled || undefined,
-      }),
+    queryKey: ["caches", debouncedCacheInput],
+    queryFn: ({ signal }) => listCaches(debouncedCacheInput, signal),
     placeholderData: (prev) => prev,
   });
 
@@ -837,6 +857,7 @@ export default function App(): JSX.Element {
             <RadiusLayer params={params} />
             <CachesLayer
               params={params}
+              queryInput={debouncedCacheInput}
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}

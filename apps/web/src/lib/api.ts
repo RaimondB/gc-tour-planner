@@ -83,7 +83,10 @@ export interface ListCachesParams {
   includeArchived?: boolean;
 }
 
-export async function listCaches(params: ListCachesParams) {
+export async function listCaches(
+  params: ListCachesParams,
+  signal?: AbortSignal,
+) {
   const search = new URLSearchParams();
   search.set("lng", String(params.center[0]));
   search.set("lat", String(params.center[1]));
@@ -96,7 +99,9 @@ export async function listCaches(params: ListCachesParams) {
   for (const c of params.contexts ?? []) search.append("contexts", c);
   if (params.includeDisabled) search.set("includeDisabled", "true");
   if (params.includeArchived) search.set("includeArchived", "true");
-  const raw = await request<unknown>(`/caches?${search.toString()}`);
+  const raw = await request<unknown>(`/caches?${search.toString()}`, {
+    signal,
+  });
   return CachesSummaryResponse.parse(raw);
 }
 
