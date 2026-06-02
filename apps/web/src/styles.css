@@ -545,6 +545,49 @@ body,
   padding-top: 0.5rem;
 }
 
+/* --- GPX export (the primary "take it to the field" action) ------------ */
+
+.gpx-export {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #eceff1;
+}
+
+.gpx-export h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.gpx-export__buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gpx-export__buttons button {
+  flex: 1;
+}
+
+.gpx-export__hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #6b7280;
+}
+
+/* Diagnostic JSON downloads tucked behind a disclosure — not field-facing. */
+.planner-actions-advanced {
+  margin-top: 0.5rem;
+}
+.planner-actions-advanced > summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #6b7280;
+  user-select: none;
+}
+.planner-actions-advanced .planner-actions {
+  flex-wrap: wrap;
+}
+
 .planner-error {
   color: #991b1b;
   background: #fee2e2;

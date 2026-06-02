@@ -1004,37 +1004,55 @@ export function PlanResultPanel({
         />
       )}
 
-      <div className="planner-actions">
-        <button
-          type="button"
-          onClick={downloadPlan}
-          title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
-        >
-          Download plan JSON
-        </button>
-        <button
-          type="button"
-          onClick={downloadParkingOptions}
-          disabled={!parkingQuery.data || parkingQuery.data.options.length === 0}
-          title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
-        >
-          Download parking options JSON
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadGpx("track")}
-          title="Download as a GPX track — the Garmin follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
-        >
-          Download GPX track
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadGpx("route")}
-          title="Download as a GPX route — the Garmin treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
-        >
-          Download GPX route
-        </button>
+      <div className="gpx-export">
+        <h4>Save to your GPS</h4>
+        <div className="gpx-export__buttons">
+          <button
+            type="button"
+            className="primary"
+            onClick={() => downloadGpx("track")}
+            title="Download as a GPX track — your device follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
+          >
+            GPX track
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadGpx("route")}
+            title="Download as a GPX route — your device treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
+          >
+            GPX route
+          </button>
+        </div>
+        <p className="gpx-export__hint">
+          <strong>Track</strong> = the exact path drawn on the map; your device
+          just follows it. <strong>Route</strong> = parking and each cache as
+          waypoints; your device navigates between them and recomputes if you
+          stray. Not sure? Pick <strong>track</strong>.
+        </p>
       </div>
+
+      <details className="planner-actions-advanced">
+        <summary>Developer downloads</summary>
+        <div className="planner-actions">
+          <button
+            type="button"
+            onClick={downloadPlan}
+            title="Download the planned tour (ordered cache ids + per-leg polylines + score breakdown) as JSON for offline analysis"
+          >
+            Download plan JSON
+          </button>
+          <button
+            type="button"
+            onClick={downloadParkingOptions}
+            disabled={
+              !parkingQuery.data || parkingQuery.data.options.length === 0
+            }
+            title="Download the parking-preview options shown on the map (per-parking walking polyline + meters/seconds) for diagnosing long preview routes"
+          >
+            Download parking options JSON
+          </button>
+        </div>
+      </details>
     </div>
   );
 }
