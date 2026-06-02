@@ -94,6 +94,17 @@ export function CachePopup({
           descriptionHints={descriptionHints}
         />
       )}
+      {/* Full description, the official hint, logs etc. aren't stored locally
+          (and redistributing Groundspeak descriptions is a licensing concern),
+          so link out to the canonical cache page which has all of it. */}
+      <a
+        className="cache-popup__link"
+        href={`https://coord.info/${code}`}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Full details on geocaching.com ↗
+      </a>
       <button
         type="button"
         className={`cache-popup__btn${foundByMe ? " cache-popup__btn--unmark" : ""}`}
