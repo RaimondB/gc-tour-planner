@@ -78,7 +78,7 @@ OSRM_URL_DEV="${OSRM_URL_DEV:-http://localhost:5000}"
 # bind it even if dev.env tries — the conflict is silent until a request
 # arrives, and then the failure mode is "why is another service 401-ing my API?"
 if [ "$API_PORT_DEV" = "3000" ]; then
-  echo "✘ API_PORT_DEV=3000 is reserved by another service on another stack on the host. Pick another (3030 default)."
+  echo "✘ API_PORT_DEV=3000 is reserved by another service on the host. Pick another (3030 default)."
   exit 1
 fi
 

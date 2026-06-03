@@ -3,7 +3,7 @@
 ## Branches
 
 - `main` — always deployable. CI gates merges.
-- Feature branches: `<area>/<short-slug>`, e.g. `planner/marginal-trim`, `infra/shared reverse proxy-uat`.
+- Feature branches: `<area>/<short-slug>`, e.g. `planner/marginal-trim`, `infra/deploy-uat`.
 - No long-lived release branches — UAT is cut from `main`.
 
 ## Commit messages
@@ -12,7 +12,7 @@ Conventional Commits, scoped to the area touched:
 
 - `feat(planner): loop-aware Pass 2 legs + numbered tour UI`
 - `fix(web): MapLibre style fallback + container resize observer`
-- `feat(infra): UAT deployment via shared reverse proxy + planner env knobs`
+- `feat(infra): UAT deployment via reverse proxy + planner env knobs`
 - `docs(planner): add PLANNER_TUNING.md`
 - `chore(deps): bump kysely to 0.27.x`
 

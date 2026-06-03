@@ -20,8 +20,8 @@
 #   * Volumes      : pgdata-dev, valkey-data-dev — fully separate from
 #                    the UAT pgdata / valkey-data so wiping dev state
 #                    can never touch UAT.
-#   * No shared reverse proxy   : labels removed; dev never goes through the public
-#                    shared reverse proxy on example.com.
+#   * No proxy     : no reverse-proxy labels; dev never goes through the
+#                    public edge — it's local-only on shifted host ports.
 
 name: gctp-dev
 

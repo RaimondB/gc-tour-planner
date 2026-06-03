@@ -50,7 +50,7 @@ For the full container-shape stack (api + web also in compose), use the producti
 
 ## Current state (pre-M6)
 
-A single UAT instance runs at https://app.example.com, served from a host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with the host's other workloads stack, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`. The deployment is manual:
+A single UAT instance runs on a shared host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with any other workload on that host, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`. The deployment is manual:
 
 1. SSH to the host.
 2. `git pull` the gc-tour-planner repo.

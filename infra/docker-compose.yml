@@ -15,9 +15,9 @@ name: gctp
 # Networking (ADR-0015):
 #   - `default` (compose-generated `gctp_default`): the ONLY network. postgres,
 #     valkey, osrm, solver, jobs, api, web and the dedicated cloudflared all
-#     live here and nowhere else. gctp deliberately no longer joins the shared
-#     `the shared proxy network` reverse-proxy network — no other workloads
-#     container can reach gctp's (pre-auth) API. The only ingress is the
+#     live here and nowhere else. gctp deliberately no longer joins any shared
+#     reverse-proxy network — no other workload on the host can reach gctp's
+#     (pre-auth) API. The only ingress is the
 #     cloudflared tunnel below; this bridge still has egress (NAT) so
 #     cloudflared can dial out to the Cloudflare edge.
 networks:
@@ -283,13 +283,13 @@ services:
       # pre-auth, internal, single-tester.
       NODE_ENV: uat
       # Container-internal port. Matches `EXPOSE 3000` in Dockerfile.api and
-      # the shared reverse proxy loadbalancer.server.port label.
+      # the port the web nginx proxies /api to.
       API_PORT: 3000
       DATABASE_URL: ${DATABASE_URL}
       VALKEY_URL: ${VALKEY_URL}
       OSRM_URL: ${OSRM_URL}
       OSRM_MAX_CONCURRENCY: ${OSRM_MAX_CONCURRENCY:-8}
-      # shared reverse proxy strips /api before forwarding, but bull-board needs the
+      # the web nginx strips /api before forwarding, but bull-board needs the
       # public URL path to bake correct asset URLs. See
       # apps/api/src/main.ts for the rationale.
       BULL_BOARD_BASE_PATH: ${BULL_BOARD_BASE_PATH:-/api/admin/queues}
@@ -414,9 +414,9 @@ services:
     # dedicated cloudflared tunnel below is the only way in.
 
   # Dedicated Cloudflare Tunnel for gctp (ADR-0015). Runs its OWN tunnel
-  # (separate token from the other workloads tunnel) and joins ONLY gctp's
-  # network, so gctp shares no network with any other stack. The public
-  # hostname route (app.example.com -> http://web:80) and the Cloudflare
+  # (its own connector token) and joins ONLY gctp's network, so gctp shares no
+  # network with any other workload. The public
+  # hostname route (<app-host> -> http://web:80) and the Cloudflare
   # Access policy are configured in the Cloudflare Zero Trust dashboard; TLS
   # terminates at the Cloudflare edge, so no Let's Encrypt cert lives on-box.
   cloudflared:

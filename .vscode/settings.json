@@ -31,6 +31,6 @@
     "5000": { "label": "UAT OSRM (shared with dev, read-only)", "onAutoForward": "silent" },
     // ── Reserved / forbidden ─────────────────────────────────────────────
     // another service on the host owns 3000 — dev never binds it.
-    "3000": { "label": "another service (another stack on the host) — DO NOT USE", "onAutoForward": "ignore" }
+    "3000": { "label": "another service — DO NOT USE", "onAutoForward": "ignore" }
   }
 }

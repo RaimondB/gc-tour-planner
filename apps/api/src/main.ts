@@ -54,9 +54,9 @@ async function bootstrap(): Promise<void> {
   // workers.
   //
   // Asset URLs are baked from `setBasePath` — they need to match the
-  // PUBLIC URL path, not the in-container path. In UAT, shared reverse proxy strips
+  // PUBLIC URL path, not the in-container path. In UAT, the web nginx strips
   // `/api` before forwarding, so the browser is at
-  // `app.example.com/api/admin/queues` while the container sees
+  // `<app-host>/api/admin/queues` while the container sees
   // `/admin/queues`. Set `BULL_BOARD_BASE_PATH=/api/admin/queues` in
   // the UAT compose env. Dev uses the default `/admin/queues` (api is
   // direct at localhost:3030).
