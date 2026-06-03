@@ -47,6 +47,27 @@ The [PR template](../../.github/PULL_REQUEST_TEMPLATE.md) has a docs checklist. 
 
 Lightweight Nygard format. Write one when a future contributor would reasonably ask "why was X chosen?" — framework, license, algorithm class, replacing a popular tool with a less popular one. Don't write one for naming, formatting, or routine refactors. See [docs/adr/README.md](../adr/README.md) for naming + state conventions.
 
+## No local-setup details (this is a public repo)
+
+Docs, code, comments, configs, and **commit messages** must never disclose the
+specifics of where the app is actually deployed. Out of bounds:
+
+- public hostnames / domains, LAN IPs or subnets;
+- machine names or hardware specs;
+- Cloudflare tunnel IDs, account tags, or similar identifiers;
+- names of other services / stacks co-located on the deployment host;
+- shared infrastructure the app borrows (proxy networks, etc.).
+
+Write about the architecture **generically** — "the host", "a shared reverse
+proxy", "`<app-host>`", "another workload on the host". Secrets and tokens live
+only in **gitignored** env files (e.g. `infra/.env`); document them by name in
+`*.env.example` with a placeholder, never a real value. When a real value is
+genuinely needed to operate the deployment, keep it **outside the repo** (a
+local note or the provider dashboard). When unsure, generalize.
+
+This mirrors the CLAUDE.md hard rule; it applies to every contributor and every
+AI assistant (`.cursorrules`, `.github/copilot-instructions.md`).
+
 ## Why this matters
 
 The previous incarnation of this project drifted: code changed, docs didn't, and within a year nobody could tell which doc was authoritative. The cost of a one-paragraph docs update during a PR is tiny; the cost of trusting stale docs six months later is enormous. This policy keeps docs at the same freshness as the code that imports them.

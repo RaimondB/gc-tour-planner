@@ -18,6 +18,7 @@ Authoritative agent guidance is in `CLAUDE.md` — read it first. This file mirr
 5. **No third-party API creds in the DB.** Project identity only. GC.com partner key (M8) lives in env.
 6. **Layering:** controller → service → repository → Kysely. Controllers never touch SQL.
 7. **No source code outside `apps/`, `packages/`, `infra/`.** Don't drop files at the repo root.
+7b. **No local/host setup details in the repo (it's public).** Never commit — in code, comments, docs, configs, or commit messages — real deployment specifics: hostnames/domains, LAN IPs/subnets, machine names/specs, tunnel/account IDs, or names of other services co-located on the host. Describe the architecture generically ("the host", "a shared reverse proxy", "`<app-host>`"). Real values stay out of the repo (local notes / dashboard); secrets stay in gitignored env files.
 8. **Migrations are append-only.** One change per file; never edit a merged migration.
 9. **Zod schemas live in `packages/shared`**; never duplicate a wire-DTO shape between client and server.
 10. **GPLv3 header** on every TS/JS/SQL source file in `apps/` and `packages/`:
