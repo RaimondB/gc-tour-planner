@@ -50,12 +50,16 @@ For the full container-shape stack (api + web also in compose), use the producti
 
 ## Current state (pre-M6)
 
-A single UAT instance runs on a shared host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with any other workload on that host, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`. The deployment is manual:
+A single UAT instance runs on a shared host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with any other workload on that host, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`.
+
+**UAT tracks `main`.** It only ever runs merged-to-`main` code — never an in-flight feature branch (those are exercised on the dev environment; see [branching-and-prs.md](branching-and-prs.md)). So promotion to UAT is simply "fast-forward UAT to the latest `main` and redeploy", done **after each PR merges**:
 
 1. SSH to the host.
-2. `git pull` the gc-tour-planner repo.
-3. `cd infra && docker compose up --build -d` — recreates the stack and the `cloudflared` connector (see [infra/docker-compose.yml](../../infra/docker-compose.yml)). The public hostname route (`app.example.com → http://web:80`) and the Access policy are dashboard state in Cloudflare Zero Trust, not in the repo; `CLOUDFLARE_TUNNEL_TOKEN` is the only related env knob.
+2. `git checkout main && git pull --ff-only` — UAT must sit exactly on `main`; if `--ff-only` refuses, the checkout has drifted (don't force — investigate).
+3. `cd infra && docker compose up --build -d` — recreates the stack and the `cloudflared` connector (see [infra/docker-compose.yml](../../infra/docker-compose.yml)). The public hostname route and the Access policy are dashboard state in Cloudflare Zero Trust, not in the repo; `CLOUDFLARE_TUNNEL_TOKEN` is the only related env knob.
 4. `docker compose logs -f api web cloudflared` for the first minute to confirm the stack is healthy and the tunnel registers its connections.
+
+(No auto-deploy yet — see below — so this promotion step is manual for now.)
 
 DB migrations apply automatically as part of step 3: the one-shot `migrate` service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) runs `node-pg-migrate up` against the live Postgres and exits 0; `api`, `jobs`, and `osm2pgsql-import` all `depends_on: migrate: service_completed_successfully`, so they wait until the schema is at the latest revision. No host-side migrate command is needed. To re-run migrations explicitly (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
 
