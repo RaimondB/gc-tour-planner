@@ -29,7 +29,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "kysely": "0.27.4",
+    "kysely": "0.28.17",
     "pg": "8.13.1"
   },
   "devDependencies": {

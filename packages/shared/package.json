@@ -65,13 +65,13 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "fast-xml-parser": "4.5.0",
+    "fast-xml-parser": "4.5.5",
     "zod": "3.23.8"
   },
   "devDependencies": {
     "@gctp/config": "workspace:*",
     "eslint": "9.15.0",
     "typescript": "5.6.3",
-    "vitest": "2.1.5"
+    "vitest": "2.1.9"
   }
 }
