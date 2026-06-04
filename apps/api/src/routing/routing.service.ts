@@ -3,10 +3,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Routing } from "@gctp/shared";
-import {
-  type CoordRow,
-  RoutingRepository,
-} from "./routing.repository.js";
+import { type CoordRow, RoutingRepository } from "./routing.repository.js";
 import { OSRM_CLIENT, type OsrmClient } from "./osrm.client.js";
 import { OsrmVersionService } from "./osrm-version.service.js";
 

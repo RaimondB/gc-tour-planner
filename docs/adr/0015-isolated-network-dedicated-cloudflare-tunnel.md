@@ -15,7 +15,7 @@ middleware).
 
 Two problems with that:
 
-1. **Blast radius.** The gctp `api` has *no real authentication yet* — it runs
+1. **Blast radius.** The gctp `api` has _no real authentication yet_ — it runs
    `NODE_ENV=uat` with the dev-user middleware (every request is one hardcoded
    user; real JWT auth is the unbuilt M6 module). Sharing a network with other
    workloads means any container on that shared network — or a compromised one —
@@ -38,7 +38,7 @@ dedicated Cloudflare Tunnel.**
   SPA and reverse-proxies `/api/*` → `api:3000`, stripping the `/api` prefix.
   nginx `client_max_body_size` is raised to 64 MB to match the API's GPX upload
   cap (`MAX_GPX_BYTES`).
-- **A dedicated `cloudflared`** service runs gctp's *own* named tunnel (its own
+- **A dedicated `cloudflared`** service runs gctp's _own_ named tunnel (its own
   connector token) and joins **only** `gctp_default`. Its public hostname route
   (`<app-host> → http://web:80`) and the **Cloudflare Access** policy live in
   the Cloudflare Zero Trust dashboard. A dedicated tunnel (not a second hostname
@@ -46,7 +46,7 @@ dedicated Cloudflare Tunnel.**
   every connector — reusing a shared connector would re-link networks and defeat
   the isolation.
 - **No host ports** are published for any gctp service. The tunnel's outbound
-  connection to the Cloudflare edge is the *only* ingress; `gctp_default` keeps
+  connection to the Cloudflare edge is the _only_ ingress; `gctp_default` keeps
   egress (NAT) so `cloudflared` can dial out.
 - **TLS terminates at the Cloudflare edge.** No on-box certificate is needed.
 - **All access goes through Cloudflare**, including from the local network, so

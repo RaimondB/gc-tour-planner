@@ -36,15 +36,15 @@ Full layout and module-by-module breakdown: [docs/architecture/repo-layout.md](d
 
 ## Documentation
 
-| Document                                                      | What it covers                                  |
-| ------------------------------------------------------------- | ----------------------------------------------- |
-| [docs/requirements/](docs/requirements/index.md)              | Functional + non-functional requirements        |
-| [docs/architecture/](docs/architecture/index.md)              | System architecture, repo layout, modules       |
-| [docs/design/](docs/design/index.md)                          | Data model, algorithms, API surface             |
-| [docs/sdlc/](docs/sdlc/index.md)                              | Branching, testing, migrations, deploy, docs    |
-| [docs/PLANNER_TUNING.md](docs/PLANNER_TUNING.md)              | Every `PLANNER_*` env knob + symptom→knob guide |
-| [docs/LICENSING.md](docs/LICENSING.md)                        | GPLv3 compliance, third-party data terms        |
-| [docs/adr/](docs/adr/)                                        | Architecture Decision Records                   |
+| Document                                         | What it covers                                  |
+| ------------------------------------------------ | ----------------------------------------------- |
+| [docs/requirements/](docs/requirements/index.md) | Functional + non-functional requirements        |
+| [docs/architecture/](docs/architecture/index.md) | System architecture, repo layout, modules       |
+| [docs/design/](docs/design/index.md)             | Data model, algorithms, API surface             |
+| [docs/sdlc/](docs/sdlc/index.md)                 | Branching, testing, migrations, deploy, docs    |
+| [docs/PLANNER_TUNING.md](docs/PLANNER_TUNING.md) | Every `PLANNER_*` env knob + symptom→knob guide |
+| [docs/LICENSING.md](docs/LICENSING.md)           | GPLv3 compliance, third-party data terms        |
+| [docs/adr/](docs/adr/)                           | Architecture Decision Records                   |
 
 ## Tech stack (locked)
 

@@ -23,19 +23,19 @@ The [PR template](../../.github/PULL_REQUEST_TEMPLATE.md) has a docs checklist. 
 
 ## Where things go
 
-| You're changing | Update |
-|---|---|
-| A user-visible feature (FR-*) | The matching `docs/requirements/<area>.md` |
-| A non-functional property (NFR-*) | [requirements/non-functional.md](../requirements/non-functional.md) |
-| The roadmap (milestone status, scope) | [requirements/roadmap.md](../requirements/roadmap.md) |
-| An API endpoint shape | [design/api-surface.md](../design/api-surface.md) |
-| A DB schema | [design/data-model.md](../design/data-model.md) + a migration (see [migrations.md](migrations.md)) |
-| An algorithm | The matching file under `docs/design/` (e.g. [tour-planning.md](../design/tour-planning.md)) |
-| A new module or backend boundary | [architecture/backend.md](../architecture/backend.md) |
-| A new background job or queue | [architecture/background-and-deploy.md](../architecture/background-and-deploy.md) |
-| Why we picked X over Y for a non-obvious decision | A new ADR under `docs/adr/` |
-| An env knob that tunes the planner | [PLANNER_TUNING.md](../PLANNER_TUNING.md) |
-| Agent / Claude instructions | [CLAUDE.md](../../CLAUDE.md) |
+| You're changing                                   | Update                                                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| A user-visible feature (FR-\*)                    | The matching `docs/requirements/<area>.md`                                                         |
+| A non-functional property (NFR-\*)                | [requirements/non-functional.md](../requirements/non-functional.md)                                |
+| The roadmap (milestone status, scope)             | [requirements/roadmap.md](../requirements/roadmap.md)                                              |
+| An API endpoint shape                             | [design/api-surface.md](../design/api-surface.md)                                                  |
+| A DB schema                                       | [design/data-model.md](../design/data-model.md) + a migration (see [migrations.md](migrations.md)) |
+| An algorithm                                      | The matching file under `docs/design/` (e.g. [tour-planning.md](../design/tour-planning.md))       |
+| A new module or backend boundary                  | [architecture/backend.md](../architecture/backend.md)                                              |
+| A new background job or queue                     | [architecture/background-and-deploy.md](../architecture/background-and-deploy.md)                  |
+| Why we picked X over Y for a non-obvious decision | A new ADR under `docs/adr/`                                                                        |
+| An env knob that tunes the planner                | [PLANNER_TUNING.md](../PLANNER_TUNING.md)                                                          |
+| Agent / Claude instructions                       | [CLAUDE.md](../../CLAUDE.md)                                                                       |
 
 ## Requirement IDs
 

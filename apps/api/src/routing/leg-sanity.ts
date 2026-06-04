@@ -49,10 +49,7 @@ export const HIGH_DETOUR_REJECT = 10;
  * Zero-length legs are accepted as-is — the zero-distance guard upstream
  * handles the suspicious case where two distinct coords snapped together.
  */
-export function isImpossibleSpeed(
-  meters: number,
-  seconds: number,
-): boolean {
+export function isImpossibleSpeed(meters: number, seconds: number): boolean {
   if (!Number.isFinite(meters) || !Number.isFinite(seconds)) return true;
   if (meters <= 0) return false; // suspicious-zero guard handles these
   if (seconds <= 0) return true; // any non-zero distance must take time

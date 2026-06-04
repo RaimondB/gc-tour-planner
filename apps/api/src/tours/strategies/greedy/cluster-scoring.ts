@@ -118,8 +118,7 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
   const tourMeters =
     input.estimatedTourMeters > 0 ? input.estimatedTourMeters : mstLengthMeters;
   const r = (tourMeters - distanceBudgetMeters) / distanceBudgetMeters;
-  breakdown.budgetFit =
-    Math.exp(-(r * r)) * softPrefs.loopCompactnessWeight;
+  breakdown.budgetFit = Math.exp(-(r * r)) * softPrefs.loopCompactnessWeight;
 
   // Terrain / difficulty target preferences (legacy).
   if (softPrefs.terrainTarget) {
@@ -136,8 +135,7 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
   if (softPrefs.difficultyTarget) {
     const m = mean(
       caches.map(
-        (c) =>
-          safeFloat(c.difficulty) ?? softPrefs.difficultyTarget!.value,
+        (c) => safeFloat(c.difficulty) ?? softPrefs.difficultyTarget!.value,
       ),
     );
     breakdown.difficultyMatch = gaussianMatch(

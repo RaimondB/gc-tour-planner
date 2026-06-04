@@ -44,17 +44,20 @@ The sidebar surfaces a `Free | Paid | Any` segmented control, default `Any`. Pai
 ## Consequences
 
 ### Wins
+
 - The planner can pick from hundreds of public lots per region instead of dozens of GPX waypoints.
 - The "lonely cluster with one broken GPX parking" failure mode goes away in city centres and most villages.
 - Map UX gets immediately better: every car-friendly cacher sees real parking before planning.
 - Refresh cadence stays unified (ADR-0010) — both tables come from one PBF cycle.
 
 ### Costs
+
 - One new migration, one new repo, one new endpoint, one new layer, one new planner branch. All small.
 - The osm2pgsql import gets ~1.5× more rows (rough: landuse_polygons ~250 k for NL; parking_facilities probably ~50–100 k). Negligible compared to the OSRM walking graph.
 - Schema must stay in lockstep between `osm-features.lua`, the migration, and the Kysely-generated types — same discipline as landuse.
 
 ### Out of scope (deferred)
+
 - Charging-station detection (`amenity=charging_station`).
 - Fee structure parsing (`charge=*`, `fee:conditional=*`). All `fee=yes` is uniform.
 - Time-of-day eligibility (`opening_hours`, `maxstay`) — displayed in the popup, not enforced.

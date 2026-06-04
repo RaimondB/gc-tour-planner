@@ -68,9 +68,7 @@ export class RoutingRepository {
     // post-filter is cheap (Set membership over at most |from|×|to| rows).
     const fromIds = Array.from(new Set(pairs.map((p) => p.fromCacheId)));
     const toIds = Array.from(new Set(pairs.map((p) => p.toCacheId)));
-    const wanted = new Set(
-      pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`),
-    );
+    const wanted = new Set(pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`));
 
     const rows = (await this.db
       .selectFrom("route_legs")
@@ -229,7 +227,9 @@ export class RoutingRepository {
               osrm_version: (eb) => eb.ref("excluded.osrm_version"),
               fetched_at: sql<Date>`now()`,
             })
-            .where(sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`),
+            .where(
+              sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`,
+            ),
         )
         .execute();
     }
@@ -285,7 +285,9 @@ export class RoutingRepository {
               osrm_version: (eb) => eb.ref("excluded.osrm_version"),
               fetched_at: sql<Date>`now()`,
             })
-            .where(sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`),
+            .where(
+              sql<boolean>`route_legs.osrm_version <> excluded.osrm_version`,
+            ),
         )
         .execute();
     }
@@ -314,9 +316,7 @@ export class RoutingRepository {
     if (pairs.length === 0) return [];
     const fromIds = Array.from(new Set(pairs.map((p) => p.fromCacheId)));
     const toIds = Array.from(new Set(pairs.map((p) => p.toCacheId)));
-    const wanted = new Set(
-      pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`),
-    );
+    const wanted = new Set(pairs.map((p) => `${p.fromCacheId}:${p.toCacheId}`));
     const rows = (await this.db
       .selectFrom("route_legs")
       .select(["from_cache_id", "to_cache_id", "meters", "seconds", "source"])
@@ -367,13 +367,14 @@ export class RoutingRepository {
   > {
     if (cacheIds.length === 0) return [];
     const ids = cacheIds.join(",");
-    const rows = (await sql<{
-      from_cache_id: string;
-      to_cache_id: string;
-      meters: string;
-      seconds: string;
-      haversine_m: number;
-    }>`
+    const rows = (
+      await sql<{
+        from_cache_id: string;
+        to_cache_id: string;
+        meters: string;
+        seconds: string;
+        haversine_m: number;
+      }>`
       WITH owner_caches AS (
         SELECT id, location
           FROM caches
@@ -392,7 +393,8 @@ export class RoutingRepository {
          AND rl.osrm_version = ${osrmVersion}
          AND rl.meters  <= ${walkingMaxMeters}
          AND ST_Distance(a.location, b.location) >= ${haversineMinMeters}
-    `.execute(this.db)).rows;
+    `.execute(this.db)
+    ).rows;
     return rows.map((r) => ({
       fromCacheId: Number(r.from_cache_id),
       toCacheId: Number(r.to_cache_id),

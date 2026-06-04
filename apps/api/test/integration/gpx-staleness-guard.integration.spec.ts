@@ -211,9 +211,7 @@ describe("GPX staleness guard + upload stats (PR2)", () => {
     });
     const withDisabledCodes = withDisabled.map((c) => c.code).sort();
     expect(withDisabledCodes).toEqual(["GC0001", "GC0ACT"]);
-    expect(
-      withDisabled.find((c) => c.code === "GC0001")?.disabled,
-    ).toBe(true);
+    expect(withDisabled.find((c) => c.code === "GC0001")?.disabled).toBe(true);
 
     const withAll = await repo.find({
       ownerId,

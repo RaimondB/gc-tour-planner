@@ -66,12 +66,12 @@ Content-Type: application/json
 
 ## Constraints (MVP — see `solver/TourConstraintProvider.java`)
 
-| Type | Constraint        | Notes |
-|------|-------------------|-------|
-| HARD | distance budget   | parking → first + inter-cache legs + last → parking ≤ `distanceBudgetMeters` |
-| HARD | time budget       | only active when `timeBudgetSeconds` is supplied (`> 0`) |
-| HARD | reachable legs    | rejects orderings with a `null` matrix cell |
-| SOFT | visited count     | rewards `visitOrder.size() × weights.visitedCount` (higher is better) |
+| Type | Constraint      | Notes                                                                        |
+| ---- | --------------- | ---------------------------------------------------------------------------- |
+| HARD | distance budget | parking → first + inter-cache legs + last → parking ≤ `distanceBudgetMeters` |
+| HARD | time budget     | only active when `timeBudgetSeconds` is supplied (`> 0`)                     |
+| HARD | reachable legs  | rejects orderings with a `null` matrix cell                                  |
+| SOFT | visited count   | rewards `visitOrder.size() × weights.visitedCount` (higher is better)        |
 
 Deferred to a follow-up: terrain mix, difficulty mix, landuse preference, walking-pace fit. See ADR-0005 for the long-term vision.
 
@@ -83,9 +83,9 @@ The Nest-side determinism test (`apps/api/src/tours/strategies/solver/solver-tou
 
 ## Env vars
 
-| Var                  | Default | Meaning |
-|----------------------|---------|---------|
-| `SERVER_PORT`        | 8080    | HTTP listen port (Spring Boot standard) |
+| Var                  | Default | Meaning                                      |
+| -------------------- | ------- | -------------------------------------------- |
+| `SERVER_PORT`        | 8080    | HTTP listen port (Spring Boot standard)      |
 | `SOLVER_SPENT_LIMIT` | 5s      | Best-effort wall-clock cap on a single solve |
 
 ## Tests

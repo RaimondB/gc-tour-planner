@@ -27,18 +27,18 @@ pnpm dev:down       # stop dev infra (volumes preserved)
 
 The dev stack runs in its own compose project with its own state. The one deliberate exception is OSRM, which is shared read-only.
 
-| Concern | UAT | Dev | Shared? |
-|---|---|---|---|
-| Compose project | `gctp` | `gctp-dev` | no |
-| Compose file | `infra/docker-compose.yml` | `infra/docker-compose.dev.yml` | no |
-| Postgres host port | 5432 | 15432 | no |
-| Valkey host port | 6379 | 16379 | no |
-| OSRM | container, port 5000 | **same container** via host:5000 | **YES (read-only)** |
-| API host port | none (only `web` nginx reaches it) | 3030 | no |
-| Web host port | none (only the gctp cloudflared reaches it) | 5173 | no |
-| Postgres database | `gctp` | `gctp_dev` | no |
-| Volumes | `pgdata`, `valkey-data`, `osrm-data`, `gctp-uploads` | `pgdata-dev`, `valkey-data-dev` (uploads on host: `./data/uploads/`) | no |
-| Public ingress | dedicated Cloudflare Tunnel + Access ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) | n/a | no |
+| Concern            | UAT                                                                                                            | Dev                                                                  | Shared?             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------- |
+| Compose project    | `gctp`                                                                                                         | `gctp-dev`                                                           | no                  |
+| Compose file       | `infra/docker-compose.yml`                                                                                     | `infra/docker-compose.dev.yml`                                       | no                  |
+| Postgres host port | 5432                                                                                                           | 15432                                                                | no                  |
+| Valkey host port   | 6379                                                                                                           | 16379                                                                | no                  |
+| OSRM               | container, port 5000                                                                                           | **same container** via host:5000                                     | **YES (read-only)** |
+| API host port      | none (only `web` nginx reaches it)                                                                             | 3030                                                                 | no                  |
+| Web host port      | none (only the gctp cloudflared reaches it)                                                                    | 5173                                                                 | no                  |
+| Postgres database  | `gctp`                                                                                                         | `gctp_dev`                                                           | no                  |
+| Volumes            | `pgdata`, `valkey-data`, `osrm-data`, `gctp-uploads`                                                           | `pgdata-dev`, `valkey-data-dev` (uploads on host: `./data/uploads/`) | no                  |
+| Public ingress     | dedicated Cloudflare Tunnel + Access ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) | n/a                                                                  | no                  |
 
 Wiping dev state (`docker compose -p gctp-dev -f infra/docker-compose.dev.yml down -v`) can never touch UAT postgres or UAT valkey. OSRM is shared but stateless from the consumer's perspective — dev cache cells in `route_legs` are stamped `osrm_version='unknown'` (the dev api can't read UAT's `/osrm-meta/osrm-version.txt` from the host) and stay cleanly namespaced from UAT's version-stamped cells.
 
@@ -74,7 +74,7 @@ It re-downloads the regional PBFs, re-preprocesses OSRM, and re-imports landuse 
 ## What's deliberately not here yet
 
 - No CI auto-deploy. M6+ may add a deploy workflow once auth lands and the blast radius of a bad merge grows.
-- No staging environment separate from UAT — UAT *is* the only non-dev tier today.
+- No staging environment separate from UAT — UAT _is_ the only non-dev tier today.
 - No rollback button. Rollback = `git revert` + redeploy.
 
 ## Production differences (when we get there)

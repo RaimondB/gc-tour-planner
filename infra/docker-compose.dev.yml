@@ -43,7 +43,11 @@ services:
     ports:
       - "${POSTGRES_PORT_DEV:-15432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER_DEV:-gctp} -d ${POSTGRES_DB_DEV:-gctp_dev}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER_DEV:-gctp} -d ${POSTGRES_DB_DEV:-gctp_dev}",
+        ]
       interval: 3s
       timeout: 3s
       retries: 10

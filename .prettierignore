@@ -12,3 +12,6 @@ pnpm-lock.yaml
 
 # License text is verbatim upstream
 LICENSE
+
+# Local editor / agent config — not part of the formatted source surface
+.claude/

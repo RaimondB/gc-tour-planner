@@ -69,17 +69,17 @@ Remove the Overpass sidecar entirely. Import OSM landuse polygons directly into 
 
 ### Why this over the alternatives
 
-| Aspect                              | Current Overpass (ADR-0008) | osm2pgsql (this ADR)                                                | Imposm                          | Pre-build elsewhere    |
-| ----------------------------------- | --------------------------- | ------------------------------------------------------------------- | ------------------------------- | ---------------------- |
-| Import peak RAM (NL)                | 5-8 GB (currently failing)  | **1.5-2 GB** with `--slim --drop --flat-nodes`                      | 2-3 GB                          | 0 on host               |
-| Import wall clock                   | 45-60 min, unstable         | ~30-40 min, deterministic                                           | 20-30 min                       | LAN transfer time only |
-| **Steady-state RAM**                | **~3 GB** (dispatcher)      | **~0 incremental** (rides on existing Postgres)                     | ~0 incremental                  | unchanged              |
-| **Steady-state CPU**                | dispatcher idle + per-query | shared with Postgres, indexed bbox <100 ms                          | same                            | unchanged              |
-| Lua flexibility for 10-kind mapping | n/a                         | ✅ direct port of [landuse-classify.ts](../../apps/api/src/osm/landuse-classify.ts) | ❌ YAML mapping, less flexible | n/a                    |
-| Update path                         | Geofabrik diffs in image    | `osm2pgsql-replication` daemon                                      | bespoke cron                    | re-build + rsync       |
-| Licence (server / tool)             | AGPL-3.0 (HTTP boundary)    | GPL-2.0 (compatible)                                                | Apache-2.0                      | inherits primary tool  |
-| Containers / volumes added          | +1 service, +1 healthcheck, +1 port, +1 volume | 1 one-shot job, +1 small volume                  | same                            | 0                      |
-| Per-feature blast radius            | dispatcher down = no landuse | Postgres outage = same as for caches                                | same                            | same                   |
+| Aspect                              | Current Overpass (ADR-0008)                    | osm2pgsql (this ADR)                                                                | Imposm                         | Pre-build elsewhere    |
+| ----------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------ | ---------------------- |
+| Import peak RAM (NL)                | 5-8 GB (currently failing)                     | **1.5-2 GB** with `--slim --drop --flat-nodes`                                      | 2-3 GB                         | 0 on host              |
+| Import wall clock                   | 45-60 min, unstable                            | ~30-40 min, deterministic                                                           | 20-30 min                      | LAN transfer time only |
+| **Steady-state RAM**                | **~3 GB** (dispatcher)                         | **~0 incremental** (rides on existing Postgres)                                     | ~0 incremental                 | unchanged              |
+| **Steady-state CPU**                | dispatcher idle + per-query                    | shared with Postgres, indexed bbox <100 ms                                          | same                           | unchanged              |
+| Lua flexibility for 10-kind mapping | n/a                                            | ✅ direct port of [landuse-classify.ts](../../apps/api/src/osm/landuse-classify.ts) | ❌ YAML mapping, less flexible | n/a                    |
+| Update path                         | Geofabrik diffs in image                       | `osm2pgsql-replication` daemon                                                      | bespoke cron                   | re-build + rsync       |
+| Licence (server / tool)             | AGPL-3.0 (HTTP boundary)                       | GPL-2.0 (compatible)                                                                | Apache-2.0                     | inherits primary tool  |
+| Containers / volumes added          | +1 service, +1 healthcheck, +1 port, +1 volume | 1 one-shot job, +1 small volume                                                     | same                           | 0                      |
+| Per-feature blast radius            | dispatcher down = no landuse                   | Postgres outage = same as for caches                                                | same                           | same                   |
 
 The decisive factors are **steady-state RAM** (we reclaim ~3 GB on the host, immediately usable by the existing Postgres / OSRM / API caps) and **stability** (osm2pgsql has a well-understood, deterministic memory profile that doesn't need exotic kernel tuning to survive on 16 GB). Imposm is faster on import but YAML-driven mapping is awkward for our `landuse|natural|leisure` precedence rules. Build-elsewhere doesn't solve the steady-state cost.
 

@@ -9,10 +9,7 @@ import { componentsStrategy } from "./components.js";
 import { dbscanStrategy } from "./dbscan.js";
 import { hdbscanStrategy } from "./hdbscan.js";
 import { louvainStrategy } from "./louvain.js";
-import {
-  CLUSTERING_STRATEGIES,
-  resolveClusteringStrategy,
-} from "./index.js";
+import { CLUSTERING_STRATEGIES, resolveClusteringStrategy } from "./index.js";
 import { refineClusters } from "./refine.js";
 import type { ClusteringContext } from "./strategy.js";
 
@@ -24,13 +21,13 @@ import type { ClusteringContext } from "./strategy.js";
  */
 function buildFixture(): ClusteringContext {
   const caches: Caches.CacheDTO[] = [
-    cache(1, 0.0000, 0.0000),
-    cache(2, 0.0010, 0.0000),
-    cache(3, 0.0000, 0.0010),
-    cache(4, 0.0200, 0.0200),
-    cache(5, 0.0210, 0.0200),
-    cache(6, 0.0200, 0.0210),
-    cache(7, 0.1000, 0.1000),
+    cache(1, 0.0, 0.0),
+    cache(2, 0.001, 0.0),
+    cache(3, 0.0, 0.001),
+    cache(4, 0.02, 0.02),
+    cache(5, 0.021, 0.02),
+    cache(6, 0.02, 0.021),
+    cache(7, 0.1, 0.1),
   ];
   const coordinated: CoordinatedCache[] = caches.map((c) => ({
     id: c.id,
@@ -107,13 +104,19 @@ describe("resolveClusteringStrategy", () => {
     expect(resolveClusteringStrategy("dbscan", "louvain").name).toBe("dbscan");
   });
   it("falls back to env default when request is undefined", () => {
-    expect(resolveClusteringStrategy(undefined, "hdbscan").name).toBe("hdbscan");
+    expect(resolveClusteringStrategy(undefined, "hdbscan").name).toBe(
+      "hdbscan",
+    );
   });
   it("falls back to louvain on unknown env value", () => {
-    expect(resolveClusteringStrategy(undefined, "garbage").name).toBe("louvain");
+    expect(resolveClusteringStrategy(undefined, "garbage").name).toBe(
+      "louvain",
+    );
   });
   it("falls back to louvain when both are undefined", () => {
-    expect(resolveClusteringStrategy(undefined, undefined).name).toBe("louvain");
+    expect(resolveClusteringStrategy(undefined, undefined).name).toBe(
+      "louvain",
+    );
   });
 });
 
@@ -160,10 +163,7 @@ describe("dbscan vs louvain — bridge edge handling", () => {
     const fused: ClusteringContext = {
       ...fixture,
       // Add a bridge edge connecting the two pods through node 3↔4.
-      edges: [
-        ...fixture.edges,
-        edge(3, 4, 4_000),
-      ],
+      edges: [...fixture.edges, edge(3, 4, 4_000)],
       input: { ...fixture.input, maxLinkMeters: 5_000 },
     };
 
@@ -174,16 +174,12 @@ describe("dbscan vs louvain — bridge edge handling", () => {
     // chain. Louvain weights the bridge as exp(-4000/1667)≈0.09, far below
     // intra-pod weights, and keeps them apart.
     const dbscanFused = dbscanResult.some(
-      (c) =>
-        c.cacheIds.includes(1) &&
-        c.cacheIds.includes(4),
+      (c) => c.cacheIds.includes(1) && c.cacheIds.includes(4),
     );
     expect(dbscanFused).toBe(true);
 
     const louvainKeptApart = louvainResult.some(
-      (c) =>
-        c.cacheIds.length === 3 &&
-        c.cacheIds.every((id) => id <= 3),
+      (c) => c.cacheIds.length === 3 && c.cacheIds.every((id) => id <= 3),
     );
     expect(louvainKeptApart).toBe(true);
   });

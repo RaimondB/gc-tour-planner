@@ -31,7 +31,14 @@ describe("bestParkingInsertion", () => {
     const { parkingToCacheAt, cacheToParkingAt, distAt } = lookups(
       { 1: 20, 2: 800, 3: 850, 4: 30 },
       { 1: 20, 2: 800, 3: 850, 4: 30 },
-      { "1-2": 100, "2-3": 100, "3-4": 100, "1-4": 100, "1-3": 100, "2-4": 100 },
+      {
+        "1-2": 100,
+        "2-3": 100,
+        "3-4": 100,
+        "1-4": 100,
+        "1-3": 100,
+        "2-4": 100,
+      },
     );
     // Best split is the 4→1 edge: in(20) + out(30) − skip(100) = −50, with 1
     // becoming first (start index 0 in this order).
@@ -52,7 +59,12 @@ describe("bestParkingInsertion", () => {
       { "1-2": 100, "2-3": 100, "1-3": 100 },
     );
     expect(
-      bestParkingInsertion([1, 2, 3], parkingToCacheAt, cacheToParkingAt, distAt).cost,
+      bestParkingInsertion(
+        [1, 2, 3],
+        parkingToCacheAt,
+        cacheToParkingAt,
+        distAt,
+      ).cost,
     ).toBe(Number.POSITIVE_INFINITY);
   });
 });
@@ -65,7 +77,12 @@ describe("rotateForBestParkingInsertion", () => {
       {},
     );
     expect(
-      rotateForBestParkingInsertion([1], parkingToCacheAt, cacheToParkingAt, distAt),
+      rotateForBestParkingInsertion(
+        [1],
+        parkingToCacheAt,
+        cacheToParkingAt,
+        distAt,
+      ),
     ).toEqual([1]);
   });
 
@@ -79,7 +96,12 @@ describe("rotateForBestParkingInsertion", () => {
     // start at 1 (i=0): in p→1 (500) + out 2→p (600) − skip(100) = 1000.
     // start at 2 (i=1): in p→2 (20)  + out 1→p (30)  − skip(100) = −50. → wins.
     expect(
-      rotateForBestParkingInsertion([1, 2], parkingToCacheAt, cacheToParkingAt, distAt),
+      rotateForBestParkingInsertion(
+        [1, 2],
+        parkingToCacheAt,
+        cacheToParkingAt,
+        distAt,
+      ),
     ).toEqual([2, 1]);
   });
 
@@ -91,7 +113,14 @@ describe("rotateForBestParkingInsertion", () => {
     const { parkingToCacheAt, cacheToParkingAt, distAt } = lookups(
       { 1: 20, 2: 800, 3: 850, 4: 30 },
       { 1: 20, 2: 800, 3: 850, 4: 30 },
-      { "1-2": 100, "2-3": 100, "3-4": 100, "1-4": 100, "1-3": 100, "2-4": 100 },
+      {
+        "1-2": 100,
+        "2-3": 100,
+        "3-4": 100,
+        "1-4": 100,
+        "1-3": 100,
+        "2-4": 100,
+      },
     );
     // Seed order [1,2,3,4]: current behaviour splits the 4→1 edge already
     // (first=1, last=4) — both cheap. So a different seed is needed to prove
@@ -113,11 +142,23 @@ describe("rotateForBestParkingInsertion", () => {
     const { parkingToCacheAt, cacheToParkingAt, distAt } = lookups(
       { 1: 20, 2: 800, 3: 850, 4: 30 },
       { 1: 20, 2: 800, 3: 850, 4: 30 },
-      { "1-2": 100, "2-3": 100, "3-4": 100, "1-4": 100, "1-3": 100, "2-4": 100 },
+      {
+        "1-2": 100,
+        "2-3": 100,
+        "3-4": 100,
+        "1-4": 100,
+        "1-3": 100,
+        "2-4": 100,
+      },
     );
     // first=1 (20), last=4 (30) is already the cheapest split → no rotation.
     expect(
-      rotateForBestParkingInsertion([1, 2, 3, 4], parkingToCacheAt, cacheToParkingAt, distAt),
+      rotateForBestParkingInsertion(
+        [1, 2, 3, 4],
+        parkingToCacheAt,
+        cacheToParkingAt,
+        distAt,
+      ),
     ).toEqual([1, 2, 3, 4]);
   });
 
@@ -127,7 +168,14 @@ describe("rotateForBestParkingInsertion", () => {
     const { parkingToCacheAt, cacheToParkingAt, distAt } = lookups(
       { 1: 50, 2: 60, 3: Number.POSITIVE_INFINITY, 4: 40 },
       { 1: 50, 2: 60, 3: Number.POSITIVE_INFINITY, 4: 40 },
-      { "1-2": 100, "2-3": 100, "3-4": 100, "1-4": 100, "1-3": 100, "2-4": 100 },
+      {
+        "1-2": 100,
+        "2-3": 100,
+        "3-4": 100,
+        "1-4": 100,
+        "1-3": 100,
+        "2-4": 100,
+      },
     );
     const rotated = rotateForBestParkingInsertion(
       [1, 2, 3, 4],

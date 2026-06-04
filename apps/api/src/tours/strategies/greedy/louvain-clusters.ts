@@ -84,7 +84,11 @@ export function discoverClustersInSubgraphs(
           cacheIds: ids,
           seedId: sub.seedId,
           resolution,
-          internalWeight: internalEdgeWeightSum(ids, sub.edges, options.sigmaMeters),
+          internalWeight: internalEdgeWeightSum(
+            ids,
+            sub.edges,
+            options.sigmaMeters,
+          ),
         });
       }
     }
@@ -194,8 +198,22 @@ export function splitByMstCut(
   }
 
   return [
-    ...splitByMstCut(leftMembers, walkingDist, budgetMeters, minSize, maxSize, depth + 1),
-    ...splitByMstCut(rightMembers, walkingDist, budgetMeters, minSize, maxSize, depth + 1),
+    ...splitByMstCut(
+      leftMembers,
+      walkingDist,
+      budgetMeters,
+      minSize,
+      maxSize,
+      depth + 1,
+    ),
+    ...splitByMstCut(
+      rightMembers,
+      walkingDist,
+      budgetMeters,
+      minSize,
+      maxSize,
+      depth + 1,
+    ),
   ];
 }
 

@@ -1,20 +1,11 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  Body,
-  Controller,
-  Param,
-  ParseUUIDPipe,
-  Post,
-} from "@nestjs/common";
+import { Body, Controller, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../auth/current-user.decorator.js";
 import type { AuthUser } from "../../auth/auth.types.js";
-import {
-  GpxService,
-  type GpxUploadResult,
-} from "../../gpx/gpx.service.js";
+import { GpxService, type GpxUploadResult } from "../../gpx/gpx.service.js";
 
 /**
  * Admin surface for re-running the GPX parser against a previously
@@ -40,7 +31,8 @@ export class AdminUploadsController {
   })
   @ApiResponse({
     status: 201,
-    description: "Same shape as POST /gpx/upload — upload id + counts + warnings.",
+    description:
+      "Same shape as POST /gpx/upload — upload id + counts + warnings.",
   })
   async reprocess(
     @CurrentUser() user: AuthUser,

@@ -174,13 +174,21 @@ export function resolvePick(
     meters: number;
     seconds: number;
     geometry: GeoJsonLineString;
-    alternatives: readonly { meters: number; seconds: number; geometry: GeoJsonLineString }[];
+    alternatives: readonly {
+      meters: number;
+      seconds: number;
+      geometry: GeoJsonLineString;
+    }[];
     selectedAlternativeIndex: number;
   },
   pick: LegPick | number | undefined,
 ): { meters: number; seconds: number; geometry: GeoJsonLineString } {
   if (pick && typeof pick === "object" && pick.kind === "via") {
-    return { meters: pick.meters, seconds: pick.seconds, geometry: pick.geometry };
+    return {
+      meters: pick.meters,
+      seconds: pick.seconds,
+      geometry: pick.geometry,
+    };
   }
   const idx =
     pick && typeof pick === "object" && pick.kind === "alt"
@@ -189,7 +197,8 @@ export function resolvePick(
         ? pick
         : leg.selectedAlternativeIndex;
   const alt = leg.alternatives[idx] ?? leg.alternatives[0];
-  if (alt) return { meters: alt.meters, seconds: alt.seconds, geometry: alt.geometry };
+  if (alt)
+    return { meters: alt.meters, seconds: alt.seconds, geometry: alt.geometry };
   // Solver path — no alternatives surfaced. Use the leg envelope's own
   // meters/seconds/geometry, which `PlanResult.legs` carries verbatim
   // for the chosen pick.

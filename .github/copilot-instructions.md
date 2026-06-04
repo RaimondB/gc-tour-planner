@@ -15,7 +15,7 @@ A web app to plan closed-loop geocaching tours. pnpm + Turborepo monorepo, TypeS
 5. **No third-party API creds in the DB.**
 6. **Layering:** controller → service → repository → Kysely.
 7. **Code lives under `apps/`, `packages/`, or `infra/`** — never the repo root.
-7b. **No local/host setup details in this public repo** — no real hostnames/domains, LAN IPs, machine names/specs, tunnel/account IDs, or co-located service names in code, comments, docs, configs, or commit messages. Keep architecture descriptions generic ("the host", "a shared reverse proxy"); real values stay out of the repo; secrets in gitignored env files.
+   7b. **No local/host setup details in this public repo** — no real hostnames/domains, LAN IPs, machine names/specs, tunnel/account IDs, or co-located service names in code, comments, docs, configs, or commit messages. Keep architecture descriptions generic ("the host", "a shared reverse proxy"); real values stay out of the repo; secrets in gitignored env files.
 8. **Migrations are append-only.** One change per file.
 9. **Zod schemas live in `packages/shared`.** Never duplicate DTO shapes between client and server.
 10. **GPLv3 header** on every TS/JS/SQL source file:

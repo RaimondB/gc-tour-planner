@@ -28,13 +28,17 @@ describe("clustering registry", () => {
   });
 
   it("falls back to the env default when no request strategy", () => {
-    expect(resolveClusteringStrategy(undefined, "hdbscan").name).toBe("hdbscan");
+    expect(resolveClusteringStrategy(undefined, "hdbscan").name).toBe(
+      "hdbscan",
+    );
   });
 
   it("falls back to louvain on an unknown/empty env default", () => {
     expect(resolveClusteringStrategy(undefined, "nonsense").name).toBe(
       "louvain",
     );
-    expect(resolveClusteringStrategy(undefined, undefined).name).toBe("louvain");
+    expect(resolveClusteringStrategy(undefined, undefined).name).toBe(
+      "louvain",
+    );
   });
 });

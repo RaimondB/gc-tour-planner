@@ -229,15 +229,7 @@ export function TourLayer({
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": "#ffffff",
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          9,
-          5,
-          14,
-          10,
-        ],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 5, 14, 10],
         "line-opacity": 0.85,
       },
     });
@@ -255,15 +247,7 @@ export function TourLayer({
           "#ffb300",
           "#d84315",
         ],
-        "line-width": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          9,
-          2.5,
-          14,
-          5,
-        ],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 14, 5],
       },
     });
     // Direction arrows: a symbol layer placed along the line at a fixed

@@ -192,12 +192,7 @@ export function ClustersPreviewLayer({
           ],
           "line-width": ["case", ["==", ["get", "focused"], 1], 2.5, 1.5],
           "line-dasharray": [2, 2],
-          "line-opacity": [
-            "case",
-            ["==", ["get", "focused"], 1],
-            0.95,
-            0.55,
-          ],
+          "line-opacity": ["case", ["==", ["get", "focused"], 1], 0.95, 0.55],
         },
       });
     }
@@ -215,13 +210,13 @@ export function ClustersPreviewLayer({
             "#d84315",
             "#fdba74",
           ],
-          "circle-stroke-width": ["case", ["==", ["get", "focused"], 1], 2.5, 1.5],
-          "circle-opacity": [
+          "circle-stroke-width": [
             "case",
             ["==", ["get", "focused"], 1],
-            1,
-            0.65,
+            2.5,
+            1.5,
           ],
+          "circle-opacity": ["case", ["==", ["get", "focused"], 1], 1, 0.65],
         },
       });
     }

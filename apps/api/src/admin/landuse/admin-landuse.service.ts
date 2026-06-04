@@ -30,9 +30,9 @@ export class AdminLanduseService {
   async status(): Promise<Admin.LanduseStatus> {
     const [meta, countRow] = await Promise.all([
       this.landuse.lastImportMeta(),
-      sql<{ n: string }>`SELECT count(*)::text AS n FROM landuse_polygons`.execute(
-        this.db,
-      ),
+      sql<{
+        n: string;
+      }>`SELECT count(*)::text AS n FROM landuse_polygons`.execute(this.db),
     ]);
     const polygonCount = Number(countRow.rows[0]?.n ?? 0);
     return {
@@ -44,5 +44,4 @@ export class AdminLanduseService {
       polygonCount,
     };
   }
-
 }

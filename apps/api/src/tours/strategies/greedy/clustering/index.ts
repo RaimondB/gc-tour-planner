@@ -7,4 +7,7 @@ export { prepareClusteringContext } from "./context.js";
 export type { PreparedContext } from "./context.js";
 // The strategy registry lives in a pure module (no I/O) so the worker-thread
 // planner pipeline can import it without pulling in context.ts (ADR-0014).
-export { CLUSTERING_STRATEGIES, resolveClusteringStrategy } from "./registry.js";
+export {
+  CLUSTERING_STRATEGIES,
+  resolveClusteringStrategy,
+} from "./registry.js";

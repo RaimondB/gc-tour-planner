@@ -26,11 +26,23 @@
     // ── UAT compose stack (project gctp) — NOT a dev surface ─────────────
     // postgres + valkey are ignored entirely so VS Code never offers them.
     // OSRM is shared (read-only HTTP) so dev still reaches it via :5000.
-    "5432": { "label": "UAT postgres (do not use from dev)", "onAutoForward": "ignore" },
-    "6379": { "label": "UAT valkey (do not use from dev)", "onAutoForward": "ignore" },
-    "5000": { "label": "UAT OSRM (shared with dev, read-only)", "onAutoForward": "silent" },
+    "5432": {
+      "label": "UAT postgres (do not use from dev)",
+      "onAutoForward": "ignore"
+    },
+    "6379": {
+      "label": "UAT valkey (do not use from dev)",
+      "onAutoForward": "ignore"
+    },
+    "5000": {
+      "label": "UAT OSRM (shared with dev, read-only)",
+      "onAutoForward": "silent"
+    },
     // ── Reserved / forbidden ─────────────────────────────────────────────
     // another service on the host owns 3000 — dev never binds it.
-    "3000": { "label": "another service — DO NOT USE", "onAutoForward": "ignore" }
+    "3000": {
+      "label": "another service — DO NOT USE",
+      "onAutoForward": "ignore"
+    }
   }
 }

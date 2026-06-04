@@ -4,7 +4,11 @@
 import { dbscanFromDistances } from "../dbscan.js";
 import { haversineMeters } from "../equirectangular.js";
 import type { WalkingEdge } from "../walking-graph.js";
-import type { ClusteringContext, ClusteringStrategy, RawCluster } from "./strategy.js";
+import type {
+  ClusteringContext,
+  ClusteringStrategy,
+  RawCluster,
+} from "./strategy.js";
 
 /**
  * Classical DBSCAN using walking distance where the graph has an edge, falling
@@ -67,7 +71,11 @@ function buildDistanceFn(
   }
   const ids = pool.map((c) => c.id);
   const coords = pool.map(
-    (c) => [c.location.coordinates[0]!, c.location.coordinates[1]!] as [number, number],
+    (c) =>
+      [c.location.coordinates[0]!, c.location.coordinates[1]!] as [
+        number,
+        number,
+      ],
   );
   return (i: number, j: number): number => {
     if (i === j) return 0;

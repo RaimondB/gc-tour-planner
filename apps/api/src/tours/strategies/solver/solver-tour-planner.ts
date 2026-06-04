@@ -228,12 +228,12 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     const loopOpts = readLoopOptionsFromEnv();
     const grid = new OverlapGrid(loopOpts.picker.gridMeters);
     const altCount = loopOpts.altCount;
-    const firstCoord = byId
-      .get(orderedIds[0]!)!
-      .location.coordinates as [number, number];
-    const lastCoord = byId
-      .get(orderedIds[orderedIds.length - 1]!)!
-      .location.coordinates as [number, number];
+    const firstCoord = byId.get(orderedIds[0]!)!.location.coordinates as [
+      number,
+      number,
+    ];
+    const lastCoord = byId.get(orderedIds[orderedIds.length - 1]!)!.location
+      .coordinates as [number, number];
 
     const parkingToFirst = await pickAndAccumulate({
       from: parkingCoord,
@@ -462,7 +462,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-
 function haversineMeters(
   a: readonly [number, number],
   b: readonly [number, number],
@@ -495,4 +494,3 @@ function concatLineStrings(
   }
   return { type: "LineString", coordinates: coords };
 }
-

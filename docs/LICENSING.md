@@ -143,18 +143,18 @@ When this fails, **don't skip the check**. Either replace the offending dep, or 
 
 ## 6. Quick reference
 
-| Item              | License                       | Action                                            |
-| ----------------- | ----------------------------- | ------------------------------------------------- |
-| This project      | GPL-3.0-or-later              | LICENSE at repo root, header on every source file |
-| OSM data          | ODbL 1.0                      | Map attribution + `/attribution` page             |
-| OSRM              | BSD-2-Clause                  | Listed on `/attribution`                          |
-| osm2pgsql         | GPL-2.0+                      | One-shot import + replication sidecar (§3.9, ADR-0009)                  |
-| osmium-tool       | GPL-3.0+                      | Same container as osm2pgsql, used for PBF metadata reads (§3.9)         |
-| MapLibre GL JS    | BSD-3-Clause                  | Listed on `/attribution`                          |
-| Valkey            | BSD-3-Clause                  | Use instead of Redis                              |
-| PostGIS           | GPL-2.0+                      | Compatible                                        |
-| Postgres          | PostgreSQL License (MIT-like) | Compatible                                        |
-| Material Symbols  | Apache-2.0                    | Icons                                             |
-| Inter font        | OFL 1.1                       | UI font                                           |
-| Groundspeak data  | Proprietary                   | User-uploaded only, per-owner isolated            |
-| Groundspeak icons | Proprietary                   | **Never bundled**                                 |
+| Item              | License                       | Action                                                          |
+| ----------------- | ----------------------------- | --------------------------------------------------------------- |
+| This project      | GPL-3.0-or-later              | LICENSE at repo root, header on every source file               |
+| OSM data          | ODbL 1.0                      | Map attribution + `/attribution` page                           |
+| OSRM              | BSD-2-Clause                  | Listed on `/attribution`                                        |
+| osm2pgsql         | GPL-2.0+                      | One-shot import + replication sidecar (§3.9, ADR-0009)          |
+| osmium-tool       | GPL-3.0+                      | Same container as osm2pgsql, used for PBF metadata reads (§3.9) |
+| MapLibre GL JS    | BSD-3-Clause                  | Listed on `/attribution`                                        |
+| Valkey            | BSD-3-Clause                  | Use instead of Redis                                            |
+| PostGIS           | GPL-2.0+                      | Compatible                                                      |
+| Postgres          | PostgreSQL License (MIT-like) | Compatible                                                      |
+| Material Symbols  | Apache-2.0                    | Icons                                                           |
+| Inter font        | OFL 1.1                       | UI font                                                         |
+| Groundspeak data  | Proprietary                   | User-uploaded only, per-owner isolated                          |
+| Groundspeak icons | Proprietary                   | **Never bundled**                                               |

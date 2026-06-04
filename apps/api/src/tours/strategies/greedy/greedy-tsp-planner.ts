@@ -107,13 +107,15 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     if (!ctx) {
       // Sub-2-cache pool — degenerate. Return an empty result that still
       // carries enough diagnostic context for the UI.
-      const pool = (await this.caches.list(ownerId, {
-        center: input.center,
-        radiusM: input.radiusM,
-        types: input.hardFilters.types,
-        attributes: input.hardFilters.attributes,
-        excludeFound: true,
-      })).caches;
+      const pool = (
+        await this.caches.list(ownerId, {
+          center: input.center,
+          radiusM: input.radiusM,
+          types: input.hardFilters.types,
+          attributes: input.hardFilters.attributes,
+          excludeFound: true,
+        })
+      ).caches;
       return {
         candidates: [],
         diagnostics: {
@@ -240,10 +242,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const parkingCoordForTable = parking.point.coordinates as [number, number];
     const cacheCoordsForTable = connectedIds.map<[number, number]>((id) => {
       const c = byId.get(id)!;
-      return [
-        c.location.coordinates[0]!,
-        c.location.coordinates[1]!,
-      ];
+      return [c.location.coordinates[0]!, c.location.coordinates[1]!];
     });
     const parkingTable = await this.osrm.table(
       [parkingCoordForTable, ...cacheCoordsForTable],
@@ -361,12 +360,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       // Rebuild legs from scratch every iteration — the overlap grid
       // needs to forget the previous attempt's polyline.
       const grid = new OverlapGrid(loopOpts.picker.gridMeters);
-      const firstCoord = byId
-        .get(currentOrderedIds[0]!)!
-        .location.coordinates as [number, number];
-      const lastCoord = byId
-        .get(currentOrderedIds[currentOrderedIds.length - 1]!)!
-        .location.coordinates as [number, number];
+      const firstCoord = byId.get(currentOrderedIds[0]!)!.location
+        .coordinates as [number, number];
+      const lastCoord = byId.get(
+        currentOrderedIds[currentOrderedIds.length - 1]!,
+      )!.location.coordinates as [number, number];
 
       // Parking → first cache.
       const ptf = await pickAndAccumulate({
@@ -469,10 +467,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       // (legIn + legOut − skip), we trim on the redundant-walking
       // estimate: how many meters of legOut overlap legIn (in either
       // direction), measured via a small grid hash of legIn's coords.
-      if (
-        currentOrderedIds.length <= 2 ||
-        trimIter === POST_TRIM_MAX_ITERS
-      ) {
+      if (currentOrderedIds.length <= 2 || trimIter === POST_TRIM_MAX_ITERS) {
         break;
       }
       const overlapGridMeters = loopOpts.picker.gridMeters;
@@ -480,7 +475,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         const n = leg.geometry.coordinates.length;
         return n > 1 ? leg.meters / (n - 1) : leg.meters;
       };
-      const redundantMeters = (legIn: Routing.Leg, legOut: Routing.Leg): number => {
+      const redundantMeters = (
+        legIn: Routing.Leg,
+        legOut: Routing.Leg,
+      ): number => {
         const g = new OverlapGrid(overlapGridMeters);
         g.addLine(legIn.geometry);
         const hits = g.overlapHits(legOut.geometry);
@@ -801,7 +799,8 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     return {
       type: "osrm-nearest",
       point: { type: "Point", coordinates: centroid },
-      reason: "OSRM /nearest found no walkable road — using raw cluster centroid",
+      reason:
+        "OSRM /nearest found no walkable road — using raw cluster centroid",
     };
   }
 
@@ -893,7 +892,6 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       reason: `${best.reason} — loop-aware pick (+${Math.round(bestCost)} m detour, ~${Math.round(bestWalk)} m walk to nearest cache)`,
     };
   }
-
 }
 
 // ─── Pure utilities ─────────────────────────────────────────────────────────
@@ -912,7 +910,6 @@ function mean(xs: readonly number[]): number {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
-
 
 /**
  * Rotate a closed cache cycle so that parking attaches at its cheapest edge.

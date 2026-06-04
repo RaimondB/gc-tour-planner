@@ -8,11 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import {
-  parseGpx,
-  type ParsedGpx,
-  type UploadStats,
-} from "@gctp/shared/gpx";
+import { parseGpx, type ParsedGpx, type UploadStats } from "@gctp/shared/gpx";
 import type { Queue } from "bullmq";
 import type { WalkingPrecomputeJobData } from "../jobs/walking-precompute/walking-precompute.types.js";
 import { QUEUE_WALKING_PRECOMPUTE } from "../queues/queue.tokens.js";

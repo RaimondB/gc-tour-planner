@@ -107,7 +107,9 @@ export async function trimMarginalCaches(
   } = input;
   // Worker-pool solve when injected; synchronous fallback otherwise (tests).
   const solve =
-    input.solve ?? ((d, s): Promise<{ order: number[] }> => Promise.resolve(Tsp.solveTwoOpt(d, s)));
+    input.solve ??
+    ((d, s): Promise<{ order: number[] }> =>
+      Promise.resolve(Tsp.solveTwoOpt(d, s)));
 
   // No-op fast path.
   if (
@@ -142,13 +144,17 @@ export async function trimMarginalCaches(
     const idx = idToIdx.get(id);
     if (idx === undefined || !parkingToCacheM) return Number.POSITIVE_INFINITY;
     const v = parkingToCacheM[idx];
-    return v === undefined || !Number.isFinite(v) ? Number.POSITIVE_INFINITY : v;
+    return v === undefined || !Number.isFinite(v)
+      ? Number.POSITIVE_INFINITY
+      : v;
   };
   const cacheToParking = (id: number): number => {
     const idx = idToIdx.get(id);
     if (idx === undefined || !cacheToParkingM) return Number.POSITIVE_INFINITY;
     const v = cacheToParkingM[idx];
-    return v === undefined || !Number.isFinite(v) ? Number.POSITIVE_INFINITY : v;
+    return v === undefined || !Number.isFinite(v)
+      ? Number.POSITIVE_INFINITY
+      : v;
   };
 
   let surviving = input.orderedIds.slice();
@@ -243,7 +249,9 @@ export async function trimMarginalCaches(
       subDist.push(row);
     }
     const finite = subDist.map((row) =>
-      row.map((v) => (v === null || !Number.isFinite(v) ? Number.MAX_SAFE_INTEGER : v)),
+      row.map((v) =>
+        v === null || !Number.isFinite(v) ? Number.MAX_SAFE_INTEGER : v,
+      ),
     );
     const { order } = await solve(finite, 0);
     surviving = order.map((i) => surviving[i]!);
@@ -307,7 +315,8 @@ export function medianInterCacheDistance(
 export function resolveMarginalTrimThreshold(
   distances: readonly (readonly (number | null)[])[],
 ): number {
-  const enabled = (process.env.PLANNER_MARGINAL_DROP_ENABLED ?? "true") !== "false";
+  const enabled =
+    (process.env.PLANNER_MARGINAL_DROP_ENABLED ?? "true") !== "false";
   if (!enabled) return 0;
   const num = (env: string, fallback: number): number => {
     const raw = process.env[env];

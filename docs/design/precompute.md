@@ -8,9 +8,9 @@ Background jobs that fire on GPX upload completion and warm the caches the route
 
 The remaining queue lives in Valkey via BullMQ. Workers run in the `jobs` container (same image as `api`, different CMD — see [infra/Dockerfile.jobs](../../infra/Dockerfile.jobs)).
 
-| Queue                | Trigger                          | Persists to       | Idempotent? |
-| -------------------- | -------------------------------- | ----------------- | ----------- |
-| `walking-precompute` | GPX upload completion            | `route_legs`      | yes — `upsertMatrixCells` ON CONFLICT |
+| Queue                | Trigger               | Persists to  | Idempotent?                           |
+| -------------------- | --------------------- | ------------ | ------------------------------------- |
+| `walking-precompute` | GPX upload completion | `route_legs` | yes — `upsertMatrixCells` ON CONFLICT |
 
 The queue is fire-and-forget from the upload handler's perspective. Uploads must not block on precompute.
 
@@ -116,14 +116,14 @@ Gated by the existing dev-user middleware (revisit when M6 ships auth).
 
 All read at job-pickup time, so changes apply on the next job — no rebuild.
 
-| Env                              | Default | Description                                                                                                  |
-| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `PLANNER_KNN_K`                  | `12`    | k for the walking graph. `k_candidates = max(K*3, K+5)` determines haversine over-fetch per cache.            |
-| `PLANNER_PRECOMPUTE_RADIUS_M`    | `4000`  | Haversine cap for the affected-set + neighbour search. Matches the runtime hard cap `min(maxLinkMeters*2, 4000)`. Was 3000 originally; bumped after observing /table fanout in discovery when `maxLinkMeters > 1500`. |
-| `LANDUSE_FORCE_REIMPORT`         | _unset_ | Set to `1` and recreate `osm2pgsql-import` to force a full re-import of `landuse_polygons`. See ADR-0009.       |
-| `PRECOMPUTE_STALE_TTL_DAYS`      | `30`    | Beyond this, a `fresh` row is considered stale and eligible for re-trigger by `/admin/precompute/retrigger-stale`. |
-| `PRECOMPUTE_OSRM_CHUNK_ORIGINS`  | `100`   | Max origins per `/table` call. Higher = fewer HTTP round-trips, larger response payloads.                    |
-| `PRECOMPUTE_RETRIGGER_CHUNK`     | `50`    | Caches per retrigger-stale job. Bounds individual job runtime.                                               |
+| Env                             | Default | Description                                                                                                                                                                                                           |
+| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLANNER_KNN_K`                 | `12`    | k for the walking graph. `k_candidates = max(K*3, K+5)` determines haversine over-fetch per cache.                                                                                                                    |
+| `PLANNER_PRECOMPUTE_RADIUS_M`   | `4000`  | Haversine cap for the affected-set + neighbour search. Matches the runtime hard cap `min(maxLinkMeters*2, 4000)`. Was 3000 originally; bumped after observing /table fanout in discovery when `maxLinkMeters > 1500`. |
+| `LANDUSE_FORCE_REIMPORT`        | _unset_ | Set to `1` and recreate `osm2pgsql-import` to force a full re-import of `landuse_polygons`. See ADR-0009.                                                                                                             |
+| `PRECOMPUTE_STALE_TTL_DAYS`     | `30`    | Beyond this, a `fresh` row is considered stale and eligible for re-trigger by `/admin/precompute/retrigger-stale`.                                                                                                    |
+| `PRECOMPUTE_OSRM_CHUNK_ORIGINS` | `100`   | Max origins per `/table` call. Higher = fewer HTTP round-trips, larger response payloads.                                                                                                                             |
+| `PRECOMPUTE_RETRIGGER_CHUNK`    | `50`    | Caches per retrigger-stale job. Bounds individual job runtime.                                                                                                                                                        |
 
 Symptom → knob:
 

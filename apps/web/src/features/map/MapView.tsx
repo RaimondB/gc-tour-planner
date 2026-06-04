@@ -81,9 +81,7 @@ export function MapView({
     // build args into the bundle as empty strings rather than `undefined`,
     // so nullish-coalescing would let an empty URL through and MapLibre
     // would try to fetch it as a style.json (silent fail, no `load`).
-    const styleEnv = import.meta.env.VITE_MAP_STYLE_URL as
-      | string
-      | undefined;
+    const styleEnv = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
     const styleSource =
       typeof styleEnv === "string" && styleEnv.length > 0
         ? styleEnv

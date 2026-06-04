@@ -53,7 +53,8 @@ describe("toCacheSummary", () => {
 
   it("sets requiresTool from a non-empty descriptionHints", () => {
     expect(
-      toCacheSummary({ ...base, descriptionHints: ["fishingRod"] }).requiresTool,
+      toCacheSummary({ ...base, descriptionHints: ["fishingRod"] })
+        .requiresTool,
     ).toBe(true);
   });
 });

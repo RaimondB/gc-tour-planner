@@ -94,7 +94,7 @@ export function OsmParkingLayer({
     // Below `FETCH_MIN_ZOOM`, `bbox` becomes null and the query is
     // gated off — clear the source so the previously-fetched parkings
     // don't keep rendering on a zoomed-out view that no longer fetches.
-    const features = bbox === null ? [] : query.data?.features ?? [];
+    const features = bbox === null ? [] : (query.data?.features ?? []);
     const fc: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
       features: features.map((f) => featureWithStyling(f)),
@@ -248,7 +248,6 @@ function colorFor(access: string | null, fee: string | null): string {
   return "#e53935";
 }
 
-
 function labelFor(fee: string | null): string {
   if (fee === "yes") return "P€";
   return "P";
@@ -278,7 +277,7 @@ function popupHtml(p: ParkingFeaturePopupProps): string {
   const title = `Parking (osm ${escape(p.osmType)}/${escape(p.osmId)})`;
   return `<div style="font:13px system-ui;padding:2px 4px;min-width:200px;max-width:280px">
     <div style="font-weight:600;margin-bottom:4px">${title}</div>
-    ${lines || "<div style=\"color:#888\">No additional tags</div>"}
+    ${lines || '<div style="color:#888">No additional tags</div>'}
   </div>`;
 }
 
@@ -296,4 +295,3 @@ function escape(s: string | number | null | undefined): string {
       })[c] ?? c,
   );
 }
-

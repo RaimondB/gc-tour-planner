@@ -5,7 +5,11 @@ import type { Caches, Tours } from "@gctp/shared";
 import { haversineMeters } from "../equirectangular.js";
 import { splitByMstCut } from "../louvain-clusters.js";
 import type { WalkingEdge } from "../walking-graph.js";
-import type { ClusteringContext, RawCluster, RefinementStage } from "./strategy.js";
+import type {
+  ClusteringContext,
+  RawCluster,
+  RefinementStage,
+} from "./strategy.js";
 
 /**
  * Shared post-clustering refinement. Order is fixed
@@ -66,7 +70,9 @@ export function refineClusters(
 
       if (!skip.has("jaccard-dedup")) {
         const set = new Set(ids);
-        const dup = keptSets.some((k) => jaccard(k, set) >= JACCARD_DEDUP_THRESHOLD);
+        const dup = keptSets.some(
+          (k) => jaccard(k, set) >= JACCARD_DEDUP_THRESHOLD,
+        );
         if (dup) continue;
         keptSets.push(set);
       } else {
@@ -99,7 +105,9 @@ export function projectTrims(
   const sorted = cacheIds.slice().sort((a, b) => a - b);
 
   const afterWalking = trimWalkingOutliers(sorted, adj);
-  const walkingOutliersDropped = sorted.filter((id) => !afterWalking.includes(id));
+  const walkingOutliersDropped = sorted.filter(
+    (id) => !afterWalking.includes(id),
+  );
 
   const afterGeo = trimGeographicOutliers(
     afterWalking,
@@ -107,7 +115,9 @@ export function projectTrims(
     1, // for explain we don't enforce a min — show ALL drops the trim would make
     absoluteCapMeters,
   );
-  const geographicOutliersDropped = afterWalking.filter((id) => !afterGeo.includes(id));
+  const geographicOutliersDropped = afterWalking.filter(
+    (id) => !afterGeo.includes(id),
+  );
 
   // Centroid + median over the post-walking set (matches what the geo trim
   // computed on the first iteration the user can act on).

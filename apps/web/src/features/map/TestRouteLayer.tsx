@@ -39,7 +39,9 @@ export function TestRouteLayer({ result }: TestRouteLayerProps): null {
         },
       ],
     };
-    const existing = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    const existing = map.getSource(SOURCE_ID) as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (existing) existing.setData(collection);
     else map.addSource(SOURCE_ID, { type: "geojson", data: collection });
 
@@ -51,15 +53,7 @@ export function TestRouteLayer({ result }: TestRouteLayerProps): null {
         paint: {
           "line-color": "#00c853",
           "line-opacity": 0.95,
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            3,
-            14,
-            6,
-          ],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 14, 6],
         },
       });
     }

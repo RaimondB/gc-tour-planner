@@ -183,7 +183,9 @@ export function WalkingGraphLayer({
       type: "FeatureCollection",
       features: [...edgeFeatures, ...isolatedFeatures],
     };
-    const existing = map.getSource(SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    const existing = map.getSource(SOURCE_ID) as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (existing) existing.setData(collection);
     else map.addSource(SOURCE_ID, { type: "geojson", data: collection });
 
@@ -192,20 +194,16 @@ export function WalkingGraphLayer({
         id: EDGE_LAYER,
         type: "line",
         source: SOURCE_ID,
-        filter: ["all", ["==", ["geometry-type"], "LineString"], ["==", ["get", "suspicious"], 0]],
+        filter: [
+          "all",
+          ["==", ["geometry-type"], "LineString"],
+          ["==", ["get", "suspicious"], 0],
+        ],
         paint: {
           "line-color": "#1565c0",
           // Darker for longer edges so the long bridges stand out.
           "line-opacity": 0.55,
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            1,
-            14,
-            2,
-          ],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 2],
         },
       });
     }
@@ -214,19 +212,15 @@ export function WalkingGraphLayer({
         id: SUSPICIOUS_LAYER,
         type: "line",
         source: SOURCE_ID,
-        filter: ["all", ["==", ["geometry-type"], "LineString"], ["==", ["get", "suspicious"], 1]],
+        filter: [
+          "all",
+          ["==", ["geometry-type"], "LineString"],
+          ["==", ["get", "suspicious"], 1],
+        ],
         paint: {
           "line-color": "#d50000",
           "line-opacity": 0.85,
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            10,
-            2,
-            14,
-            3,
-          ],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 3],
           "line-dasharray": [2, 2],
         },
       });

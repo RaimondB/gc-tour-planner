@@ -56,7 +56,11 @@ export interface CachesTable {
    * rows (provenance unknown). Used by the upsert staleness guard so a stale
    * PQ replayed against a fresher dataset can't downgrade newer rows.
    */
-  source_exported_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+  source_exported_at: ColumnType<
+    Date | null,
+    Date | null | undefined,
+    Date | null
+  >;
   /**
    * FR-F8 tool-hint keys (e.g. 'fishingRod', 'binoculars', 'magnet') parsed
    * from the cache description by `scanDescriptionHints`. Three-state
@@ -70,7 +74,11 @@ export interface CachesTable {
    * WHERE clause — filtering is client-side. No index. See migration
    * 1779670000000.
    */
-  description_hints: ColumnType<string[] | null, string[] | null | undefined, string[] | null>;
+  description_hints: ColumnType<
+    string[] | null,
+    string[] | null | undefined,
+    string[] | null
+  >;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
 }
@@ -232,8 +240,16 @@ export interface RouteLegsTable {
   /** 'foot' (MVP). Other profiles deferred. */
   profile: string;
   /** NULL when `source = 'noroute'` (DB CHECK). Required for 'table' + 'route'. */
-  meters: ColumnType<string | null, string | number | null, string | number | null>;
-  seconds: ColumnType<string | null, string | number | null, string | number | null>;
+  meters: ColumnType<
+    string | null,
+    string | number | null,
+    string | number | null
+  >;
+  seconds: ColumnType<
+    string | null,
+    string | number | null,
+    string | number | null
+  >;
   /**
    * `'table'`   = cell came from OSRM /table (sparse matrix; no geometry).
    * `'route'`   = cell came from OSRM /route (full LineString in `geom`).
@@ -273,11 +289,7 @@ export interface CacheLanduseTable {
 export type PrecomputeKind = "walking" | "landuse";
 
 /** Postgres enum `precompute_state`. */
-export type PrecomputeState =
-  | "pending"
-  | "in_progress"
-  | "fresh"
-  | "failed";
+export type PrecomputeState = "pending" | "in_progress" | "fresh" | "failed";
 
 /**
  * Tracks freshness of precompute jobs per (cache, kind). Written by the
