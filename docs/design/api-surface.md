@@ -13,19 +13,19 @@ const CachesQuery = z.object({
     .array(z.array(z.object({ id: z.number(), positive: z.boolean() })))
     .optional(),
   contexts: z.array(z.string()).optional(), // landuse kinds to filter to (hard)
-  excludeFound: z.boolean().optional(),     // hide caches the user has logged
+  excludeFound: z.boolean().optional(), // hide caches the user has logged
   // FR-I10: defaults exclude archived + disabled. Flip to include.
-  includeDisabled: z.boolean().optional(),  // 50% opacity + Z overlay on map
-  includeArchived: z.boolean().optional(),  // no UI today; debug only
+  includeDisabled: z.boolean().optional(), // 50% opacity + Z overlay on map
+  includeArchived: z.boolean().optional(), // no UI today; debug only
 });
 
 // FR-SF1 + FR-SF8 add two derived fields to the wire DTO.
 type CacheDTO = {
   // …all earlier fields…
   /** FR-SF1: count of additional_waypoints rows with type='stages'. */
-  stageCount: number;          // default 0 (pre-PR3 / non-Multi)
+  stageCount: number; // default 0 (pre-PR3 / non-Multi)
   /** FR-SF8: parser-extracted tool-hint keys. */
-  descriptionHints: string[];  // default [] (pre-PR3 / scan returned no hits)
+  descriptionHints: string[]; // default [] (pre-PR3 / scan returned no hits)
 };
 type CachesResponse = {
   caches: CacheDTO[];
@@ -56,7 +56,7 @@ type CacheSummaryDTO = {
   foundByMe: boolean;
   stageCount: number;
   parkingPoints: [number, number][];
-  requiresTool: boolean;   // = hasToolRequirement(attributeIds, descriptionHints), server-computed
+  requiresTool: boolean; // = hasToolRequirement(attributeIds, descriptionHints), server-computed
 };
 ```
 
@@ -84,25 +84,27 @@ override for marking a regular PQ's caches found. Returns:
 ```ts
 type UploadGpxResult = {
   uploadId: string;
-  cachesUpserted: number;        // new + updated (excludes stale)
+  cachesUpserted: number; // new + updated (excludes stale)
   waypointsInserted: number;
   findsRecorded: number;
   warnings: string[];
-  stats: {                       // FR-I11
-    total: number;               // distinct caches in the file
+  stats: {
+    // FR-I11
+    total: number; // distinct caches in the file
     byType: Record<string, number>; // Traditional: 423, Multi: 12, …
-    disabled: number;            // available="False", archived="False"
-    archived: number;            // archived="True"
-    new: number;                 // upsert: inserted
-    updated: number;             // upsert: overwrote existing
-    stale: number;               // upsert: skipped (incoming exportedAt < existing)
-    exportedAt: string | null;   // top-level <gpx><time>
+    disabled: number; // available="False", archived="False"
+    archived: number; // archived="True"
+    new: number; // upsert: inserted
+    updated: number; // upsert: overwrote existing
+    stale: number; // upsert: skipped (incoming exportedAt < existing)
+    exportedAt: string | null; // top-level <gpx><time>
   };
-  myFinds: boolean;              // auto-detected "My Finds" PQ
+  myFinds: boolean; // auto-detected "My Finds" PQ
 };
 ```
 
 Side effects:
+
 - **FR-I9**: raw `.gpx` bytes gzipped and persisted to `{UPLOADS_DIR}/{uploadId}.gpx.gz` before parse. Status transitions: `received` → (`parsed` | `failed`). The raw file is kept on the failed path too so a parser fix can be replayed.
 - **FR-I10**: every upserted row's `source_exported_at` is set to the PQ's `<gpx><time>`. The upsert's staleness guard compares incoming vs. existing — older PQs are skipped (counted under `stats.stale`).
 
@@ -283,11 +285,11 @@ Returns the saved landuse-weighted scoring profiles visible to the caller — sy
 ```ts
 type LanduseProfile = {
   id: string;
-  ownerId: string | null;       // null = system profile
+  ownerId: string | null; // null = system profile
   name: string;
   description: string | null;
-  kinds: LanduseKind[];          // subset of LANDUSE_KINDS
-  createdAt: string;             // ISO
+  kinds: LanduseKind[]; // subset of LANDUSE_KINDS
+  createdAt: string; // ISO
 };
 
 type LanduseProfilesResponse = { profiles: LanduseProfile[] };

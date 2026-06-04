@@ -73,9 +73,7 @@ export function UploadDropzone(): JSX.Element {
             detected automatically and its caches marked as found.
           </div>
         )}
-        {mutation.isSuccess && (
-          <UploadSummary result={mutation.data} />
-        )}
+        {mutation.isSuccess && <UploadSummary result={mutation.data} />}
         {mutation.isError && (
           <div className="dropzone__error">
             {mutation.error instanceof ApiError
@@ -96,9 +94,7 @@ export function UploadDropzone(): JSX.Element {
 function UploadSummary({ result }: { result: UploadGpxResult }): JSX.Element {
   const { stats, waypointsInserted, findsRecorded, warnings, myFinds } = result;
   // Sort cache types by count desc so the dominant types lead.
-  const typeRows = Object.entries(stats.byType).sort(
-    ([, a], [, b]) => b - a,
-  );
+  const typeRows = Object.entries(stats.byType).sort(([, a], [, b]) => b - a);
   return (
     <div className="dropzone__success">
       {myFinds && (

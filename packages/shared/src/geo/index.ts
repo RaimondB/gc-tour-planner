@@ -41,10 +41,7 @@ export const GeoJsonMultiPolygon = z.object({
 export type GeoJsonMultiPolygon = z.infer<typeof GeoJsonMultiPolygon>;
 
 /** Either a single-ring polygon or a multipolygon. */
-export const GeoJsonAnyPolygon = z.union([
-  GeoJsonPolygon,
-  GeoJsonMultiPolygon,
-]);
+export const GeoJsonAnyPolygon = z.union([GeoJsonPolygon, GeoJsonMultiPolygon]);
 export type GeoJsonAnyPolygon = z.infer<typeof GeoJsonAnyPolygon>;
 
 export const BoundingBox = z.object({

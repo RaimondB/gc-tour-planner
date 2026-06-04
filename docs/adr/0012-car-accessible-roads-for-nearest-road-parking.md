@@ -41,17 +41,20 @@ Different geometry (open-way LineStrings vs nodes/polygons), different semantics
 ## Consequences
 
 ### Wins
+
 - "Nearest road" parking lands on a road you can actually park-and-walk from, and is loop-aware like the other modes.
 - The filter is owner-tunable at query time without re-importing.
 - No second OSRM instance; OSRM stays foot-only and within the host's memory budget.
 
 ### Costs
+
 - One migration, one Lua `define_table`, one repo, one planner branch.
 - A one-time osm2pgsql re-import (`LANDUSE_FORCE_REIMPORT=1`, the full ~30–40 min pass) repopulates all three tables together.
 - `car_roads` adds a few-million LineStrings for the NL(+NRW) extract (~hundreds of MB). GiST-indexed near-cluster queries stay fast; storage is well under the OSRM walking graph.
 - Schema stays in lockstep across `osm-features.lua`, the migration, and the Kysely typings — same discipline as landuse + parking.
 
 ### Out of scope (deferred)
+
 - Roadside `parking:lane`/`shoulder` tag awareness (we approximate "quiet road" by class + speed + access).
 - The solver strategy (`solver-tour-planner.ts`) keeps its own foot-snap `pickParking`; bringing it onto the car-roads path is a follow-up when that engine comes online.
 - Per-region road tuning; the filter is currently global.

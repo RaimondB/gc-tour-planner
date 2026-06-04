@@ -65,7 +65,9 @@ export class AdminPrecomputeService {
       // that. We filter defensively here so the wire-format never carries
       // a kind the admin schema doesn't allow.
       entries: entries
-        .filter((e): e is typeof e & { kind: "walking" } => e.kind === "walking")
+        .filter(
+          (e): e is typeof e & { kind: "walking" } => e.kind === "walking",
+        )
         .map((e) => ({
           cacheId: e.cacheId,
           kind: e.kind,

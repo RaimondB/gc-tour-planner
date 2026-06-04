@@ -154,10 +154,7 @@ export async function buildWalkingGraph(
     osrmVersion,
   );
   const cachedKey = (from: number, to: number) => `${from}:${to}`;
-  const cachedMap = new Map<
-    string,
-    { meters: number; seconds: number }
-  >();
+  const cachedMap = new Map<string, { meters: number; seconds: number }>();
   // Negative cache: pairs we've already asked OSRM about and got a
   // noroute response for. Without this, every cluster discovery
   // re-asks OSRM for the same unreachable pairs because precompute
@@ -258,7 +255,10 @@ export async function buildWalkingGraph(
           if (isImpossibleSpeed(cell.meters, cell.seconds)) continue;
           if (
             toCoord &&
-            isImpossibleDetour(cell.meters, haversineLngLat(originCoord, toCoord))
+            isImpossibleDetour(
+              cell.meters,
+              haversineLngLat(originCoord, toCoord),
+            )
           ) {
             continue;
           }
@@ -319,7 +319,10 @@ export async function buildWalkingGraph(
       }
       if (cell.meters <= SUSPICIOUS_WALKING_M && originCoord) {
         const toCoord = coordsById.get(toId);
-        if (toCoord && haversineLngLat(originCoord, toCoord) >= SUSPICIOUS_HAVERSINE_M) {
+        if (
+          toCoord &&
+          haversineLngLat(originCoord, toCoord) >= SUSPICIOUS_HAVERSINE_M
+        ) {
           droppedBogusZero += 1;
           continue;
         }

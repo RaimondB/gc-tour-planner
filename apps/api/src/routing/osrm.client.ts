@@ -118,8 +118,7 @@ export class HttpOsrmClient implements OsrmClient {
     );
     const raw = config.get<string>("OSRM_MAX_CONCURRENCY");
     const parsed = raw === undefined ? 8 : Number.parseInt(raw, 10);
-    this.maxConcurrency =
-      Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
+    this.maxConcurrency = Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
     this.logger.log(
       `OSRM client → ${this.base} (max concurrency ${this.maxConcurrency})`,
     );

@@ -8,7 +8,7 @@
 
 The route-planner runs Pass 1 (cluster discovery) and Pass 2 (routed loop) on every `/tours/clusters` and `/tours/plan` call. Both passes ultimately need walking distances between geocaches. Pass 1 builds a sparse k-NN walking graph and partitions it with Louvain; Pass 2 builds a full N×N matrix for the chosen cluster and TSP-solves it.
 
-The walking distances are cached in `route_legs` and re-used on subsequent requests, but the *first* request after an upload pays the full OSRM `/table` cost — and on a recently-uploaded PQ that can be tens of seconds. The user's pain point: opening the map after a fresh upload, picking an area, and waiting for the planner to "warm up."
+The walking distances are cached in `route_legs` and re-used on subsequent requests, but the _first_ request after an upload pays the full OSRM `/table` cost — and on a recently-uploaded PQ that can be tens of seconds. The user's pain point: opening the map after a fresh upload, picking an area, and waiting for the planner to "warm up."
 
 OSM landuse has a similar shape — the soft-preference scoring needs polygons around the cluster, but the `osm_landuse` cache is only populated when a user actually navigates to that area. First-visit latency hurts.
 
@@ -24,6 +24,7 @@ On GPX upload completion, enqueue two BullMQ jobs:
 Track per-(cache, kind) freshness in a new `cache_precompute_state` table. State transitions: `pending → in_progress → fresh | failed`. Surface freshness as a SQL view `v_stale_caches` so the admin endpoint and a future housekeeping job share one definition of "stale."
 
 Operator surface:
+
 - **Bull-Board** mounted at `/admin/queues` for live queue ops (pause/retry/clean).
 - **Custom `/admin/jobs` page** with per-kind summary tiles, failed-list table, and a "retrigger stale" button.
 - **Admin API** (`/admin/precompute/*`) endpoints back both views.
@@ -34,12 +35,12 @@ The Pass-1 cluster graph already over-fetches haversine neighbours at `min(maxLi
 
 Empirical data on the current ~3,500-cache DB (Phase-1 exploration):
 
-| Cap | Directed pairs | Caches with ≥1 neighbour |
-|---|---|---|
-| 1 km | 27k | 87% |
-| 2 km | 70k | 96% |
-| **3 km** | **119k** | **98%** |
-| 5 km | 243k | 99% |
+| Cap      | Directed pairs | Caches with ≥1 neighbour |
+| -------- | -------------- | ------------------------ |
+| 1 km     | 27k            | 87%                      |
+| 2 km     | 70k            | 96%                      |
+| **3 km** | **119k**       | **98%**                  |
+| 5 km     | 243k           | 99%                      |
 
 A 5 km cap would over-compute pairs the cluster graph would discard. A 2 km cap drops the affected-set for sparse regions. 3 km is the sweet spot.
 
@@ -56,7 +57,7 @@ The k-NN graph is symmetric in spirit even though edges are walked in both direc
 ## Why bull-board + custom admin page
 
 - **Bull-Board** is the off-the-shelf BullMQ dashboard (MIT, GPLv3-compatible). It gives queue-level ops (pause, retry, clean failed) for free. Re-implementing all of that would be wasted effort.
-- **Custom `/admin/jobs` page** gives the *per-cache* view bull-board can't (it sees queue state, not domain state) — freshness counts per kind, list of stale/failed caches, single-click "retrigger stale" that knows the domain model.
+- **Custom `/admin/jobs` page** gives the _per-cache_ view bull-board can't (it sees queue state, not domain state) — freshness counts per kind, list of stale/failed caches, single-click "retrigger stale" that knows the domain model.
 - Both surfaces stay gated behind the existing dev-user middleware until M6 ships proper auth.
 
 ## Why a new `cache_precompute_state` table over columns on `caches`

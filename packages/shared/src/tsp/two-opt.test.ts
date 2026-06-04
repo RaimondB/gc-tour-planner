@@ -41,7 +41,16 @@ describe("solveTwoOpt", () => {
       pts.push([Math.cos(t), Math.sin(t)]);
     }
     // Permute the input so the natural index-order is NOT optimal.
-    const shuffled = [pts[0]!, pts[3]!, pts[6]!, pts[1]!, pts[4]!, pts[7]!, pts[2]!, pts[5]!];
+    const shuffled = [
+      pts[0]!,
+      pts[3]!,
+      pts[6]!,
+      pts[1]!,
+      pts[4]!,
+      pts[7]!,
+      pts[2]!,
+      pts[5]!,
+    ];
     const { totalDistance } = solveTwoOpt(matrixFromPoints(shuffled));
     // 8-gon perimeter: 8 * 2 * sin(π/8) ≈ 6.122.
     expect(totalDistance).toBeCloseTo(6.1229, 3);

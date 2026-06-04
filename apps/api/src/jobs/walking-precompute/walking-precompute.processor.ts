@@ -107,12 +107,9 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
         radiusM,
       );
       if (candidatePairs.length === 0) {
-        await this.state.markBulk(
-          inScope,
-          "walking",
-          "fresh",
-          { osrmVersion: this.osrmVersion.getVersion() },
-        );
+        await this.state.markBulk(inScope, "walking", "fresh", {
+          osrmVersion: this.osrmVersion.getVersion(),
+        });
         return {
           inScopeCount: inScope.length,
           pairsFetched: 0,

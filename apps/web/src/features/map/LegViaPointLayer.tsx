@@ -55,7 +55,11 @@ export function LegViaPointLayer({
   onPositionChange: (pos: [number, number]) => void;
   /** Called when OSRM returns a successful via-route (paint the preview). */
   onLiveChange: (
-    live: { meters: number; seconds: number; geometry: GeoJsonLineString } | null,
+    live: {
+      meters: number;
+      seconds: number;
+      geometry: GeoJsonLineString;
+    } | null,
   ) => void;
   /** Loading / NoRoute feedback for the marker tint. */
   onStatusChange: (status: "loading" | "ok" | "nopath") => void;

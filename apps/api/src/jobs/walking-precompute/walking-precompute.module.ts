@@ -16,12 +16,7 @@ import { WalkingPrecomputeProcessor } from "./walking-precompute.processor.js";
  * the real entrypoint).
  */
 @Module({
-  imports: [
-    DatabaseModule,
-    CachesModule,
-    RoutingModule,
-    PrecomputeStateModule,
-  ],
+  imports: [DatabaseModule, CachesModule, RoutingModule, PrecomputeStateModule],
   providers: [WalkingPrecomputeProcessor, AffectedSetRepository],
 })
 export class WalkingPrecomputeModule {}

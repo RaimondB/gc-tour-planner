@@ -47,9 +47,7 @@ export default function plannerTask(task: PlannerTask): PlannerResult {
       );
     default: {
       const exhaustive: never = task;
-      throw new Error(
-        `unknown planner task: ${JSON.stringify(exhaustive)}`,
-      );
+      throw new Error(`unknown planner task: ${JSON.stringify(exhaustive)}`);
     }
   }
 }

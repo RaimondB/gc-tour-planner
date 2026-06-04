@@ -103,7 +103,12 @@ export async function explainSelection(
   const caches = describeSelectionCaches(selectionIds, ctx, cellMap);
 
   // 3. Edges within the selection.
-  const edges = describeSelectionEdges(selectionIds, ctx, selectionSet, cellMap);
+  const edges = describeSelectionEdges(
+    selectionIds,
+    ctx,
+    selectionSet,
+    cellMap,
+  );
 
   // 4. Refinement projection.
   const trims = projectTrims(selectionIds, ctx);

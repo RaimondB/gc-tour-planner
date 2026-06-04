@@ -61,8 +61,7 @@ async function bootstrap(): Promise<void> {
   // the UAT compose env. Dev uses the default `/admin/queues` (api is
   // direct at localhost:3030).
   const queuesMountPath = "/admin/queues";
-  const publicBasePath =
-    process.env.BULL_BOARD_BASE_PATH ?? queuesMountPath;
+  const publicBasePath = process.env.BULL_BOARD_BASE_PATH ?? queuesMountPath;
   const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
   const bullBoardAdapter = new ExpressAdapter();
   bullBoardAdapter.setBasePath(publicBasePath);

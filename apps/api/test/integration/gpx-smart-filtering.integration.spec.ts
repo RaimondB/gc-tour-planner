@@ -44,7 +44,8 @@ function cacheWpt(opts: {
 }): string {
   const attrs = (opts.attrIds ?? [])
     .map(
-      (a) => `<groundspeak:attribute id="${a.id}" inc="${a.inc}">x</groundspeak:attribute>`,
+      (a) =>
+        `<groundspeak:attribute id="${a.id}" inc="${a.inc}">x</groundspeak:attribute>`,
     )
     .join("");
   const desc = opts.description
@@ -98,7 +99,8 @@ describe("PR3 smart filtering — stageCount + descriptionHints + tool bonus", (
         lat: 52.0,
         lon: 5.0,
         type: "Traditional Cache",
-        description: "&lt;p&gt;Vergeet je &lt;b&gt;hengel&lt;/b&gt; niet.&lt;/p&gt;",
+        description:
+          "&lt;p&gt;Vergeet je &lt;b&gt;hengel&lt;/b&gt; niet.&lt;/p&gt;",
       }),
     );
     await service.ingest(ownerId, "fish.gpx", xml);

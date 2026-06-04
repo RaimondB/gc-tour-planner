@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 /** Request body posted to the Timefold sidecar's POST /plan. */
@@ -54,10 +59,9 @@ export class HttpSolverClient implements SolverClient {
   private readonly timeoutMs: number;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
-    this.base = (config.get<string>("SOLVER_URL") ?? "http://solver:8080").replace(
-      /\/+$/,
-      "",
-    );
+    this.base = (
+      config.get<string>("SOLVER_URL") ?? "http://solver:8080"
+    ).replace(/\/+$/, "");
     const env = config.get<string>("SOLVER_TIMEOUT_MS");
     this.timeoutMs = env ? Number.parseInt(env, 10) : DEFAULT_TIMEOUT_MS;
   }

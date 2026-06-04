@@ -121,8 +121,7 @@ export async function buildWalkingGraphResponse(
     // so anything reaching this branch is by definition NOT suspicious. We
     // still recompute the flag (it's cheap) in case the thresholds drift.
     const suspicious =
-      e.meters <= SUSPICIOUS_WALKING_M &&
-      haversine >= SUSPICIOUS_HAVERSINE_M;
+      e.meters <= SUSPICIOUS_WALKING_M && haversine >= SUSPICIOUS_HAVERSINE_M;
     return {
       a: e.fromCacheId,
       b: e.toCacheId,
@@ -146,8 +145,7 @@ export async function buildWalkingGraphResponse(
     deps.osrmVersion.getVersion(),
   );
   // Dedup against any directional duplicates and edges already in `edges`.
-  const edgeKey = (a: number, b: number) =>
-    a < b ? `${a}:${b}` : `${b}:${a}`;
+  const edgeKey = (a: number, b: number) => (a < b ? `${a}:${b}` : `${b}:${a}`);
   const seen = new Set(edges.map((e) => edgeKey(e.a, e.b)));
   for (const s of dbSuspicious) {
     const key = edgeKey(s.fromCacheId, s.toCacheId);
@@ -165,7 +163,8 @@ export async function buildWalkingGraphResponse(
   const suspiciousCount = edges.filter((e) => e.suspicious).length;
 
   const meters = edges.map((e) => e.walkingM).sort((a, b) => a - b);
-  const median = meters.length === 0 ? 0 : (meters[Math.floor(meters.length / 2)] ?? 0);
+  const median =
+    meters.length === 0 ? 0 : (meters[Math.floor(meters.length / 2)] ?? 0);
   const max = meters.length === 0 ? 0 : (meters.at(-1) ?? 0);
   const isolatedCount = nodes.filter((n) => n.degree === 0).length;
 

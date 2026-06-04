@@ -5,11 +5,7 @@ import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 import type { Database } from "./schema.js";
 
-export type {
-  Database,
-  PrecomputeKind,
-  PrecomputeState,
-} from "./schema.js";
+export type { Database, PrecomputeKind, PrecomputeState } from "./schema.js";
 
 export interface CreateDbOptions {
   /** PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/db`. */

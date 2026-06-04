@@ -33,9 +33,9 @@ Steps the script performs end-to-end:
 Wall-clock cost on the host8i7BEH:
 
 | Region scope | Refresh time |
-|---|---|
-| NL alone | ~12-15 min |
-| NL + NRW | ~25-35 min |
+| ------------ | ------------ |
+| NL alone     | ~12-15 min   |
+| NL + NRW     | ~25-35 min   |
 
 Recommended cadence: **weekly** via a host systemd timer (follow-up — out of scope for this ADR).
 

@@ -44,7 +44,10 @@ class FakeOsrmClient implements OsrmClient {
       coords.map((b, j) =>
         i === j
           ? { meters: 0, seconds: 0 }
-          : { meters: haversine(a, b) * 1.3, seconds: (haversine(a, b) * 1.3) / 1.4 },
+          : {
+              meters: haversine(a, b) * 1.3,
+              seconds: (haversine(a, b) * 1.3) / 1.4,
+            },
       ),
     );
   }
@@ -127,9 +130,9 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     // DBSCAN with default ε (8000/15/2 = 267m, clamped 50..800) groups them.
     center = [5.12, 52.09];
     const offsets: [number, number][] = [
-      [0.000, 0.000],
-      [0.002, 0.000],
-      [0.000, 0.002],
+      [0.0, 0.0],
+      [0.002, 0.0],
+      [0.0, 0.002],
       [0.002, 0.002],
       [0.001, 0.001],
       [0.003, 0.001],
@@ -154,7 +157,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
 
     // A lone cache far away — should NOT be picked up by DBSCAN as part of
     // the cluster (would be noise).
-    await insertCache(pg, ownerId, "GCM5LONE", 5.30, 52.20);
+    await insertCache(pg, ownerId, "GCM5LONE", 5.3, 52.2);
 
     const cachesService = new CachesService(new CachesRepository(pg.db));
     osrm = new FakeOsrmClient();
@@ -166,7 +169,9 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     await stopPostgres(pg);
   });
 
-  function planInput(overrides: Partial<Tours.PlanInput> = {}): Tours.PlanInput {
+  function planInput(
+    overrides: Partial<Tours.PlanInput> = {},
+  ): Tours.PlanInput {
     return {
       center,
       radiusM: 10_000,
@@ -240,7 +245,8 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     );
     // Polyline must start and end at the parking point (closed loop).
     const first = result.polyline.coordinates[0]!;
-    const last = result.polyline.coordinates[result.polyline.coordinates.length - 1]!;
+    const last =
+      result.polyline.coordinates[result.polyline.coordinates.length - 1]!;
     expect(first).toEqual(result.parking.point.coordinates);
     expect(last).toEqual(result.parking.point.coordinates);
   });

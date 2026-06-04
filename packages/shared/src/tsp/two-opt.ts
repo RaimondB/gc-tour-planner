@@ -198,7 +198,8 @@ function orOptPass(
         const segTail = order[i + L - 1]!;
         const pred = order[i - 1]!;
         const succ = order[(i + L) % n]!;
-        const segRemovedEdges = d2(distances, pred, segHead) + d2(distances, segTail, succ);
+        const segRemovedEdges =
+          d2(distances, pred, segHead) + d2(distances, segTail, succ);
         const segReplaceEdge = d2(distances, pred, succ);
         // Try inserting segment before position j in [1, n].
         // j == i or j == i+L means "leave segment where it is".
@@ -209,9 +210,12 @@ function orOptPass(
           const before = order[beforeIdx]!;
           const after = order[afterIdx]!;
           const insertRemovedEdge = d2(distances, before, after);
-          const insertAddedEdges = d2(distances, before, segHead) + d2(distances, segTail, after);
+          const insertAddedEdges =
+            d2(distances, before, segHead) + d2(distances, segTail, after);
           const delta =
-            segReplaceEdge + insertAddedEdges - (segRemovedEdges + insertRemovedEdge);
+            segReplaceEdge +
+            insertAddedEdges -
+            (segRemovedEdges + insertRemovedEdge);
           if (delta < bestDelta - 1e-9) {
             bestDelta = delta;
             bestI = i;

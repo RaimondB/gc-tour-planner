@@ -4,7 +4,7 @@ This document captures the design principles the web app's layout follows. They 
 
 ## The single-screen principle
 
-The application is a map-first tool. Every meaningful planning action — discover candidates, pick one, plan it, view the planned tour, download its GPX — must be achievable **without opening the drawer** on mobile. The drawer is reserved for *tuning settings*, not driving the main flow.
+The application is a map-first tool. Every meaningful planning action — discover candidates, pick one, plan it, view the planned tour, download its GPX — must be achievable **without opening the drawer** on mobile. The drawer is reserved for _tuning settings_, not driving the main flow.
 
 This means the map view itself surfaces the primary affordances via small floating buttons / pills:
 
@@ -14,22 +14,23 @@ This means the map view itself surfaces the primary affordances via small floati
 - **GPX download** — small button on the tour-stats overlay; one-tap GPX track export.
 
 The hamburger menu is only needed for the rare flows:
+
 - the very first GPX upload (one-time per data refresh),
 - changing search filters (radius, type, etc.),
 - tweaking plan or tour settings,
 - the operator/debug tools (cog drawer).
 
-## Tab split: by *which thing each setting affects*
+## Tab split: by _which thing each setting affects_
 
 The sidebar's three workflow tabs (Filter / Plan / Tour) each correspond to one stage of the pipeline. Settings live in the tab whose output they influence:
 
-| Tab | Owns | Examples |
-|-----|------|---------|
-| **Filter** | What's on the map | Upload, search center + radius, cache types, "exclude my finds", availability, equipment, landuse context |
-| **Plan** | What clusters get discovered | Distance budget, max caches, min cluster size, candidates-to-return, max link distance, clustering algorithm, landuse profile + weight |
-| **Tour** | What the planned tour looks like | Fringe trim, visit time per cache, tool-cache bonus, walking speed, start preference + OSM parking filters, planned-loop summary, leg edits, GPX export |
+| Tab        | Owns                             | Examples                                                                                                                                                |
+| ---------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Filter** | What's on the map                | Upload, search center + radius, cache types, "exclude my finds", availability, equipment, landuse context                                               |
+| **Plan**   | What clusters get discovered     | Distance budget, max caches, min cluster size, candidates-to-return, max link distance, clustering algorithm, landuse profile + weight                  |
+| **Tour**   | What the planned tour looks like | Fringe trim, visit time per cache, tool-cache bonus, walking speed, start preference + OSM parking filters, planned-loop summary, leg edits, GPX export |
 
-A setting that *could* influence both stages goes in the upstream tab so the user sees consequences flowing downstream as they tweak. `distanceBudgetMeters` is a Plan setting because it constrains which clusters are even considered.
+A setting that _could_ influence both stages goes in the upstream tab so the user sees consequences flowing downstream as they tweak. `distanceBudgetMeters` is a Plan setting because it constrains which clusters are even considered.
 
 Re-planning a cluster after changing Tour-tab settings is cheap (one API call); re-discovering is expensive. This is the practical reason for the split: a sidebar layout that ties effort to where the user is looking.
 
@@ -62,6 +63,7 @@ The app makes a few small UX decisions automatically:
 - **`focusedClusterId` persists after plan-success** — so the FAB row keeps the prev/next navigation available and the middle button shows the "View tour #N/M" state.
 
 The app does **not**:
+
 - close the drawer when you switch tabs (you usually want to interact with the tab you just picked),
 - auto-open the drawer when a plan lands (the polyline + numbered stops on the map + the stats overlay are enough),
 - auto-clear `chosenClusterId` when you tweak a setting (Discover is the explicit "redo" trigger).
@@ -88,9 +90,10 @@ double-click to select a cluster (list row + map centroid), single-click =
 preview. The items below are planned for later.
 
 ### P1 — mobile select feedback
+
 **Problem:** on a phone, tapping the map "Plan #N" FAB now sets the Tour context
 but (by design) doesn't open the drawer, so **nothing visibly happens** —
-violates *visibility of system status*.
+violates _visibility of system status_.
 **Approach:** on `selectCluster` from a map affordance, show a brief toast
 ("Cluster selected — open Tour to plan") and/or pulse the Tour tab + hamburger.
 Add a lightweight toast (no dep; a timed element) or a transient highlight class.
@@ -98,6 +101,7 @@ Add a lightweight toast (no dep; a timed element) or a transient highlight class
 **Effort:** S.
 
 ### ✅ P1 — first-run / empty-state guidance (shipped 2026-06)
+
 **Problem:** new users hit blank tabs with no next step.
 **Shipped:** a shared `.empty-hint` callout. Filter with no caches → "Upload a
 GPX above … then open the Plan tab"; Plan before discovery (`clusters === null`)
@@ -106,12 +110,14 @@ the post-discovery "no clusters found" note and the Tour empty state already
 existed. **Files:** `FilterSidebar.tsx`, `PlannerSidebar.tsx`, `styles.css`.
 
 ### P2 — telegraph the Filter → Plan → Tour sequence
+
 **Problem:** tabs read as parallel sections; the flow is actually a sequence.
 **Approach:** number the tabs ("1 Filter · 2 Plan · 3 Tour") or a thin stepper;
 keep the existing disabled-with-hint gating.
 **Files:** `App.tsx` `TabButton` + CSS. **Effort:** S.
 
 ### P2 — dominant landuse on cluster cards
+
 **Problem:** cards say "N caches · km · time" but not terrain ("mostly forest"),
 which is what cachers actually choose on. The wire `ClusterCandidate` has no
 landuse field today.
@@ -122,14 +128,16 @@ landuse field today.
 **Effort:** M (backend + wire change → docs-sync per CLAUDE.md).
 
 ### P2 — accessibility pass (WCAG 2.2)
+
 - Keyboard parity: everything pickable on the map must also be reachable in the
   sidebar (map is pointer-only). Audit clusters/edges/parking.
 - Color-only encoding (edge blue/red/green): keep pairing colour with
   shape/label; run a contrast check on the muted greys + chips.
 - Focus management: ESC closes the edge popup; trap/return focus sensibly.
 - Run Lighthouse for the a11y/contrast numbers.
-**Effort:** M.
+  **Effort:** M.
 
 ### Validation methods (no UX skill installed here)
+
 Heuristic walkthrough, 5-second test ("what does this screen do?"), first-click
 test ("where would you tap to plan a tour?"), Lighthouse for a11y/perf.

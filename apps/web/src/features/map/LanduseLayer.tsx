@@ -72,7 +72,7 @@ export function LanduseLayer({ params }: { params: SearchParams }): null {
   // rendering, making the layer look like it survived the zoom-out.
   useEffect(() => {
     if (!ready) return;
-    const features = bbox === null ? [] : query.data?.features ?? [];
+    const features = bbox === null ? [] : (query.data?.features ?? []);
     const fc: GeoJSON.FeatureCollection = {
       type: "FeatureCollection",
       features: features.map((f) => ({

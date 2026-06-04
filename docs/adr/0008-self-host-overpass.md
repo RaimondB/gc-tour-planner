@@ -20,17 +20,17 @@
 
 A retrigger-stale exercise on 2026-05-26 surfaced that **no public Overpass mirror is usable from the project's dev/UAT network**:
 
-| Mirror                          | Result                                                             |
-|---|---|
-| `overpass-api.de`               | IPv4 RST on connect (Hetzner subnet appears blocked upstream of this network); IPv6-only DNS otherwise and the host's ISP has no IPv6. |
-| `overpass.osm.ch`               | HTTP 200 with `elements: []` for every Dutch bbox — serves a Switzerland-only extract.                                                  |
-| `overpass.openstreetmap.fr`     | HTTP 403 "This service is only available to white-listed usages."  |
-| `overpass.kumi.systems`         | Connect timeout from this network.                                 |
-| `overpass.private.coffee`       | Connect timeout from this network.                                 |
-| `maps.mail.ru/osm/tools/...`    | Connect timeout from this network.                                 |
-| `lz4.overpass-api.de`, `z.overpass-api.de`, `gall.openstreetmap.de` | Same RST as the main `overpass-api.de`. |
+| Mirror                                                              | Result                                                                                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `overpass-api.de`                                                   | IPv4 RST on connect (Hetzner subnet appears blocked upstream of this network); IPv6-only DNS otherwise and the host's ISP has no IPv6. |
+| `overpass.osm.ch`                                                   | HTTP 200 with `elements: []` for every Dutch bbox — serves a Switzerland-only extract.                                                 |
+| `overpass.openstreetmap.fr`                                         | HTTP 403 "This service is only available to white-listed usages."                                                                      |
+| `overpass.kumi.systems`                                             | Connect timeout from this network.                                                                                                     |
+| `overpass.private.coffee`                                           | Connect timeout from this network.                                                                                                     |
+| `maps.mail.ru/osm/tools/...`                                        | Connect timeout from this network.                                                                                                     |
+| `lz4.overpass-api.de`, `z.overpass-api.de`, `gall.openstreetmap.de` | Same RST as the main `overpass-api.de`.                                                                                                |
 
-Even when a mirror *is* reachable, the public-mirror fair-use policy (≈2 concurrent slots/IP) caps the precompute fan-out. The retrigger-stale workflow batches 50 caches per job, each of which can touch a dozen-plus cells; honouring `OVERPASS_MAX_PARALLEL=2` (added 2026-05-26) means a full owner re-warm serialises through a stranger's server.
+Even when a mirror _is_ reachable, the public-mirror fair-use policy (≈2 concurrent slots/IP) caps the precompute fan-out. The retrigger-stale workflow batches 50 caches per job, each of which can touch a dozen-plus cells; honouring `OVERPASS_MAX_PARALLEL=2` (added 2026-05-26) means a full owner re-warm serialises through a stranger's server.
 
 This is brittle architecture for a non-trivial feature path. Landuse precompute is now load-bearing for the soft-preference scoring story; it can't depend on the goodwill of a public service we can't reach.
 

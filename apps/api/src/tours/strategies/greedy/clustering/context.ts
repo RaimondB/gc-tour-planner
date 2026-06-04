@@ -104,9 +104,12 @@ export async function prepareClusteringContext(
   };
 }
 
-function bboxOf(
-  coords: readonly { lng: number; lat: number }[],
-): { minLng: number; minLat: number; maxLng: number; maxLat: number } {
+function bboxOf(coords: readonly { lng: number; lat: number }[]): {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+} {
   let minLng = coords[0]?.lng ?? 0;
   let minLat = coords[0]?.lat ?? 0;
   let maxLng = minLng;

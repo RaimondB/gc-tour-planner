@@ -53,14 +53,10 @@ describe("louvain-clusters", () => {
     // the bridge edge should have been recognised as weak enough to break
     // the two communities apart.
     const podA = candidates.find(
-      (c) =>
-        c.cacheIds.length === 3 &&
-        c.cacheIds.every((id) => id <= 3),
+      (c) => c.cacheIds.length === 3 && c.cacheIds.every((id) => id <= 3),
     );
     const podB = candidates.find(
-      (c) =>
-        c.cacheIds.length === 3 &&
-        c.cacheIds.every((id) => id >= 4),
+      (c) => c.cacheIds.length === 3 && c.cacheIds.every((id) => id >= 4),
     );
     expect(podA ?? podB).toBeDefined();
   });

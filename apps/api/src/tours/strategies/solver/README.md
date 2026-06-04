@@ -21,11 +21,11 @@ Then `cd infra && docker compose up --build solver api`.
 
 ## Env vars (Nest side)
 
-| Var                 | Default                 | Meaning |
-|---------------------|-------------------------|---------|
-| `TOUR_PLANNER`      | `greedy`                | `solver` switches the factory |
-| `SOLVER_URL`        | `http://solver:8080`    | Sidecar base URL (no trailing slash) |
-| `SOLVER_TIMEOUT_MS` | `10000`                 | Wall-clock cap on `/plan` |
+| Var                 | Default              | Meaning                              |
+| ------------------- | -------------------- | ------------------------------------ |
+| `TOUR_PLANNER`      | `greedy`             | `solver` switches the factory        |
+| `SOLVER_URL`        | `http://solver:8080` | Sidecar base URL (no trailing slash) |
+| `SOLVER_TIMEOUT_MS` | `10000`              | Wall-clock cap on `/plan`            |
 
 ## Known MVP gaps (deferred)
 

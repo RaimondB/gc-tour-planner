@@ -30,20 +30,16 @@ describe("OverlapGrid", () => {
     const g = new OverlapGrid(25);
     g.addLine(line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9]));
     // Same line replayed — every coord lands in a populated cell.
-    expect(
-      g.overlapHits(line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9])),
-    ).toBe(3);
+    expect(g.overlapHits(line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9]))).toBe(
+      3,
+    );
   });
 
   it("a parallel street 100 m away registers as zero overlap", () => {
     const g = new OverlapGrid(25);
     g.addLine(line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9]));
     // ~111 m north — well outside the 25 m grid cell.
-    const parallel = line(
-      [6.0, 51.901],
-      [6.001, 51.901],
-      [6.002, 51.901],
-    );
+    const parallel = line([6.0, 51.901], [6.001, 51.901], [6.002, 51.901]);
     expect(g.overlapHits(parallel)).toBe(0);
   });
 });
@@ -68,7 +64,12 @@ describe("pickLoopAwareLeg", () => {
     // Pre-load the grid with a "main street" the primary alternative will
     // exactly retrace.
     g.addLine(line([6.0, 51.9], [6.002, 51.9], [6.005, 51.9]));
-    const retracingPrimary = leg(500, [6.0, 51.9], [6.002, 51.9], [6.005, 51.9]);
+    const retracingPrimary = leg(
+      500,
+      [6.0, 51.9],
+      [6.002, 51.9],
+      [6.005, 51.9],
+    );
     const parallelAlt = leg(
       600, // 20 % longer but on a different street
       [6.0, 51.901],
@@ -130,16 +131,18 @@ describe("perpendicularViaCandidates", () => {
   });
 
   it("returns no candidates when from == to", () => {
-    expect(
-      perpendicularViaCandidates([6.0, 51.9], [6.0, 51.9], [80]),
-    ).toEqual([]);
+    expect(perpendicularViaCandidates([6.0, 51.9], [6.0, 51.9], [80])).toEqual(
+      [],
+    );
   });
 });
 
 describe("pickAndAccumulate via-waypoint nudge", () => {
   it("triggers the nudge when the alt-best retraces enough of the prior polyline", async () => {
     const grid = new OverlapGrid(25);
-    grid.addLine(line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9], [6.003, 51.9]));
+    grid.addLine(
+      line([6.0, 51.9], [6.001, 51.9], [6.002, 51.9], [6.003, 51.9]),
+    );
 
     const primary: OsrmLeg = {
       meters: 400,

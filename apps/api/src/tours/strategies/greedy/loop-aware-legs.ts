@@ -488,7 +488,9 @@ export async function pickAndAccumulate(args: {
     );
     const nudgeFetches = await Promise.all(
       viaCandidates.map((via) =>
-        args.fetchVia!([args.from, via, args.to], args.profile).catch(() => null),
+        args.fetchVia!([args.from, via, args.to], args.profile).catch(
+          () => null,
+        ),
       ),
     );
     nudgeCandidatesFetched = viaCandidates.length;

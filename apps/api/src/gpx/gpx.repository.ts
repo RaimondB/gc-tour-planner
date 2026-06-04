@@ -159,7 +159,8 @@ export class GpxRepository {
                 size: (eb) => eb.ref("excluded.size"),
                 archived: (eb) => eb.ref("excluded.archived"),
                 disabled: (eb) => eb.ref("excluded.disabled"),
-                source_exported_at: (eb) => eb.ref("excluded.source_exported_at"),
+                source_exported_at: (eb) =>
+                  eb.ref("excluded.source_exported_at"),
                 description_hints: (eb) => eb.ref("excluded.description_hints"),
                 last_seen_at: sql<Date>`now()`,
               }),

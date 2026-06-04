@@ -22,7 +22,10 @@ import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
-import { CachesLayer, type SelectedParking } from "./features/map/CachesLayer.js";
+import {
+  CachesLayer,
+  type SelectedParking,
+} from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { LegAlternativePreviewLayer } from "./features/map/LegAlternativePreviewLayer.js";
@@ -195,19 +198,22 @@ export default function App(): JSX.Element {
   // persist in localStorage keyed by planSignature (so re-planning the
   // same cluster restores them), but the panel's current "which leg are
   // you editing right now" must reset on a new plan.
-  const setPlanResult = useCallback((next: PlanResult | null) => {
-    setPlanResultRaw(next);
-    if (next) {
-      // FR-UX1 auto-switch: a fresh plan jumps the user into the
-      // Tour tab so the result is immediately in view. They went
-      // through the trouble of clicking "Plan this loop" — no need
-      // to also ask them to flip a tab to see the totals.
-      setActiveTab("tour");
-    }
-    setSelectedLegIndex(null);
-    setPreviewAlternativeIndex(null);
-    setViaDrag(null);
-  }, [setActiveTab]);
+  const setPlanResult = useCallback(
+    (next: PlanResult | null) => {
+      setPlanResultRaw(next);
+      if (next) {
+        // FR-UX1 auto-switch: a fresh plan jumps the user into the
+        // Tour tab so the result is immediately in view. They went
+        // through the trouble of clicking "Plan this loop" — no need
+        // to also ask them to flip a tab to see the totals.
+        setActiveTab("tour");
+      }
+      setSelectedLegIndex(null);
+      setPreviewAlternativeIndex(null);
+      setViaDrag(null);
+    },
+    [setActiveTab],
+  );
 
   /**
    * Called from `LegAlternativesPanel`'s "Add via-point" button. Computes
@@ -245,7 +251,10 @@ export default function App(): JSX.Element {
       setChosenClusterId(cluster.clusterId);
       // Capture the settings this request is built with, so the Tour tab can
       // detect later drift (promoted to `plannedKey` on success).
-      pendingPlanKeyRef.current = planLoopSettingsKey(planSettings, params.center);
+      pendingPlanKeyRef.current = planLoopSettingsKey(
+        planSettings,
+        params.center,
+      );
       return planLoop({
         cacheIds: cluster.cacheIds,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
@@ -681,7 +690,11 @@ export default function App(): JSX.Element {
           id="sidebar-drawer"
           className={`left-pane${sidebarOpen ? " left-pane--open" : ""}`}
         >
-          <nav className="sidebar-tabs" role="tablist" aria-label="Sidebar sections">
+          <nav
+            className="sidebar-tabs"
+            role="tablist"
+            aria-label="Sidebar sections"
+          >
             <TabButton
               id="filter"
               label="Filter"
@@ -953,10 +966,13 @@ export default function App(): JSX.Element {
                 title="Open tour details"
               >
                 <span className="map-tour-stats__primary">
-                  {tourStats.km.toFixed(2)} km · {minutesLabel(tourStats.totalMinutes)}
+                  {tourStats.km.toFixed(2)} km ·{" "}
+                  {minutesLabel(tourStats.totalMinutes)}
                 </span>
                 <span className="map-tour-stats__secondary">
-                  {tourStats.caches} caches · walking {minutesLabel(tourStats.walkingMinutes)} · visit {minutesLabel(tourStats.visitMinutes)}
+                  {tourStats.caches} caches · walking{" "}
+                  {minutesLabel(tourStats.walkingMinutes)} · visit{" "}
+                  {minutesLabel(tourStats.visitMinutes)}
                 </span>
               </button>
               <button
@@ -981,12 +997,18 @@ export default function App(): JSX.Element {
             </button>
           )}
           {focusedClusterForFab && (
-            <div className="map-plan-fab-row" role="group" aria-label="Cluster navigation">
+            <div
+              className="map-plan-fab-row"
+              role="group"
+              aria-label="Cluster navigation"
+            >
               <button
                 type="button"
                 className="map-fab-nav"
                 onClick={() => navigateCluster(-1)}
-                disabled={!focusedClusterForFab.canPrev || planMutation.isPending}
+                disabled={
+                  !focusedClusterForFab.canPrev || planMutation.isPending
+                }
                 aria-label="Previous cluster"
                 title="Previous cluster"
               >
@@ -1017,7 +1039,9 @@ export default function App(): JSX.Element {
                 type="button"
                 className="map-fab-nav"
                 onClick={() => navigateCluster(1)}
-                disabled={!focusedClusterForFab.canNext || planMutation.isPending}
+                disabled={
+                  !focusedClusterForFab.canNext || planMutation.isPending
+                }
                 aria-label="Next cluster"
                 title="Next cluster"
               >

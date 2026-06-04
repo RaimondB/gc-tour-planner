@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from "react";
-import {
-  useMutation,
-  useQuery,
-} from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
@@ -124,7 +121,9 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   osmParkingFeeFilter: "any",
 };
 
-const STRATEGY_OPTIONS: ReadonlyArray<readonly [ClusteringStrategyName, string]> = [
+const STRATEGY_OPTIONS: ReadonlyArray<
+  readonly [ClusteringStrategyName, string]
+> = [
   ["louvain", "Louvain (default)"],
   ["dbscan", "DBSCAN"],
   ["hdbscan", "HDBSCAN (density)"],
@@ -281,7 +280,8 @@ export function PlannerSidebar({
 
   const exportJson = () => {
     const clusteredIds = new Set<number>();
-    for (const c of clusters ?? []) for (const id of c.cacheIds) clusteredIds.add(id);
+    for (const c of clusters ?? [])
+      for (const id of c.cacheIds) clusteredIds.add(id);
     const payload = {
       exportedAt: new Date().toISOString(),
       search: {
@@ -335,8 +335,8 @@ export function PlannerSidebar({
       <h2>Find clusters</h2>
       <p className="muted">
         These settings shape which clusters are discovered. Pick a candidate
-        below to open it in the Tour tab, where you set the start preference
-        and plan the route.
+        below to open it in the Tour tab, where you set the start preference and
+        plan the route.
       </p>
 
       <div className="field">
@@ -482,8 +482,8 @@ export function PlannerSidebar({
               }
             />
             <small className="muted">
-              Caches farther apart than this on foot aren&rsquo;t linked into the
-              same loop.
+              Caches farther apart than this on foot aren&rsquo;t linked into
+              the same loop.
             </small>
           </label>
         </div>
@@ -517,11 +517,7 @@ export function PlannerSidebar({
       )}
 
       <div className="planner-actions">
-        <button
-          type="button"
-          onClick={onDiscover}
-          disabled={discoverPending}
-        >
+        <button type="button" onClick={onDiscover} disabled={discoverPending}>
           {discoverPending ? "Searching…" : "Discover clusters"}
         </button>
         <button
@@ -578,76 +574,76 @@ export function PlannerSidebar({
                   : 0) +
                 settings.timePerCacheMinutes * c.cacheIds.length;
               return (
-              <li
-                key={c.clusterId}
-                ref={(el) => rowRefs.current.set(c.clusterId, el)}
-                className={[
-                  "cluster",
-                  c.clusterId === chosenClusterId ? "picked" : "",
-                  c.clusterId === focusedClusterId ? "focused" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                // Focus is sticky — set on hover or via map-centroid click,
-                // only changes when the user picks a different row or clears.
-                onMouseEnter={() => onFocusClusterChange(c.clusterId)}
-                onFocus={() => onFocusClusterChange(c.clusterId)}
-                // Hover/focus previews; double-click commits to the Tour tab
-                // (same as the "Open in Tour" button).
-                onDoubleClick={() => onPlanCluster(c)}
-                tabIndex={0}
-                title="Double-click to plan this cluster in the Tour tab"
-              >
-                <div className="cluster-head">
-                  <span className="cluster-rank">#{i + 1}</span>
-                  <strong className="cluster-caches">
-                    {c.cacheIds.length} caches
-                  </strong>
-                  <span className="cluster-summary">
-                    ~{loopKm.toFixed(1)} km loop · ~{minutes(totalMin)}
-                  </span>
-                </div>
-                <details className="cluster-metrics">
-                  <summary>details</summary>
-                  <div className="cluster-breakdown">
-                    <span className="chip">
-                      MST {(c.mstLengthMeters / 1000).toFixed(2)} km
+                <li
+                  key={c.clusterId}
+                  ref={(el) => rowRefs.current.set(c.clusterId, el)}
+                  className={[
+                    "cluster",
+                    c.clusterId === chosenClusterId ? "picked" : "",
+                    c.clusterId === focusedClusterId ? "focused" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  // Focus is sticky — set on hover or via map-centroid click,
+                  // only changes when the user picks a different row or clears.
+                  onMouseEnter={() => onFocusClusterChange(c.clusterId)}
+                  onFocus={() => onFocusClusterChange(c.clusterId)}
+                  // Hover/focus previews; double-click commits to the Tour tab
+                  // (same as the "Open in Tour" button).
+                  onDoubleClick={() => onPlanCluster(c)}
+                  tabIndex={0}
+                  title="Double-click to plan this cluster in the Tour tab"
+                >
+                  <div className="cluster-head">
+                    <span className="cluster-rank">#{i + 1}</span>
+                    <strong className="cluster-caches">
+                      {c.cacheIds.length} caches
+                    </strong>
+                    <span className="cluster-summary">
+                      ~{loopKm.toFixed(1)} km loop · ~{minutes(totalMin)}
                     </span>
-                    {c.estimatedTourMeters > 0 && (
-                      <span
-                        className="chip"
-                        title="NN+2-opt × 1.4 haversine→walking; Pass-2 produces the real OSRM-routed value."
-                      >
-                        est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
-                      </span>
-                    )}
-                    <span className="chip">score {c.score.toFixed(3)}</span>
-                    {Object.entries(c.scoreBreakdown).map(([k, v]) => (
-                      <span key={k} className="chip">
-                        {k}: {v.toFixed(2)}
-                      </span>
-                    ))}
                   </div>
-                </details>
-                <div className="cluster-row-actions">
-                  <button
-                    type="button"
-                    onClick={() => onPlanCluster(c)}
-                    disabled={planPending}
-                  >
-                    {planPending && c.clusterId === planPendingClusterId
-                      ? "Planning…"
-                      : "Open in Tour ▸"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectionChange(new Set(c.cacheIds))}
-                    title="Copy this cluster into the manual selection so you can shift-click caches off and re-explain"
-                  >
-                    Use as selection
-                  </button>
-                </div>
-              </li>
+                  <details className="cluster-metrics">
+                    <summary>details</summary>
+                    <div className="cluster-breakdown">
+                      <span className="chip">
+                        MST {(c.mstLengthMeters / 1000).toFixed(2)} km
+                      </span>
+                      {c.estimatedTourMeters > 0 && (
+                        <span
+                          className="chip"
+                          title="NN+2-opt × 1.4 haversine→walking; Pass-2 produces the real OSRM-routed value."
+                        >
+                          est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
+                        </span>
+                      )}
+                      <span className="chip">score {c.score.toFixed(3)}</span>
+                      {Object.entries(c.scoreBreakdown).map(([k, v]) => (
+                        <span key={k} className="chip">
+                          {k}: {v.toFixed(2)}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                  <div className="cluster-row-actions">
+                    <button
+                      type="button"
+                      onClick={() => onPlanCluster(c)}
+                      disabled={planPending}
+                    >
+                      {planPending && c.clusterId === planPendingClusterId
+                        ? "Planning…"
+                        : "Open in Tour ▸"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectionChange(new Set(c.cacheIds))}
+                      title="Copy this cluster into the manual selection so you can shift-click caches off and re-explain"
+                    >
+                      Use as selection
+                    </button>
+                  </div>
+                </li>
               );
             })}
           </ol>
@@ -665,10 +661,7 @@ export function PlannerSidebar({
         />
       )}
 
-
-      {planError && (
-        <div className="planner-error">{planError.message}</div>
-      )}
+      {planError && <div className="planner-error">{planError.message}</div>}
 
       {result && !hideResultPanel && (
         <PlanResultPanel
@@ -890,8 +883,7 @@ export function PlanResultPanel({
       <dl className="totals">
         <dt>Walking</dt>
         <dd>
-          {minutes(walkingMin)}{" "}
-          <small>@ {avgWalkingKmh.toFixed(1)} km/h</small>
+          {minutes(walkingMin)} <small>@ {avgWalkingKmh.toFixed(1)} km/h</small>
         </dd>
         <dt>Visit</dt>
         <dd>
@@ -958,51 +950,53 @@ export function PlanResultPanel({
         )}
       </div>
 
-      {editMode && selectedLegIndex !== null && result.legs[selectedLegIndex] && (
-        <LegAlternativesPanel
-          leg={result.legs[selectedLegIndex]!}
-          pick={legPicks[selectedLegIndex]}
-          previewAlternativeIndex={previewAlternativeIndex}
-          onPreviewAlternativeChange={onPreviewAlternativeChange}
-          onApplyAlt={(altIndex) => {
-            onLegPicksChange((prev) => ({
-              ...prev,
-              [selectedLegIndex]: { kind: "alt", altIndex },
-            }));
-            onPreviewAlternativeChange(null);
-            // Switching to an alt-pick retires any active via marker
-            // on the same leg — the geometries diverge.
-            if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
-          }}
-          onResetLeg={() => {
-            onLegPicksChange((prev) => {
-              const { [selectedLegIndex]: _drop, ...rest } = prev;
-              return rest;
-            });
-            onPreviewAlternativeChange(null);
-            if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
-          }}
-          onClose={() => {
-            onSelectedLegChange(null);
-            onPreviewAlternativeChange(null);
-          }}
-          caches={caches}
-          viaDragActive={viaDragLegIndex === selectedLegIndex}
-          onStartViaDrag={() => {
-            // Seed the marker at the arclength-midpoint of the
-            // currently-displayed leg geometry — the user can drag
-            // from there. resolvePick handles whether the user has
-            // already applied an alt or a via.
-            const r = resolvePick(
-              result.legs[selectedLegIndex]!,
-              legPicks[selectedLegIndex],
-            );
-            const mid = midpoint(r.geometry.coordinates);
-            if (mid) onStartViaDrag(selectedLegIndex, mid);
-          }}
-          onCancelViaDrag={onCancelViaDrag}
-        />
-      )}
+      {editMode &&
+        selectedLegIndex !== null &&
+        result.legs[selectedLegIndex] && (
+          <LegAlternativesPanel
+            leg={result.legs[selectedLegIndex]!}
+            pick={legPicks[selectedLegIndex]}
+            previewAlternativeIndex={previewAlternativeIndex}
+            onPreviewAlternativeChange={onPreviewAlternativeChange}
+            onApplyAlt={(altIndex) => {
+              onLegPicksChange((prev) => ({
+                ...prev,
+                [selectedLegIndex]: { kind: "alt", altIndex },
+              }));
+              onPreviewAlternativeChange(null);
+              // Switching to an alt-pick retires any active via marker
+              // on the same leg — the geometries diverge.
+              if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
+            }}
+            onResetLeg={() => {
+              onLegPicksChange((prev) => {
+                const { [selectedLegIndex]: _drop, ...rest } = prev;
+                return rest;
+              });
+              onPreviewAlternativeChange(null);
+              if (viaDragLegIndex === selectedLegIndex) onCancelViaDrag();
+            }}
+            onClose={() => {
+              onSelectedLegChange(null);
+              onPreviewAlternativeChange(null);
+            }}
+            caches={caches}
+            viaDragActive={viaDragLegIndex === selectedLegIndex}
+            onStartViaDrag={() => {
+              // Seed the marker at the arclength-midpoint of the
+              // currently-displayed leg geometry — the user can drag
+              // from there. resolvePick handles whether the user has
+              // already applied an alt or a via.
+              const r = resolvePick(
+                result.legs[selectedLegIndex]!,
+                legPicks[selectedLegIndex],
+              );
+              const mid = midpoint(r.geometry.coordinates);
+              if (mid) onStartViaDrag(selectedLegIndex, mid);
+            }}
+            onCancelViaDrag={onCancelViaDrag}
+          />
+        )}
 
       <div className="gpx-export">
         <h4>Save to your GPS</h4>
@@ -1123,8 +1117,8 @@ function LegAlternativesPanel({
       </h4>
       {isViaPick && pick && (
         <div className="cluster-lab-hint">
-          Via-routed through ({pick.via[1].toFixed(5)},{" "}
-          {pick.via[0].toFixed(5)}) — {(pick.meters / 1000).toFixed(2)} km,{" "}
+          Via-routed through ({pick.via[1].toFixed(5)}, {pick.via[0].toFixed(5)}
+          ) — {(pick.meters / 1000).toFixed(2)} km,{" "}
           {Math.round(pick.seconds / 60)} min.
         </div>
       )}
@@ -1313,7 +1307,8 @@ export function DebugOverlaysPanel({
       </label>
       {showWalkingGraph && walkingGraphStats && (
         <div className="cluster-lab-hint">
-          {walkingGraphStats.nodeCount} nodes · {walkingGraphStats.edgeCount} edges
+          {walkingGraphStats.nodeCount} nodes · {walkingGraphStats.edgeCount}{" "}
+          edges
           {walkingGraphStats.isolatedCount > 0 && (
             <> · {walkingGraphStats.isolatedCount} isolated</>
           )}
@@ -1327,8 +1322,9 @@ export function DebugOverlaysPanel({
             </>
           )}
           <br />
-          median {walkingGraphStats.medianEdgeM.toFixed(0)} m · max {walkingGraphStats.maxEdgeM.toFixed(0)} m ·
-          detour ratio {walkingGraphStats.medianDetourRatio.toFixed(2)}×
+          median {walkingGraphStats.medianEdgeM.toFixed(0)} m · max{" "}
+          {walkingGraphStats.maxEdgeM.toFixed(0)} m · detour ratio{" "}
+          {walkingGraphStats.medianDetourRatio.toFixed(2)}×
           {walkingGraphStats.highDetourCount > 0 && (
             <> · {walkingGraphStats.highDetourCount} high-detour</>
           )}
@@ -1342,14 +1338,15 @@ export function DebugOverlaysPanel({
                 background: "#fff8e1",
               }}
             >
-              <strong style={{ color: "#ff6f00" }}>OSRM coverage warning.</strong>{" "}
-              Many edges show large walking-vs-straight-line detours
-              (median {walkingGraphStats.medianDetourRatio.toFixed(2)}×).
-              Likely cause: <code>OSRM_REGION</code> doesn't fully cover
-              this area. For cross-border searches set{" "}
-              <code>OSRM_REGIONS</code> (plural) to a comma-separated list
-              of Geofabrik extracts — the bootstrap will <code>osmium merge</code>{" "}
-              them before extract.
+              <strong style={{ color: "#ff6f00" }}>
+                OSRM coverage warning.
+              </strong>{" "}
+              Many edges show large walking-vs-straight-line detours (median{" "}
+              {walkingGraphStats.medianDetourRatio.toFixed(2)}×). Likely cause:{" "}
+              <code>OSRM_REGION</code> doesn't fully cover this area. For
+              cross-border searches set <code>OSRM_REGIONS</code> (plural) to a
+              comma-separated list of Geofabrik extracts — the bootstrap will{" "}
+              <code>osmium merge</code> them before extract.
             </div>
           )}
           {walkingGraphStats.suspiciousCount > 0 && (
@@ -1654,11 +1651,11 @@ export function ClusterLabPanel({
       <div className="cluster-lab">
         <h3>Cluster lab</h3>
         <p className="cluster-lab-hint">
-          Hold Shift (or Ctrl / ⌘) and click cache markers on the map to
-          build a manual selection, then explain why the algorithm did or
-          didn't produce it. Watch the browser DevTools console for a
-          <code>[cluster-lab]</code> log line on each click — if you don't
-          see it, the marker isn't receiving the event.
+          Hold Shift (or Ctrl / ⌘) and click cache markers on the map to build a
+          manual selection, then explain why the algorithm did or didn't produce
+          it. Watch the browser DevTools console for a<code>[cluster-lab]</code>{" "}
+          log line on each click — if you don't see it, the marker isn't
+          receiving the event.
         </p>
       </div>
     );
@@ -1697,8 +1694,7 @@ export function ClusterLabPanel({
               : "Select exactly 2 caches to test their OSRM route"
           }
           onClick={() => {
-            if (ids.length === 2)
-              testRouteMutation.mutate([ids[0]!, ids[1]!]);
+            if (ids.length === 2) testRouteMutation.mutate([ids[0]!, ids[1]!]);
           }}
         >
           {testRouteMutation.isPending ? "Probing OSRM…" : "Test OSRM route"}
@@ -1711,15 +1707,23 @@ export function ClusterLabPanel({
       </div>
       {testRoute && (
         <div className="cluster-lab-hint">
-          <strong>{testRoute.fromCode} → {testRoute.toCode}</strong> ·
-          haversine {testRoute.haversineM.toFixed(0)} m ·{" "}
+          <strong>
+            {testRoute.fromCode} → {testRoute.toCode}
+          </strong>{" "}
+          · haversine {testRoute.haversineM.toFixed(0)} m ·{" "}
           {testRoute.route ? (
             <>
-              OSRM <strong style={{ color: "#00c853" }}>{testRoute.route.meters.toFixed(0)} m</strong>{" "}
-              ({(testRoute.route.seconds / 60).toFixed(1)} min) — see the green polyline.
+              OSRM{" "}
+              <strong style={{ color: "#00c853" }}>
+                {testRoute.route.meters.toFixed(0)} m
+              </strong>{" "}
+              ({(testRoute.route.seconds / 60).toFixed(1)} min) — see the green
+              polyline.
             </>
           ) : (
-            <strong style={{ color: "#d50000" }}>OSRM says NoRoute — these caches aren't connected on foot.</strong>
+            <strong style={{ color: "#d50000" }}>
+              OSRM says NoRoute — these caches aren't connected on foot.
+            </strong>
           )}
         </div>
       )}
@@ -1735,7 +1739,11 @@ export function ClusterLabPanel({
       )}
       {explainMutation.data && (
         <details open className="cluster-lab-output">
-          <summary>Diagnostics ({(JSON.stringify(explainMutation.data).length / 1024).toFixed(1)} kB)</summary>
+          <summary>
+            Diagnostics (
+            {(JSON.stringify(explainMutation.data).length / 1024).toFixed(1)}{" "}
+            kB)
+          </summary>
           <pre>{JSON.stringify(explainMutation.data, null, 2)}</pre>
         </details>
       )}

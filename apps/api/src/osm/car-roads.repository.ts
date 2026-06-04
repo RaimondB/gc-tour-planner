@@ -78,7 +78,9 @@ export class CarRoadsRepository {
         "name",
         sql<number>`ST_X(ST_ClosestPoint(geom, ${ref}))`.as("px"),
         sql<number>`ST_Y(ST_ClosestPoint(geom, ${ref}))`.as("py"),
-        sql<number>`ST_Distance(geom::geography, ${ref}::geography)`.as("dist_m"),
+        sql<number>`ST_Distance(geom::geography, ${ref}::geography)`.as(
+          "dist_m",
+        ),
       ])
       // Indexable bbox prefilter (meters → degrees, ~111 km / degree).
       .where(sql<boolean>`geom && ST_Expand(${ref}, ${radiusM / 111_000})`)
@@ -93,7 +95,9 @@ export class CarRoadsRepository {
       .where(
         sql<boolean>`motor_vehicle IS NULL OR motor_vehicle NOT IN ('no', 'private')`,
       )
-      .where(sql<boolean>`maxspeed_kmh IS NULL OR maxspeed_kmh < ${MAX_SPEED_KMH}`)
+      .where(
+        sql<boolean>`maxspeed_kmh IS NULL OR maxspeed_kmh < ${MAX_SPEED_KMH}`,
+      )
       .where(sql<boolean>`service IS NULL OR service <> 'driveway'`)
       // Index-assisted KNN order against the path; cheap distance filter above
       // keeps it bounded.

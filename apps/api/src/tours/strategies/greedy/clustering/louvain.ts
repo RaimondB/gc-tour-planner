@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { discoverClustersInSubgraphs } from "../louvain-clusters.js";
-import type { ClusteringContext, ClusteringStrategy, RawCluster } from "./strategy.js";
+import type {
+  ClusteringContext,
+  ClusteringStrategy,
+  RawCluster,
+} from "./strategy.js";
 
 /**
  * Default strategy. σ in `w(i,j) = exp(-d_ij / σ)` is `maxLinkMeters / 3` —

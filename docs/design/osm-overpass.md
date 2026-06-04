@@ -4,8 +4,8 @@
 >
 > The current pipeline is a single osm2pgsql pass — described by [ADR-0009](../adr/0009-osm2pgsql-replaces-overpass.md), [ADR-0010](../adr/0010-unified-osm-refresh.md), and [ADR-0011](../adr/0011-osm-parking-facilities.md) — that populates two tables:
 >
-> * `landuse_polygons` — `MultiPolygon` features for 10 canonical kinds (`forest`, `park`, `residential`, …). Replaces the Overpass-fed `osm_landuse`.
-> * `parking_facilities` — `Point | MultiPolygon` features for `amenity=parking`, with `access`, `fee`, `parking_type`, `capacity`, `maxstay`, etc.
+> - `landuse_polygons` — `MultiPolygon` features for 10 canonical kinds (`forest`, `park`, `residential`, …). Replaces the Overpass-fed `osm_landuse`.
+> - `parking_facilities` — `Point | MultiPolygon` features for `amenity=parking`, with `access`, `fee`, `parking_type`, `capacity`, `maxstay`, etc.
 >
 > Both are produced by the same Lua filter at [infra/osm2pgsql/osm-features.lua](../../infra/osm2pgsql/osm-features.lua) and the same one-shot `osm2pgsql-import` compose service. Freshness lives in `landuse_import_meta` (single row); the operator-driven refresh script is [scripts/refresh-osm-data.sh](../../scripts/refresh-osm-data.sh).
 >

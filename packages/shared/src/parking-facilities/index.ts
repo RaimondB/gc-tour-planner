@@ -68,4 +68,6 @@ export const ParkingFacilitiesResponse = z.object({
   type: z.literal("FeatureCollection"),
   features: z.array(ParkingFacilityFeature),
 });
-export type ParkingFacilitiesResponse = z.infer<typeof ParkingFacilitiesResponse>;
+export type ParkingFacilitiesResponse = z.infer<
+  typeof ParkingFacilitiesResponse
+>;

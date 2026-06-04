@@ -36,7 +36,9 @@ const DEFAULTS = {
  * Returns `null` below `minZoom` (or before the map is ready) — callers
  * gate their useQuery on that.
  */
-export function useViewportBbox(opts: UseViewportBboxOpts = {}): BoundingBox | null {
+export function useViewportBbox(
+  opts: UseViewportBboxOpts = {},
+): BoundingBox | null {
   const { minZoom, gridDeg, debounceMs } = { ...DEFAULTS, ...opts };
   const { map, ready } = useMap();
   const [bbox, setBbox] = useState<BoundingBox | null>(null);
@@ -110,9 +112,7 @@ export function bboxToCenterRadius(b: BoundingBox): {
   const mPerDegLat = 111_320;
   const mPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
   const halfDiagonalM =
-    Math.sqrt(
-      (dLat * mPerDegLat) ** 2 + (dLng * mPerDegLng) ** 2,
-    ) / 2;
+    Math.sqrt((dLat * mPerDegLat) ** 2 + (dLng * mPerDegLng) ** 2) / 2;
   return {
     center: [centerLng, centerLat],
     radiusM: Math.max(1, Math.round(halfDiagonalM)),

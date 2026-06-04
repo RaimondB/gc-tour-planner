@@ -182,9 +182,7 @@ export class CachesRepository {
             .selectFrom("landuse_polygons as l")
             .select(sql<number>`1`.as("one"))
             .where("l.kind", "in", contexts as unknown as string[])
-            .where(
-              sql<boolean>`ST_Contains(l.geom, c.location::geometry)`,
-            ),
+            .where(sql<boolean>`ST_Contains(l.geom, c.location::geometry)`),
         ),
       );
     }

@@ -114,9 +114,9 @@ describe("GPX raw storage + reprocess (PR1)", () => {
       .returning("id")
       .executeTakeFirstOrThrow();
 
-    await expect(
-      service.reprocess(ownerId, foreignUpload.id),
-    ).rejects.toThrow(/not found/i);
+    await expect(service.reprocess(ownerId, foreignUpload.id)).rejects.toThrow(
+      /not found/i,
+    );
   });
 
   it("reprocess() rejects an upload whose raw bytes were never stored", async () => {

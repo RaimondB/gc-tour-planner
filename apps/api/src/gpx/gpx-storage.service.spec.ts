@@ -74,8 +74,8 @@ describe("GpxStorageService", () => {
 
   it("requires a non-empty dir at construction", () => {
     expect(() => new GpxStorageService("")).toThrow(/UPLOADS_DIR/);
-    expect(
-      () => new GpxStorageService(undefined as unknown as string),
-    ).toThrow(/UPLOADS_DIR/);
+    expect(() => new GpxStorageService(undefined as unknown as string)).toThrow(
+      /UPLOADS_DIR/,
+    );
   });
 });

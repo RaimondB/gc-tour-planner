@@ -123,20 +123,25 @@ describe("SolverTourPlanner — determinism", () => {
     } as unknown as GreedyTspPlanner;
 
     solverClient = {
-      plan: vi.fn().mockImplementation(
-        async (req: SolverPlanRequest): Promise<SolverPlanResponse> => {
-          // Deterministic stub: visit caches in ascending id order regardless
-          // of the inbound matrix; totals echo the matrix legs so the
-          // scoreBreakdown numbers in the assertion stay easy to read.
-          const ordered = req.caches.map((c) => c.id).slice().sort((a, b) => a - b);
-          return {
-            orderedCacheIds: ordered,
-            totalMeters: 1234.0,
-            totalSeconds: 2345.0,
-            visitedCount: ordered.length,
-          };
-        },
-      ),
+      plan: vi
+        .fn()
+        .mockImplementation(
+          async (req: SolverPlanRequest): Promise<SolverPlanResponse> => {
+            // Deterministic stub: visit caches in ascending id order regardless
+            // of the inbound matrix; totals echo the matrix legs so the
+            // scoreBreakdown numbers in the assertion stay easy to read.
+            const ordered = req.caches
+              .map((c) => c.id)
+              .slice()
+              .sort((a, b) => a - b);
+            return {
+              orderedCacheIds: ordered,
+              totalMeters: 1234.0,
+              totalSeconds: 2345.0,
+              visitedCount: ordered.length,
+            };
+          },
+        ),
       health: vi.fn().mockResolvedValue(true),
     };
 
@@ -198,9 +203,9 @@ describe("SolverTourPlanner — determinism", () => {
         row.map((cell, j) => (i === 0 && j === 2 ? null : cell)),
       ),
     };
-    (routingService.getMatrix as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      brokenMatrix,
-    );
+    (
+      routingService.getMatrix as ReturnType<typeof vi.fn>
+    ).mockResolvedValueOnce(brokenMatrix);
     await planner.planLoop(ownerId, input);
     const req = (solverClient.plan as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as SolverPlanRequest;

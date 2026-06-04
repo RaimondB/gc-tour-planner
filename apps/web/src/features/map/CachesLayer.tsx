@@ -198,15 +198,7 @@ export function CachesLayer({
         layout: {
           "text-field": "Z",
           "text-font": ["Noto Sans Bold"],
-          "text-size": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            11,
-            8,
-            14,
-            12,
-          ],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 8, 14, 12],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-anchor": "center",
@@ -266,15 +258,7 @@ export function CachesLayer({
         source: CACHES_SOURCE,
         filter: ["==", ["get", "selected"], 1],
         paint: {
-          "circle-radius": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            9,
-            8,
-            14,
-            14,
-          ],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 8, 14, 14],
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-color": "#ff1744",
           "circle-stroke-width": 3,
@@ -286,7 +270,14 @@ export function CachesLayer({
     // FR-SF2 + FR-SF6: re-run when the client-side filter toggles
     // change, even if query.data didn't (e.g. user unchecks
     // hideToolCaches with the same fetch in the cache).
-  }, [map, ready, query.data, selectedCacheIds, params.hideToolCaches, params.multiSubtype]);
+  }, [
+    map,
+    ready,
+    query.data,
+    selectedCacheIds,
+    params.hideToolCaches,
+    params.multiSubtype,
+  ]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.

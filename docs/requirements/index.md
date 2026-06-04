@@ -4,12 +4,12 @@ Source-of-truth for what gc-tour-planner must do. Changes here are normative; de
 
 ## Parts
 
-- [Ingest](ingest.md) — GPX upload, source adapters, find tracking (FR-I*)
-- [Filtering](filtering.md) — hard filters, soft preferences, exclude-found (FR-F*)
-- [Tour planning](tour-planning.md) — cluster discovery, routed loop, parking, warm cache (FR-T*)
-- [Persistence + sharing](persistence-sharing.md) — saved tours, sharing links, auth (FR-P*) — M6
-- [Map UI](map-ui.md) — MapLibre map, sidebar, attribution (FR-M*)
-- [Non-functional](non-functional.md) — performance, determinism, license, ownership (NFR-*)
+- [Ingest](ingest.md) — GPX upload, source adapters, find tracking (FR-I\*)
+- [Filtering](filtering.md) — hard filters, soft preferences, exclude-found (FR-F\*)
+- [Tour planning](tour-planning.md) — cluster discovery, routed loop, parking, warm cache (FR-T\*)
+- [Persistence + sharing](persistence-sharing.md) — saved tours, sharing links, auth (FR-P\*) — M6
+- [Map UI](map-ui.md) — MapLibre map, sidebar, attribution (FR-M\*)
+- [Non-functional](non-functional.md) — performance, determinism, license, ownership (NFR-\*)
 - [Out of scope](out-of-scope.md) — what we explicitly are not building (MVP)
 - [Roadmap](roadmap.md) — milestones M1–M8 with status
 - [Acceptance](acceptance.md) — end-to-end smoke test post-M6

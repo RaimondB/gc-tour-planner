@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { WalkingEdge } from "../walking-graph.js";
-import type { ClusteringContext, ClusteringStrategy, RawCluster } from "./strategy.js";
+import type {
+  ClusteringContext,
+  ClusteringStrategy,
+  RawCluster,
+} from "./strategy.js";
 
 /**
  * Density-aware clustering inspired by HDBSCAN's robust-single-linkage core.

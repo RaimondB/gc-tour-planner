@@ -92,7 +92,11 @@ describe("gpx_uploads raw-storage columns (migration 1779650000000)", () => {
 
     expect(cols.rows).toEqual([
       { column_name: "raw_sha256", data_type: "text", is_nullable: "YES" },
-      { column_name: "raw_size_bytes", data_type: "bigint", is_nullable: "YES" },
+      {
+        column_name: "raw_size_bytes",
+        data_type: "bigint",
+        is_nullable: "YES",
+      },
     ]);
   });
 });

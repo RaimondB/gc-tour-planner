@@ -52,8 +52,7 @@ function AdminBody(): JSX.Element {
       ) : (
         <>
           <p className="muted">
-            OSRM extract:{" "}
-            <code>{summaryQuery.data.osrmVersion}</code>
+            OSRM extract: <code>{summaryQuery.data.osrmVersion}</code>
           </p>
           <KindTile kind="walking" counts={summaryQuery.data.walking} />
           {/* Landuse precompute moved off per-cache tracking in ADR-0009.
@@ -150,13 +149,7 @@ function KindTile({ kind, counts }: KindTileProps): JSX.Element {
   );
 }
 
-function Pair({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}): JSX.Element {
+function Pair({ label, value }: { label: string; value: number }): JSX.Element {
   return (
     <>
       <dt>{label}</dt>
