@@ -41,4 +41,23 @@ describe("PlanInput", () => {
       }),
     ).toThrow();
   });
+
+  // Regression for the zod 4 bump (cluster 4): our seed landuseProfileIds are
+  // all-same-digit placeholders (e.g. 33333333-…) whose RFC 9562 version +
+  // variant nibbles are invalid. zod 4's z.uuid() rejects those; we use the
+  // loose z.guid() (= zod 3's old z.string().uuid()) so they keep validating.
+  it("accepts a non-RFC-variant (seed) landuseProfileId", () => {
+    const parsed = PlanInput.parse({
+      center: [5.12, 52.09],
+      radiusM: 5000,
+      hardFilters: {},
+      softPreferences: {
+        landuseProfileId: "33333333-3333-3333-3333-333333333333",
+      },
+    });
+
+    expect(parsed.softPreferences.landuseProfileId).toBe(
+      "33333333-3333-3333-3333-333333333333",
+    );
+  });
 });

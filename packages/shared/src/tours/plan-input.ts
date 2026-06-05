@@ -17,7 +17,7 @@ export const TargetedWeight = z.object({
 export type TargetedWeight = z.infer<typeof TargetedWeight>;
 
 export const SoftPreferences = z.object({
-  landuseProfileId: z.uuid().optional(),
+  landuseProfileId: z.guid().optional(),
   attributePreferences: z.record(z.string(), z.number()).optional(),
   difficultyTarget: TargetedWeight.optional(),
   terrainTarget: TargetedWeight.optional(),

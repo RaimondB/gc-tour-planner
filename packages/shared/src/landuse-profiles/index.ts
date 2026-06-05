@@ -17,8 +17,12 @@ import { LanduseKind } from "../landuse/index.js";
  * existing clients.
  */
 export const LanduseProfile = z.object({
-  id: z.uuid(),
-  ownerId: z.uuid().nullable(),
+  // z.guid(), not z.uuid(): zod 4's z.uuid() validates the RFC 9562 version +
+  // variant nibbles, which rejects our all-same-digit seed IDs (e.g.
+  // 33333333-…). z.guid() is the loose validator that matches zod 3's old
+  // z.string().uuid() semantics. Same applies to landuseProfileId in plan-input.
+  id: z.guid(),
+  ownerId: z.guid().nullable(),
   name: z.string().min(1).max(120),
   description: z.string().max(500).nullable(),
   /** Canonical kinds the profile rewards. Must be a subset of LANDUSE_KINDS. */
