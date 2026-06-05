@@ -1,6 +1,6 @@
 # ADR-0018 — Migrate to zod 4 (the shared wire contract)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-05
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0016](0016-staged-dependency-upgrades.md) (the staged strategy this is cluster 4 of), [ADR-0017](0017-nestjs-11-express-5-migration.md) (cluster 3 — set the `zod` ≥ 3.25 floor), [ADR-0001](0001-stack-choices.md)
@@ -64,6 +64,20 @@ and `@gctp/web`, as a single cluster PR. `nestjs-zod` stays 5.4.0.** Treat the
 deprecation cleanups (string-format methods, `flattenError`) as **optional, in-scope-if-cheap**
 — the gate is a green monorepo, not a deprecation-warning count. Defer the frontend
 majors (React 19 / maplibre 5 / Vite / Vitest) to cluster 5; they are unrelated churn.
+
+### As shipped
+
+The bump itself needed **zero** code changes — monorepo `typecheck`, lint, and all
+unit tests passed on zod 4 untouched, confirming the audit's "few or no hard breaks".
+The cheap deprecation cleanups applied (all in `packages/shared`, where direct `z.*`
+use is already the norm): `z.string().datetime({ offset: true })` → `z.iso.datetime(…)`
+(2 sites) and `z.string().uuid()` → `z.uuid()` (4 sites). The audit's `.email()`/`.url()`
+counts were stale — neither method appears in the current source. The 13
+`parsed.error.flatten()` controller sites were **left as-is**: they are wire-stable and
+only type-level-deprecated, and modernizing them would have introduced a direct `zod`
+import into 5 controllers that today reach zod only through `@gctp/shared` — not worth
+trading that clean import surface for a cosmetic deprecation. They can move to
+`z.flattenError()` whenever the api otherwise gains a direct zod dependency.
 
 ## Validation (gating)
 

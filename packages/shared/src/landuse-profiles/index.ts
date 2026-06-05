@@ -17,8 +17,8 @@ import { LanduseKind } from "../landuse/index.js";
  * existing clients.
  */
 export const LanduseProfile = z.object({
-  id: z.string().uuid(),
-  ownerId: z.string().uuid().nullable(),
+  id: z.uuid(),
+  ownerId: z.uuid().nullable(),
   name: z.string().min(1).max(120),
   description: z.string().max(500).nullable(),
   /** Canonical kinds the profile rewards. Must be a subset of LANDUSE_KINDS. */
