@@ -71,8 +71,22 @@ The bump itself needed **zero** code changes — monorepo `typecheck`, lint, and
 unit tests passed on zod 4 untouched, confirming the audit's "few or no hard breaks".
 The cheap deprecation cleanups applied (all in `packages/shared`, where direct `z.*`
 use is already the norm): `z.string().datetime({ offset: true })` → `z.iso.datetime(…)`
-(2 sites) and `z.string().uuid()` → `z.uuid()` (4 sites). The audit's `.email()`/`.url()`
-counts were stale — neither method appears in the current source. The 13
+(2 sites) and — initially — `z.string().uuid()` → `z.uuid()` (3 sites). The audit's
+`.email()`/`.url()` counts were stale — neither method appears in the current source.
+
+> **Correction (post-merge hotfix):** the `z.string().uuid()` → `z.uuid()` swap was
+> wrong. zod 4 split the loose zod-3 validator into strict `z.uuid()` (which enforces
+> the RFC 9562 version + variant nibbles) and loose `z.guid()`. Our seed
+> `landuse_profiles` rows use all-same-digit placeholder IDs (`33333333-…`) whose
+> nibbles are not RFC-valid, so `z.uuid()` rejected them — `POST /tours/clusters` with a
+> selected landuse profile started returning `400 {"fieldErrors":{"softPreferences":["Invalid UUID"]}}`.
+> The 3 sites (`LanduseProfile.id`, `.ownerId`, `PlanInput.softPreferences.landuseProfileId`)
+> were moved to **`z.guid()`**, which matches the old zod-3 `.uuid()` semantics exactly,
+> restoring the wire contract. Lesson: `z.string().uuid()` migrates to `z.guid()`, not
+> `z.uuid()`, unless every value is a strict RFC UUID. Covered by a regression test in
+> `packages/shared/src/tours/plan-input.test.ts`.
+
+The 13
 `parsed.error.flatten()` controller sites were **left as-is**: they are wire-stable and
 only type-level-deprecated, and modernizing them would have introduced a direct `zod`
 import into 5 controllers that today reach zod only through `@gctp/shared` — not worth
