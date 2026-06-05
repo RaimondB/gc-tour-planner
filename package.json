@@ -36,7 +36,6 @@
   "pnpm": {
     "overrides": {
       "undici": "6.24.0",
-      "path-to-regexp": "0.1.13",
       "picomatch": "4.0.4",
       "glob": "10.5.0",
       "tar-fs": "2.1.4",

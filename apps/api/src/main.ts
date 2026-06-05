@@ -3,7 +3,7 @@
 
 import "reflect-metadata";
 import { createBullBoard } from "@bull-board/api";
-import { BullMQAdapter } from "@bull-board/api/bullMQAdapter.js";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { getQueueToken } from "@nestjs/bullmq";
 import { NestFactory } from "@nestjs/core";

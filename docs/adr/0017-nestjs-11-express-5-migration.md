@@ -1,6 +1,6 @@
 # ADR-0017 — Migrate to NestJS 11 + Express 5 (+ multer 2, bullmq/@bull-board)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-05
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0016](0016-staged-dependency-upgrades.md) (the staged strategy this is cluster 3 of), [ADR-0001](0001-stack-choices.md), [ADR-0014](0014-planner-compute-worker-pool.md)
@@ -52,7 +52,7 @@ churn. The audit focuses on raw-Express touchpoints.
 
 **Express 5 (via path-to-regexp 8 + API removals):**
 
-- Route patterns: named wildcards required (`*` → `*splat`), optional-param and inline-regex syntax changed. Audit any string route patterns — chiefly the **`@bull-board/express` mount** and the global API prefix in `apps/api/src/main.ts`.
+- Route patterns: named wildcards required (`*` → `*splat`), optional-param and inline-regex syntax changed. Audit any string route patterns — chiefly the **`@bull-board/express` mount** and the global API prefix in `apps/api/src/main.ts`. _Implemented:_ the one affected pattern was the dev-user middleware `forRoutes("*")` in `apps/api/src/auth/auth.module.ts` → `forRoutes("{*splat}")`. The bull-board mount uses a plain prefix (`/admin/queues`) and needed no change.
 - `req.query` is now a read-only getter — fail the build on any code that mutates it.
 - Removed legacy signatures: `res.json(body, status)` / `res.send(status)`, `app.del()`, `req.param()`. Grep and fix.
 - Rejected promises in middleware now forward to the error handler (an improvement; check no handler relied on the old swallow behaviour).
@@ -61,7 +61,20 @@ churn. The audit focuses on raw-Express touchpoints.
 
 **NestJS 11:** lifecycle-hook ordering tweaks (`onModuleInit`/`onApplicationBootstrap`), reflect-metadata, and logger changes. The piscina worker pool ([ADR-0014](0014-planner-compute-worker-pool.md)) and BullMQ wiring need a smoke pass.
 
+**`@bull-board` 7 export map:** v7 only exposes the adapter at the extensionless subpath `@bull-board/api/bullMQAdapter` (the old `@bull-board/api/bullMQAdapter.js` is no longer in `exports`). Updated the import in `apps/api/src/main.ts`.
+
 **Peer-dep noise:** `@nestjs/swagger` 11 lists `@fastify/static`, `class-validator`, `class-transformer` as peers — optional for our platform-express + nestjs-zod setup; expect install warnings, not errors.
+
+## Validation outcome (2026-06-05)
+
+Executed on a feature branch and validated against the isolated dev stack (never the live UAT compose project):
+
+- `pnpm audit --prod`: **no known vulnerabilities** — all advisories in the table above cleared, including the `uuid` path (`bullmq` 5.78 no longer drags the vulnerable `uuid@9` reachable code).
+- Typecheck, lint, unit (96), and the **Testcontainers integration suite (10 files / 42 tests)** all green.
+- `pnpm licenses:check`: pass — Express 5 / multer 2 / @bull-board 7 re-resolve introduced no SSPL/BUSL/etc. transitive.
+- Playwright **upload smoke** (`apps/web/e2e/gpx-upload.smoke.spec.ts`, new): GPX upload → 3 caches ingested → Plan tab unlocks, exercising the multer 2 path end-to-end.
+- Manual smoke: bull-board `/admin/queues` (UI + JSON API) and Swagger `/docs/api` both serve on Express 5; the upload's `walking-precompute` jobs completed (BullMQ + Valkey healthy).
+- `path-to-regexp` `0.1.13` override removed; whole tree now resolves to `path-to-regexp` 8.4.2.
 
 ## Validation (gating)
 
