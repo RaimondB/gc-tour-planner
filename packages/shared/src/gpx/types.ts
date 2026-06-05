@@ -74,7 +74,7 @@ export const UploadStats = z.object({
    */
   stale: z.number().int().nonnegative(),
   /** PQ generation timestamp from `<gpx><time>`; null if absent. */
-  exportedAt: z.string().datetime({ offset: true }).nullable(),
+  exportedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type UploadStats = z.infer<typeof UploadStats>;
 
@@ -88,7 +88,7 @@ export const ParsedGpx = z.object({
    * (rare; tolerable — staleness guard treats null as "always allow").
    * The upsert path copies this onto each cache's `source_exported_at`.
    */
-  exportedAt: z.string().datetime({ offset: true }).nullable(),
+  exportedAt: z.iso.datetime({ offset: true }).nullable(),
   /**
    * True when the source is a Groundspeak "My Finds" Pocket Query —
    * detected from the top-level `<gpx><name>My Finds Pocket Query</name>`

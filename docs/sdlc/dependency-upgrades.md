@@ -12,14 +12,14 @@ Instead, upgrades land as **clusters**, each its own branch/PR, green before the
 
 Roughly lowest-risk → highest-blast-radius. Current state:
 
-| #   | Cluster                                                                                           | Status                                                                                                                                |
-| --- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Runtime security pass** — low-churn overrides + within-major patch bumps for live advisories    | ✅ merged (#11, #12)                                                                                                                  |
-| 2   | **Leaf bumps** — packages with no breaking peer coupling (fast-xml-parser, kysely, pino, tooling) | ✅ merged (#13)                                                                                                                       |
-| 3   | **NestJS 11 + Express 5 + multer 2 + bullmq/@bull-board**                                         | ✅ merged (#17) — [ADR-0017](../adr/0017-nestjs-11-express-5-migration.md) (Accepted); cleared all runtime advisories, UAT redeployed |
-| 4   | **zod 4 (nestjs-zod stays 5)** — the shared wire contract                                         | ⬜ planned — [ADR-0018](../adr/0018-zod-4-shared-wire-contract.md) (Proposed)                                                         |
-| 5   | **Frontend** — React 19 + maplibre-gl 5 + Vite (step 5→6→7→8) + Vitest 4                          | ⬜ planned                                                                                                                            |
-| 6   | **TypeScript 6**                                                                                  | ⬜ planned (or hold)                                                                                                                  |
+| #   | Cluster                                                                                           | Status                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Runtime security pass** — low-churn overrides + within-major patch bumps for live advisories    | ✅ merged (#11, #12)                                                                                                                                               |
+| 2   | **Leaf bumps** — packages with no breaking peer coupling (fast-xml-parser, kysely, pino, tooling) | ✅ merged (#13)                                                                                                                                                    |
+| 3   | **NestJS 11 + Express 5 + multer 2 + bullmq/@bull-board**                                         | ✅ merged (#17) — [ADR-0017](../adr/0017-nestjs-11-express-5-migration.md) (Accepted); cleared all runtime advisories, UAT redeployed                              |
+| 4   | **zod 4 (nestjs-zod stays 5)** — the shared wire contract                                         | ✅ merged (#19) — [ADR-0018](../adr/0018-zod-4-shared-wire-contract.md) (Accepted); currency-only (no advisory), bump + 6-line deprecation cleanup, UAT redeployed |
+| 5   | **Frontend** — React 19 + maplibre-gl 5 + Vite (step 5→6→7→8) + Vitest 4                          | ⬜ planned                                                                                                                                                         |
+| 6   | **TypeScript 6**                                                                                  | ⬜ planned (or hold)                                                                                                                                               |
 
 A bump's cluster is decided by its **coupling**, not its name. Example: `bullmq` looks like a leaf, but 5.78 widens `JobProgress` to include `string` (breaking `@bull-board/api` 6.5), and every newer `@bull-board` peer-requires `express ^5.2.1` — so `bullmq` belongs in cluster 3, not 2.
 
