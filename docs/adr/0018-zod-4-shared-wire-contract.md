@@ -52,7 +52,7 @@ zod-4-compatible side of most breaking changes:
   `z.iso.datetime()`. They still validate; modernizing is optional cleanup.
 - **`ZodError.flatten()` → `z.flattenError(err)`** (and `.format()` → `z.treeifyError`).
   Deprecated, still works. Optional cleanup at the 13 controller sites.
-- **`.default()` inference**: zod 4 makes the *input* of a defaulted field optional
+- **`.default()` inference**: zod 4 makes the _input_ of a defaulted field optional
   (output stays required). Mostly transparent; watch for any place that destructured
   the input type of a schema with defaults.
 - `z.coerce.date()` (1 site, landuse-profiles) is unchanged in zod 4.
