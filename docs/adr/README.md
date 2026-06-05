@@ -25,3 +25,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0013](0013-walkable-cycleways-in-foot-profile.md)            | Walkable cycleways in the OSRM foot profile                  | Accepted                                      |
 | [0014](0014-planner-compute-worker-pool.md)                   | Planner CPU work on a worker-thread pool (piscina)           | Accepted                                      |
 | [0015](0015-isolated-network-dedicated-cloudflare-tunnel.md)  | gctp on an isolated network behind its own Cloudflare Tunnel | Accepted                                      |
+| [0016](0016-staged-dependency-upgrades.md)                    | Staged dependency upgrades (clusters, not big-bang)          | Accepted                                      |
+| [0017](0017-nestjs-11-express-5-migration.md)                 | Migrate to NestJS 11 + Express 5 (+ multer 2)                | Proposed                                      |

@@ -7,6 +7,7 @@ How we develop, test, ship, and document changes in gc-tour-planner. Read these 
 - [Branching + PRs](branching-and-prs.md) — branch naming, PR title style, merge policy
 - [Testing](testing.md) — unit / Testcontainers integration / Playwright E2E layers, where new tests go
 - [Migrations](migrations.md) — node-pg-migrate, one change per file, Kysely regen
+- [Dependency upgrades](dependency-upgrades.md) — staged-cluster strategy, advisory triage, the license gate
 - [Release + deploy](release-and-deploy.md) — current UAT topology, prod expectations
 - [Docs policy](docs-policy.md) — the sync rule, requirement-ID allocation, ADR placement
 
