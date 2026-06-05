@@ -6,8 +6,6 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Landuse } from "@gctp/shared";
 import { sql } from "kysely";
-import { GpxRepository } from "../../src/gpx/gpx.repository.js";
-import { GpxService } from "../../src/gpx/gpx.service.js";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
 import { CachesService } from "../../src/caches/caches.service.js";
 import { LanduseRepository } from "../../src/osm/landuse.repository.js";
@@ -17,6 +15,7 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
+import { makeGpxService } from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -77,7 +76,7 @@ describe("OSM landuse integration (PostGIS via Testcontainers)", () => {
 
     osmService = new OsmService(new LanduseRepository(pg.db));
     cachesService = new CachesService(new CachesRepository(pg.db));
-    gpxService = new GpxService(new GpxRepository(pg.db));
+    gpxService = makeGpxService(pg.db);
 
     // Seed caches so the contexts filter has something to test against.
     const xml = readFileSync(fixturePath, "utf8");

@@ -8,6 +8,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # On-demand: lets the (otherwise main-only) integration job run against any
+  # branch — e.g. before cutting a UAT version from a feature branch.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -55,3 +58,25 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm licenses:check
+
+  # Testcontainers integration suite (real PostGIS). Heavier + Docker-bound, so
+  # it is NOT a per-PR gate: it runs on merges to main (the pre-UAT point) and
+  # on manual dispatch. Keep it out of branch-protection's required checks so it
+  # stays optional; treat a red run here as "don't promote to UAT yet".
+  integration:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      # Testcontainers talks to the runner's Docker daemon (preinstalled on
+      # ubuntu-latest) and boots its own PostGIS per spec file.
+      - run: pnpm --filter @gctp/api test:integration

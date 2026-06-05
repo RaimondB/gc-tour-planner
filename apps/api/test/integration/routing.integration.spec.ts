@@ -4,8 +4,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { GpxRepository } from "../../src/gpx/gpx.repository.js";
-import { GpxService } from "../../src/gpx/gpx.service.js";
 import {
   type OsrmClient,
   type OsrmLeg,
@@ -18,6 +16,7 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
+import { makeGpxService, makeOsrmVersion } from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -99,12 +98,16 @@ describe("M4-α routing integration (PostGIS via Testcontainers)", () => {
       .executeTakeFirstOrThrow();
     ownerId = user.id;
 
-    const gpxService = new GpxService(new GpxRepository(pg.db));
+    const gpxService = makeGpxService(pg.db);
     const xml = readFileSync(fixturePath, "utf8");
     await gpxService.ingest(ownerId, "sample-pq.gpx", xml);
 
     osrm = new FakeOsrmClient();
-    routing = new RoutingService(new RoutingRepository(pg.db), osrm);
+    routing = new RoutingService(
+      new RoutingRepository(pg.db),
+      osrm,
+      makeOsrmVersion(),
+    );
 
     const rows = await pg.db
       .selectFrom("caches")
