@@ -77,6 +77,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile=false
+      # The integration specs import built workspace packages (@gctp/db,
+      # @gctp/shared subpaths), so those must be compiled before vitest resolves
+      # them — otherwise: "Failed to resolve entry for package @gctp/db". (api
+      # itself runs from TS source via vitest, so only its deps need building.)
+      - run: pnpm --filter @gctp/db --filter @gctp/shared build
       # Testcontainers talks to the runner's Docker daemon (preinstalled on
       # ubuntu-latest) and boots its own PostGIS per spec file.
       - run: pnpm --filter @gctp/api test:integration
