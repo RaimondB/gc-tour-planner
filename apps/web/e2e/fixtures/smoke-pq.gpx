@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/0"
+     xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+  <name>GCTP Smoke PQ</name>
+  <time>2026-05-24T08:05:56Z</time>
+  <!-- Coordinates sit inside the app's DEFAULT_SEARCH circle (Utrecht
+       center [5.1214, 52.0907], 5 km radius) so the /caches query returns
+       them without the test having to pan the map. -->
+  <wpt lat="52.0907" lon="5.1214">
+    <name>GCSMK01</name>
+    <groundspeak:cache id="1" available="True" archived="False">
+      <groundspeak:name>Smoke Cache One</groundspeak:name>
+      <groundspeak:type>Traditional Cache</groundspeak:type>
+    </groundspeak:cache>
+  </wpt>
+  <wpt lat="52.0930" lon="5.1250">
+    <name>GCSMK02</name>
+    <groundspeak:cache id="2" available="True" archived="False">
+      <groundspeak:name>Smoke Cache Two</groundspeak:name>
+      <groundspeak:type>Traditional Cache</groundspeak:type>
+    </groundspeak:cache>
+  </wpt>
+  <wpt lat="52.0885" lon="5.1180">
+    <name>GCSMK03</name>
+    <groundspeak:cache id="3" available="True" archived="False">
+      <groundspeak:name>Smoke Cache Three</groundspeak:name>
+      <groundspeak:type>Traditional Cache</groundspeak:type>
+    </groundspeak:cache>
+  </wpt>
+</gpx>

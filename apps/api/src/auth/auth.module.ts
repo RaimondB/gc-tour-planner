@@ -28,6 +28,8 @@ export class AuthModule implements NestModule {
         "DevUserMiddleware must not run in production. Replace AuthModule with the JWT auth module in M6.",
       );
     }
-    consumer.apply(DevUserMiddleware).forRoutes("*");
+    // Express 5 / path-to-regexp 8 require named wildcards — bare "*" no
+    // longer parses. "{*splat}" matches every path including root (ADR-0017).
+    consumer.apply(DevUserMiddleware).forRoutes("{*splat}");
   }
 }
