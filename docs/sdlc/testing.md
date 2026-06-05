@@ -17,8 +17,10 @@ Tests for pure code must not import anything that touches the network, the files
 For anything that touches SQL, PostGIS spatial fragments, or the routing/route_legs cache.
 
 - Location: `apps/api/test/integration/`.
-- Setup: a PostGIS Testcontainer spun up per test file; migrations run on boot.
-- **Never mock the database.** Mocked DB tests passed at a previous project while the prod migration was broken — the no-mock rule is a hard rule (see CLAUDE.md). The same applies to the OSRM and Overpass clients in integration scope: use a fake HTTP server with canned responses if you need determinism, but the SQL must hit a real Postgres.
+- Setup: a PostGIS Testcontainer spun up per test file; migrations run on boot. Shared service wiring (real collaborators against the container DB + faithful fakes for the queue / compute pool / OSRM) lives in `integration-helpers.ts`.
+- Run: `pnpm --filter @gctp/api test:integration` (needs Docker).
+- **CI:** runs in the `integration` job — on merges to `main` (the pre-UAT point) and on manual `workflow_dispatch`, **not** on every PR (it's Docker-bound and slower). It is intentionally **not** a branch-protection required check; a red run means "don't promote to UAT yet". So it can drift if only unit CI is watched — run it before cutting a UAT version.
+- **Never mock the database.** Mocked DB tests passed at a previous project while the prod migration was broken — the no-mock rule is a hard rule (see CLAUDE.md). The same applies to the OSRM and Overpass clients in integration scope: use a fake (e.g. the in-process `FakeOsrmClient`) if you need determinism, but the SQL must hit a real Postgres.
 
 ## E2E tests — Playwright
 

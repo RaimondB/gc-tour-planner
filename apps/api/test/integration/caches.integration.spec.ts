@@ -4,8 +4,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { GpxService } from "../../src/gpx/gpx.service.js";
-import { GpxRepository } from "../../src/gpx/gpx.repository.js";
 import { CachesService } from "../../src/caches/caches.service.js";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
 import {
@@ -13,6 +11,7 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
+import { makeGpxService } from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -37,8 +36,7 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
       .executeTakeFirstOrThrow();
     ownerId = user.id;
 
-    const gpxRepo = new GpxRepository(pg.db);
-    gpxService = new GpxService(gpxRepo);
+    gpxService = makeGpxService(pg.db);
 
     const cacheRepo = new CachesRepository(pg.db);
     cachesService = new CachesService(cacheRepo);

@@ -5,6 +5,7 @@ import type { Tours } from "@gctp/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
 import { CachesService } from "../../src/caches/caches.service.js";
+import { CacheLanduseRepository } from "../../src/caches/cache-landuse.repository.js";
 import {
   type OsrmClient,
   type OsrmLeg,
@@ -13,11 +14,15 @@ import {
 import { RoutingRepository } from "../../src/routing/routing.repository.js";
 import { RoutingService } from "../../src/routing/routing.service.js";
 import { GreedyTspPlanner } from "../../src/tours/strategies/greedy/greedy-tsp-planner.js";
+import { ParkingFacilitiesRepository } from "../../src/osm/parking-facilities.repository.js";
+import { CarRoadsRepository } from "../../src/osm/car-roads.repository.js";
+import { LanduseProfilesRepository } from "../../src/landuse-profiles/landuse-profiles.repository.js";
 import {
   type PostgresFixture,
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
+import { fakeComputePool, makeOsrmVersion } from "./integration-helpers.js";
 
 class FakeOsrmClient implements OsrmClient {
   routeCalls = 0;
@@ -50,6 +55,37 @@ class FakeOsrmClient implements OsrmClient {
             },
       ),
     );
+  }
+
+  // The loop-aware leg picker (Pass 2) asks for alternatives; the fake offers
+  // exactly the primary straight-line leg — enough for the planner to pick.
+  async routeAlternatives(
+    from: [number, number],
+    to: [number, number],
+  ): Promise<OsrmLeg[]> {
+    const leg = await this.route(from, to);
+    return leg ? [leg] : [];
+  }
+
+  // Stitch the via-coords into one polyline; meters = sum of straight legs.
+  async routeMulti(
+    coords: readonly [number, number][],
+  ): Promise<OsrmLeg | null> {
+    if (coords.length < 2) return null;
+    let meters = 0;
+    for (let i = 1; i < coords.length; i += 1) {
+      meters += haversine(coords[i - 1]!, coords[i]!) * 1.3;
+    }
+    return {
+      meters,
+      seconds: meters / 1.4,
+      geometry: { type: "LineString", coordinates: [...coords] },
+    };
+  }
+
+  // No road graph in the fake — snapping is a no-op (point is already routable).
+  async nearest(point: [number, number]): Promise<[number, number] | null> {
+    return point;
   }
 }
 
@@ -126,8 +162,8 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       .executeTakeFirstOrThrow();
     ownerId = user.id;
 
-    // Tight 6-cache cluster around (5.12, 52.09); spacing ~150-300m so
-    // DBSCAN with default ε (8000/15/2 = 267m, clamped 50..800) groups them.
+    // Tight 6-cache cluster around (5.12, 52.09); spacing ~150-300m so the
+    // clusterer groups them (spacing chosen for the legacy DBSCAN ε ~267m).
     center = [5.12, 52.09];
     const offsets: [number, number][] = [
       [0.0, 0.0],
@@ -155,14 +191,29 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       clusterCacheIds.push(id);
     }
 
-    // A lone cache far away — should NOT be picked up by DBSCAN as part of
+    // A lone cache far away — should NOT be picked up by the clusterer as part of
     // the cluster (would be noise).
     await insertCache(pg, ownerId, "GCM5LONE", 5.3, 52.2);
 
-    const cachesService = new CachesService(new CachesRepository(pg.db));
+    const cachesRepo = new CachesRepository(pg.db);
+    const cachesService = new CachesService(cachesRepo);
+    const routingRepo = new RoutingRepository(pg.db);
+    const osrmVersion = makeOsrmVersion();
     osrm = new FakeOsrmClient();
-    const routing = new RoutingService(new RoutingRepository(pg.db), osrm);
-    planner = new GreedyTspPlanner(cachesService, routing, osrm);
+    const routing = new RoutingService(routingRepo, osrm, osrmVersion);
+    planner = new GreedyTspPlanner(
+      cachesService,
+      cachesRepo,
+      new CacheLanduseRepository(pg.db),
+      routing,
+      routingRepo,
+      osrm,
+      osrmVersion,
+      new ParkingFacilitiesRepository(pg.db),
+      new CarRoadsRepository(pg.db),
+      new LanduseProfilesRepository(pg.db),
+      fakeComputePool(),
+    );
   });
 
   afterAll(async () => {
@@ -208,8 +259,9 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     expect(top.scoreBreakdown.parkingPresence).toBe(1);
     expect(top.mstLengthMeters).toBeGreaterThan(0);
     // Diagnostics block carries the pre-trim components + per-cache nearest
-    // walkable distance for the debug export.
-    expect(diagnostics.epsilonMeters).toBeGreaterThan(0);
+    // walkable distance for the debug export. `epsilonMeters` is a legacy
+    // DBSCAN-era field; the default strategy is now louvain, which reports 0.
+    expect(diagnostics.epsilonMeters).toBeGreaterThanOrEqual(0);
     // The lone "far" cache is outside the 10km search radius and never
     // enters the pool — diagnostics only covers what was queried.
     expect(diagnostics.poolSize).toBe(clusterCacheIds.length);
@@ -233,6 +285,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       cacheIds: clusterCacheIds,
       distanceBudgetMeters: 8_000,
       timePerCacheMinutes: 5,
+      toolBonusMinutes: 5,
       startPreference: "parking-waypoint",
     });
     expect(result.orderedCacheIds).toHaveLength(clusterCacheIds.length);
@@ -257,6 +310,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       cacheIds: clusterCacheIds,
       distanceBudgetMeters: 8_000,
       timePerCacheMinutes: 5,
+      toolBonusMinutes: 5,
       startPreference: "user-supplied-point",
       userSuppliedStart: start,
     });
@@ -276,6 +330,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
         cacheIds: clusterCacheIds,
         distanceBudgetMeters: 8_000,
         timePerCacheMinutes: 5,
+        toolBonusMinutes: 5,
         startPreference: "parking-waypoint",
       }),
     ).rejects.toThrow(/not found/i);
