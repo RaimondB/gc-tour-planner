@@ -1,35 +1,46 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  Module,
-  type MiddlewareConsumer,
-  type NestModule,
-} from "@nestjs/common";
+import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { DatabaseModule } from "../database/database.module.js";
-import { DevUserMiddleware } from "./dev-user.middleware.js";
+import { authConfigProvider, AUTH_CONFIG } from "./auth.config.js";
+import { AuthController } from "./auth.controller.js";
+import { AuthService } from "./auth.service.js";
+import { DevUserService } from "./dev-user.service.js";
+import { GoogleOAuthService } from "./google-oauth.service.js";
+import { JwtAuthGuard } from "./jwt-auth.guard.js";
+import { LoginLimiterService } from "./login-limiter.service.js";
+import { PasswordService } from "./password.service.js";
+import { SessionService } from "./session.service.js";
+import { UsersRepository } from "./users.repository.js";
 
 import "./auth.types.js"; // side-effect: augments Express.Request.
 
 /**
- * Until M6, this module wires the dev-user middleware globally. The real
- * authentication module (JWT cookie + Passport) replaces it without changing
- * the CurrentUser decorator contract.
+ * Real authentication (M6-α, ADR-0021). Replaces the dev-user middleware with a
+ * global {@link JwtAuthGuard} (registered via APP_GUARD) backed by Valkey
+ * sessions. Everything is authenticated by default; only `@Public()` routes are
+ * exempt. The `@CurrentUser()` / `AuthUser` contract is unchanged — every
+ * owner-scoped repository keeps working without signature changes.
+ *
+ * The Valkey client (ValkeyModule) and the throttler (ThrottlerModule) are
+ * wired globally in AppModule.
  */
 @Module({
   imports: [DatabaseModule],
-  providers: [DevUserMiddleware],
-  exports: [DevUserMiddleware],
+  controllers: [AuthController],
+  providers: [
+    authConfigProvider,
+    PasswordService,
+    SessionService,
+    LoginLimiterService,
+    UsersRepository,
+    DevUserService,
+    GoogleOAuthService,
+    AuthService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
+  exports: [AUTH_CONFIG, SessionService],
 })
-export class AuthModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "DevUserMiddleware must not run in production. Replace AuthModule with the JWT auth module in M6.",
-      );
-    }
-    // Express 5 / path-to-regexp 8 require named wildcards — bare "*" no
-    // longer parses. "{*splat}" matches every path including root (ADR-0017).
-    consumer.apply(DevUserMiddleware).forRoutes("{*splat}");
-  }
-}
+export class AuthModule {}

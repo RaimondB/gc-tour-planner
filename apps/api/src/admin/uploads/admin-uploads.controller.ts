@@ -14,8 +14,8 @@ import { GpxService, type GpxUploadResult } from "../../gpx/gpx.service.js";
  * lands, reprocessing yesterday's PQs back-fills the column without
  * asking the user to re-upload.
  *
- * Gated by the existing dev-user middleware today; will need a real
- * admin role check when M6 auth lands. Per-owner: the service rejects
+ * Gated by the global auth guard (M6-α): admin = any authenticated user for
+ * now (FR-P12); `users.is_admin` is the future role hook. Per-owner: the service rejects
  * cross-tenant ids with a 404 (indistinguishable from "doesn't exist"
  * to keep id probing useless).
  */

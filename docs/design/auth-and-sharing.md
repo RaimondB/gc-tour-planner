@@ -28,6 +28,8 @@ FR-P4 originally specified "JWT in httpOnly cookie". Valkey is already a load-be
 - On 401 the client attempts one silent refresh; failing that, it redirects to `/login` (FR-P7).
 - Session id is an opaque random token; the Valkey value holds the claims above. (`jose`/HS256 signing applies only to the refresh token and the OAuth `state`, signed with `AUTH_SESSION_SECRET`, env-only.)
 
+**M6-α implementation note.** The shipped backend uses the **single sliding-TTL Valkey session** variant: one opaque `sid` cookie whose Valkey key carries the claims + the bound CSRF token, with the TTL refreshed on every authenticated request (default 30 days, `AUTH_SESSION_TTL_SECONDS`). There is no separate stateless refresh token — the sliding session window subsumes it, and `jose` is therefore used **only** to sign/verify the OAuth `state`. Logout deletes the key (instant revocation). The 401→silent-refresh client behaviour (FR-P7) is satisfied because activity slides the window.
+
 ## 4. CSRF
 
 Double-submit cookie (stateless, fits the `SameSite=Lax` defense-in-depth posture): a non-httpOnly `csrf` cookie is read by the client and echoed in an `X-CSRF-Token` header; the server compares the two. Required on all state-changing methods (POST/PATCH/DELETE). Exempt: every `GET`, plus `GET /shared/:slug` and `GET /auth/me`. `SameSite=Lax` already blocks cross-site POST; the token is belt-and-suspenders (NFR-11).
@@ -44,7 +46,7 @@ Authorization-code flow, shipped in M6-α.
 - A signed `state` parameter protects the round-trip.
 - **Account linking by verified email:** if the Google profile's verified email matches an existing `users.email`, the sign-in links to that account; otherwise it creates an OAuth-only user (`password_hash IS NULL` — already supported by the schema).
 - **No Google access/refresh tokens are persisted** (NFR-10, and the "no third-party creds in DB" hard rule). We keep project identity only.
-- Library: prefer the lightweight `openid-client` + `jose` route over full `passport` to minimise surface; `passport-google-oauth20` (MIT) is the fallback. License-vet whichever lands and record it in [../LICENSING.md](../LICENSING.md).
+- Library: prefer the lightweight `openid-client` + `jose` route over full `passport` to minimise surface; `passport-google-oauth20` (MIT) is the fallback. License-vet whichever lands and record it in [../LICENSING.md](../LICENSING.md). **M6-α shipped with neither** — the flow is implemented directly with `jose` (sign/verify the `state`; verify Google's `id_token` against its JWKS) + native `fetch` for the token exchange, the most minimal GPLv3-compatible surface. No access/refresh tokens are stored.
 
 ## 7. Guard swap + public-endpoint inventory
 

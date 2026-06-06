@@ -10,6 +10,8 @@ import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import type { Queue } from "bullmq";
+import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { QUEUE_WALKING_PRECOMPUTE } from "./queues/queue.tokens.js";
 
@@ -20,6 +22,13 @@ async function bootstrap(): Promise<void> {
   // Fire OnModuleDestroy on SIGTERM/SIGINT so the ComputePool drains its
   // worker threads cleanly instead of being hard-killed mid-task (ADR-0014).
   app.enableShutdownHooks();
+
+  // Security headers (M6, ADR-0021). `crossOriginResourcePolicy` is relaxed so
+  // the API can be consumed from the web origin in split-origin deploys (CORS
+  // is configured separately below). cookie-parser populates `req.cookies`,
+  // which the auth guard reads for the session + CSRF tokens.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+  app.use(cookieParser());
 
   // CORS: opt-in via env. The dev setup proxies the API through Vite (same
   // origin), so CORS is unnecessary there. Production deploys that put the

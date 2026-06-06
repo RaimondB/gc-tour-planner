@@ -11,8 +11,8 @@ import { AdminLanduseService } from "./admin-landuse.service.js";
  * simplification). Read-only — refreshes are operator-driven via the
  * `scripts/refresh-osm-data.sh` host script, kept in lockstep with OSRM.
  *
- * Gated by the existing dev-user middleware today; a real admin role
- * check lands when M6 auth ships.
+ * Gated by the global auth guard (M6-α): admin = any authenticated user for
+ * now (FR-P12); a real role check (`users.is_admin`) is the future hook.
  */
 @ApiTags("admin")
 @Controller("admin/landuse")
