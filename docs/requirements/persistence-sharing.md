@@ -15,7 +15,7 @@ M6 ships in four sub-phases (see [roadmap.md](roadmap.md)): **M6-α** auth backe
   4. Deleting a shared tour revokes its share — the slug is gone, so `GET /shared/:slug` 404s.
 - **FR-P3 (read-only sharing link).**
   1. `POST /tours/:id/share` mints an opaque `share_slug` if absent and returns the shareable path. Idempotent: an already-shared tour returns its existing slug.
-  2. `GET /shared/:slug` is **public** (no auth, no CSRF) and returns map geometry, the ordered cache list, totals, and score breakdown from a **snapshot stored on the tour** — never the owner id/email/display name, and never the user's other tours. The shared view never reads owner-scoped cache tables (see [ADR-0022](../adr/0022-tour-sharing-link-security.md)).
+  2. `GET /shared/:slug` is **public** (no auth, no CSRF) and returns map geometry, the ordered cache list, and **totals only** (distance + time) from a **snapshot denormalised into the tour's `plan` column at save time** — never the score breakdown or other soft-preference internals, never the owner id/email/display name, and never the user's other tours. The shared view never reads owner-scoped cache tables (see [ADR-0022](../adr/0022-tour-sharing-link-security.md)).
   3. The anonymous view is strictly read-only: no save, edit, re-plan, or owner-scoped cache-detail calls.
   4. `DELETE /tours/:id/share` revokes (nulls the slug); the old URL immediately 404s. Re-sharing mints a **new** slug — old links stay dead.
 - **FR-P4 (authentication).**

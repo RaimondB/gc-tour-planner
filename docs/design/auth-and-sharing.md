@@ -74,14 +74,14 @@ There is **no** sessions table — sessions live in Valkey (ADR-0021). (The stat
 
 ## 10. Public read-only endpoint (`GET /shared/:slug`)
 
-Returns a `SharedTour` DTO assembled from the tour's stored snapshot:
+Returns a `SharedTour` DTO assembled **only** from the snapshot denormalised into the tour's `plan` JSONB at save time. Totals only — **no `scoreBreakdown`** and no other soft-preference internals (ADR-0022 #4):
 
 ```ts
 type SharedTour = {
   name: string;
   totalMeters: number;
   totalSeconds: number;
-  scoreBreakdown: ScoreBreakdown;
+  // no scoreBreakdown — stripped from the public payload (ADR-0022 #4)
   geom: GeoJsonLineString; // the routed polyline
   parking: GeoJsonPoint | null;
   caches: Array<{
@@ -95,7 +95,7 @@ type SharedTour = {
 };
 ```
 
-It exposes **no** owner id/email/display name, **no** other tours, and performs **no** owner-scoped cache reads — the cache list is denormalised into the tour at save time so the public view neither leaks the live caches table nor breaks when a cache is later deleted (ADR-0022).
+It exposes **no** owner id/email/display name, **no** other tours, **no** score breakdown, and performs **no** owner-scoped cache reads — the cache list is denormalised into the tour's `plan` JSONB at save time, so the public view neither leaks the live caches table nor breaks when a cache is later deleted (ADR-0022). The endpoint is not rate-limited: the ~80-bit slug is unguessable.
 
 ## 11. API surface additions
 

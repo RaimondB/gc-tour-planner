@@ -364,4 +364,4 @@ type SavedTourSummary = {
 };
 ```
 
-The public `SharedTour` DTO is specified in [auth-and-sharing.md §10](auth-and-sharing.md); it omits soft-preference internals and all owner identity.
+The public `SharedTour` DTO is specified in [auth-and-sharing.md §10](auth-and-sharing.md): totals only (distance + time), no `scoreBreakdown` or other soft-preference internals, and no owner identity.
