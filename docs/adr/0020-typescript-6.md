@@ -1,6 +1,6 @@
 # ADR-0020 — Migrate to TypeScript 6.0
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-06
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0016](0016-staged-dependency-upgrades.md) (the staged strategy this is cluster 6 of), [ADR-0017](0017-nestjs-11-express-5-migration.md), [ADR-0018](0018-zod-4-shared-wire-contract.md), [ADR-0019](0019-frontend-majors-react-vite-maplibre.md) (cluster 5), [ADR-0001](0001-stack-choices.md)
@@ -69,6 +69,35 @@ Try **straight 5.6.3 → 6.0.3** first. If `typecheck` throws a lot, step
 because the work is **typecheck-only, zero runtime**, so no per-step build or e2e is
 needed, just `pnpm typecheck`. Keep the five pins in lockstep at every step; a
 split TS version across the workspace is its own source of confusing errors.
+
+### As shipped
+
+Landed on `chore/deps-typescript` (PR #25, squash `27fa481`) as a **single
+two-file delta**: the five `typescript` pins 5.6.3 → 6.0.3 plus the lockfile.
+**Straight 5.6.3 → 6.0.3 worked first try** — no `5.7 → 5.8 → 5.9 → 6.0` stepping
+was needed.
+
+- **Zero code changes.** The audit held in full: TS 6.0's cumulative `lib.d.ts`
+  tightening surfaced **no new type errors** across the four typechecked packages —
+  the already-strict config (`noUncheckedIndexedAccess`, `noImplicitOverride`,
+  `useUnknownInCatchVariables`) plus `skipLibCheck` left nothing for 6.0 to catch.
+  `apps/api`, the largest surface, was clean.
+- **No peer cascade.** `typescript-eslint` (8.60.1) and `tsc-watch` (6.2.1) needed no
+  bump — lint and api dev are unaffected. The cluster stayed strictly typescript-only.
+- **Gates green:** `pnpm typecheck` (0 errors), `pnpm lint` (2 pre-existing
+  `exhaustive-deps` warnings, 0 errors), `pnpm test` (96 unit), the Testcontainers
+  integration suite (42 — the relevant gate for the re-emitted api JS), the vite-8 web
+  build, and `licenses:check` (TypeScript is Apache-2.0; the lone `UNLICENSED:1` is the
+  root pkg). e2e was not run as a gate, as decided above — the web bundle is
+  tsc-version-independent under oxc.
+- **UAT redeployed** from `main` (`docker compose -p gctp up --build -d`): migrate
+  exited 0, api booted clean on TS-6-emitted JS, and the edge smoke over the compose
+  network returned **200** for `/`, `/api/health`, and `/api/admin/queues`. The web
+  runtime was unchanged, as predicted.
+
+This closes **cluster 6 — the last** — of [ADR-0016](0016-staged-dependency-upgrades.md);
+the repo is now fully current. The next toolchain horizon is TypeScript 7 (the native
+"tsgo" compiler), to be evaluated when it stabilises.
 
 ## Breaking changes / blast radius
 
