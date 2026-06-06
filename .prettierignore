@@ -15,3 +15,8 @@ LICENSE
 
 # Local editor / agent config — not part of the formatted source surface
 .claude/
+
+# Markdown is prose (docs, ADRs) — Prettier's reflow/table-alignment fights the
+# authoring style and adds churn; we author Markdown by hand instead.
+*.md
+**/*.md
