@@ -29,3 +29,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0017](0017-nestjs-11-express-5-migration.md)                 | Migrate to NestJS 11 + Express 5 (+ multer 2)                 | Accepted                                      |
 | [0018](0018-zod-4-shared-wire-contract.md)                    | Migrate to zod 4 (the shared wire contract)                   | Accepted                                      |
 | [0019](0019-frontend-majors-react-vite-maplibre.md)           | Frontend majors: React 19 + Vite 8 + maplibre-gl 5 + Vitest 4 | Accepted                                      |
+| [0020](0020-typescript-6.md)                                  | Migrate to TypeScript 6.0                                     | Proposed                                      |
