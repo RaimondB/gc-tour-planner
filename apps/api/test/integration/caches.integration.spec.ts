@@ -94,7 +94,11 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
 
   it("re-uploading the same GPX updates rather than duplicates", async () => {
     const xml = readFileSync(fixturePath, "utf8");
-    const second = await gpxService.ingest(ownerId, "sample-pq.gpx", xml);
+    // `force` bypasses the FR-I12 byte-identical dedup so we still exercise
+    // the upsert path (dedup itself is covered in gpx-dedup.integration.spec).
+    const second = await gpxService.ingest(ownerId, "sample-pq.gpx", xml, {
+      force: true,
+    });
     expect(second.cachesUpserted).toBe(2);
 
     const all = await cachesService.list(ownerId, {
@@ -155,6 +159,7 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
 
     const findsIngest = await gpxService.ingest(ownerId, "my-finds.gpx", xml, {
       markAsFound: true,
+      force: true, // same bytes as earlier uploads — bypass FR-I12 dedup
     });
     expect(findsIngest.findsRecorded).toBe(2);
 
@@ -171,9 +176,12 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
     } as never);
     expect(excluded.caches).toEqual([]);
 
-    // Re-running the find import is idempotent — no new rows.
+    // Re-running the find import is idempotent — no new rows. `force`
+    // re-processes despite the FR-I12 dedup so we test finds idempotency,
+    // not the dedup skip.
     const second = await gpxService.ingest(ownerId, "my-finds.gpx", xml, {
       markAsFound: true,
+      force: true,
     });
     expect(second.findsRecorded).toBe(0);
   });

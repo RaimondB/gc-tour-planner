@@ -180,6 +180,10 @@ CREATE TABLE gpx_uploads (
   -- no raw file is stored (rows predating the feature, or storage
   -- failure path). When set, the gzipped XML lives at
   -- `{UPLOADS_DIR}/{id}.gpx.gz` — see docker volume `gctp-uploads`.
+  -- raw_sha256 (SHA-256 of the *uncompressed* XML) also backs the
+  -- FR-I12 upload dedup: a re-upload whose hash matches this owner's
+  -- newest status='parsed' row is skipped (no re-store/re-parse). No
+  -- dedicated index — gpx_uploads stays tiny (< 1k rows lifetime).
   raw_size_bytes BIGINT,
   raw_sha256     TEXT,
   -- FR-I10: top-level <gpx><time> of the PQ (when Groundspeak

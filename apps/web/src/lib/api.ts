@@ -177,11 +177,19 @@ export interface UploadGpxResult {
   };
   /** Auto-detected as a Groundspeak "My Finds" Pocket Query. */
   myFinds: boolean;
+  /**
+   * FR-I12 — true when this byte-identical file was already uploaded and
+   * processing was skipped (counts are all zero, `uploadId` points at the
+   * existing upload). Re-call with `force: true` to process it anyway.
+   */
+  duplicate: boolean;
 }
 
 export interface UploadGpxOptions {
   /** When true, every cache in the upload is also marked as found. */
   markAsFound?: boolean;
+  /** FR-I12 — bypass the duplicate-file skip and re-process anyway. */
+  force?: boolean;
 }
 
 export async function uploadGpx(
@@ -191,6 +199,7 @@ export async function uploadGpx(
   const form = new FormData();
   form.append("file", file);
   if (opts.markAsFound) form.append("markAsFound", "true");
+  if (opts.force) form.append("force", "true");
   return request<UploadGpxResult>("/gpx/upload", {
     method: "POST",
     body: form,

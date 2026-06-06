@@ -364,6 +364,32 @@ export class GpxRepository {
   }
 
   /**
+   * FR-I12 dedup lookup: the most recent *successfully parsed* upload by
+   * this owner whose raw bytes hash to `sha256`. Used to skip re-storing +
+   * re-processing a byte-identical re-upload. Scoped to `owner_id` (the
+   * per-user isolation rule), matches only `status = 'parsed'` (a prior
+   * failed/partial upload should not suppress a retry), and ignores rows
+   * with a NULL `raw_sha256` (predate raw storage). `gpx_uploads` stays
+   * tiny (< 1k rows lifetime) so no dedicated index is warranted.
+   */
+  async findParsedUploadByHash(
+    ownerId: string,
+    sha256: string,
+  ): Promise<{ id: string; exportedAt: Date | null } | null> {
+    const row = await this.db
+      .selectFrom("gpx_uploads")
+      .select(["id", "exported_at"])
+      .where("owner_id", "=", ownerId)
+      .where("raw_sha256", "=", sha256)
+      .where("status", "=", "parsed")
+      .orderBy("uploaded_at", "desc")
+      .limit(1)
+      .executeTakeFirst();
+    if (!row) return null;
+    return { id: row.id, exportedAt: row.exported_at };
+  }
+
+  /**
    * Look up an upload's owner + raw-storage metadata for the reprocess
    * path. Returns `null` if the upload doesn't exist for this owner —
    * intentionally indistinguishable from "exists but belongs to someone
