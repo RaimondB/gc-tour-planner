@@ -92,7 +92,7 @@ GPL-2.0+ and GPL-3.0+ are both GPLv3-compatible:
   upstream behaviour (rather than configure via Lua), those patches MUST
   ship under the same license as the modified project (GPL-2.0+ /
   GPL-3.0+).
-- The Lua filter [infra/osm2pgsql/landuse.lua](../infra/osm2pgsql/landuse.lua)
+- The Lua filter [infra/osm2pgsql/osm-features.lua](../infra/osm2pgsql/osm-features.lua)
   is our own code under GPL-3.0-or-later; it's consumed by osm2pgsql as
   configuration data, not linked.
 

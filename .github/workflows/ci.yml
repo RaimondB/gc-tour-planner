@@ -59,6 +59,31 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm licenses:check
 
+  # Markdown is no longer Prettier-formatted (it's hand-authored prose), so the
+  # check that matters for our heavily cross-linked docs/ADRs is link integrity,
+  # not byte-formatting. lychee runs OFFLINE: it verifies every relative link and
+  # in-page #anchor between Markdown files resolves to a real path/heading, and
+  # skips external URLs (those are non-deterministic and would make CI flaky —
+  # the opposite of what we want from a required gate). No pnpm install needed;
+  # --exclude-path keeps it correct even if node_modules/dist happen to exist.
+  docs-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Markdown cross-links (offline — local paths + anchors)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline
+            --include-fragments
+            --no-progress
+            --exclude-path node_modules
+            --exclude-path dist
+            --exclude-path .turbo
+            './**/*.md'
+          fail: true
+
   # Testcontainers integration suite (real PostGIS). Heavier + Docker-bound, so
   # it is NOT a per-PR gate: it runs on merges to main (the pre-UAT point) and
   # on manual dispatch. Keep it out of branch-protection's required checks so it
