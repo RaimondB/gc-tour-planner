@@ -1,5 +1,10 @@
 {
-  "extends": "@gctp/config/tsconfig.node.json",
+  // Relative extends (not the "@gctp/config/..." specifier): Vite 8's oxc transform
+  // — now used here too, since vitest 4 runs on vite 8 — resolves nested tsconfig
+  // "extends" against the pnpm symlink dir instead of the package's real path, so the
+  // package-specifier form breaks the tests. tsc handles either; relative keeps both
+  // happy. (db is the only tsc-only package left and keeps the specifier.)
+  "extends": "../../packages/config/tsconfig.node.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",

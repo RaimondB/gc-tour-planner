@@ -23,6 +23,8 @@ Roughly lowest-risk → highest-blast-radius. Current state:
 
 A bump's cluster is decided by its **coupling**, not its name. Example: `bullmq` looks like a leaf, but 5.78 widens `JobProgress` to include `string` (breaking `@bull-board/api` 6.5), and every newer `@bull-board` peer-requires `express ^5.2.1` — so `bullmq` belongs in cluster 3, not 2.
 
+**Post-programme dev-tooling security sweep (2026-06-06).** After the six clusters landed, `pnpm audit --prod` was clean but the full (dev-inclusive) audit still flagged 15 advisories (1 critical), all in **build/test tooling** and **none reachable** in our usage. Root cause: cluster 5 moved `vitest` 2→4 on `web`+`shared` but left **`apps/api` on `vitest@2.1.9`**, which dragged in vulnerable `vite@5.4.11` + `esbuild`. Swept in one PR: `apps/api` vitest 2.1.9→4.1.8 (clears the critical + the vite/esbuild items — extends [ADR-0019](../adr/0019-frontend-majors-react-vite-maplibre.md)'s vitest-4 decision to the api), `turbo` 2.3.3→2.9.16, `eslint` 9.15.0→9.39.4 (in-range fix for `@eslint/plugin-kit` ReDoS — eslint 9.15 pinned `^0.2.3`, the patch is `≥0.3.4`), `@types/node`→22.19.20 (vite-8 peer floor). Putting api on vitest 4 made it oxc-processed, so its `tsconfig` `extends` needed the same relative-path fix cluster 5 applied to web/shared (see the oxc-symlink note in those tsconfigs). Full audit → **0**.
+
 ## Triage: not every advisory needs a code change
 
 For each open advisory, decide **reachability** before reaching for a bump:
