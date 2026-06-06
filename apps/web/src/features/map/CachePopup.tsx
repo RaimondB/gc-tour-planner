@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState } from "react";
+import { useState, type JSX } from "react";
 import { classifyMulti } from "@gctp/shared/caches";
 import type { CacheType } from "@gctp/shared/caches";
 import { AttributeChips } from "../caches/AttributeChips.js";

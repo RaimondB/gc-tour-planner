@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { JSX } from "react";
 import {
   attributeById,
   descriptionHintByKey,
