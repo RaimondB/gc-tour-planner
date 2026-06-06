@@ -30,6 +30,7 @@ import { ToursModule } from "./tours/tours.module.js";
     // across replicas; only routes that opt in via @UseGuards(ThrottlerGuard)
     // are throttled (the auth credential endpoints), not every request.
     ThrottlerModule.forRootAsync({
+      imports: [ValkeyModule],
       inject: [ValkeyThrottlerStorage],
       useFactory: (storage: ValkeyThrottlerStorage) => ({
         throttlers: [{ name: "default", ttl: 60_000, limit: 60 }],
@@ -52,6 +53,5 @@ import { ToursModule } from "./tours/tours.module.js";
     AdminLanduseModule,
     AdminUploadsModule,
   ],
-  providers: [ValkeyThrottlerStorage],
 })
 export class AppModule {}
