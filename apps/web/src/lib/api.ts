@@ -10,6 +10,11 @@ import {
   StaleCacheListResponse,
 } from "@gctp/shared/admin";
 import {
+  AuthUser,
+  type LoginInput,
+  type RegisterInput,
+} from "@gctp/shared/auth";
+import {
   CacheDTO,
   CachesSummaryResponse,
   type CachesQuery,
@@ -63,10 +68,60 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Set by the app shell (AuthProvider) to centralise the 401 → /login redirect
+ * (auth design §12). Invoked for any authenticated request that comes back 401 —
+ * EXCEPT the `/auth/*` endpoints, where a 401 is an expected outcome (anonymous
+ * `/auth/me`, bad-credentials `/auth/login`) the caller handles itself rather
+ * than bouncing the user.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
+/** Non-httpOnly CSRF cookie + the header it's echoed in (double-submit, §4). */
+const CSRF_COOKIE = "csrf";
+const CSRF_HEADER = "X-CSRF-Token";
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/** Read a non-httpOnly cookie by name. Returns null in non-browser test envs. */
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  for (const part of document.cookie.split("; ")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq) === name) {
+      return decodeURIComponent(part.slice(eq + 1));
+    }
+  }
+  return null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  // Double-submit CSRF: echo the readable `csrf` cookie on state-changing calls.
+  // GETs are exempt server-side, so don't bother attaching the header there.
+  if (MUTATING_METHODS.has(method)) {
+    const token = readCookie(CSRF_COOKIE);
+    if (token) headers.set(CSRF_HEADER, token);
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers,
+    // Carry the httpOnly `sid` session cookie on every call. Same-origin in
+    // prod (the reverse proxy serves API + app under one origin); cross-origin
+    // in dev, where Vite proxies /api → the API and `include` is required.
+    credentials: "include",
+  });
   const text = await res.text();
-  if (!res.ok) throw new ApiError(res.status, path, text);
+  if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      onUnauthorized?.();
+    }
+    throw new ApiError(res.status, path, text);
+  }
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
@@ -351,4 +406,46 @@ export async function retriggerOne(input: RetriggerOneRequest) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+}
+
+// ─── Auth (M6-β) ───────────────────────────────────────────────────────────
+
+/** Self-service registration; the server establishes a session on success. */
+export async function register(input: RegisterInput): Promise<AuthUser> {
+  const raw = await request<unknown>("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return AuthUser.parse(raw);
+}
+
+/** Password login; the server sets the `sid` + `csrf` cookies on success. */
+export async function login(input: LoginInput): Promise<AuthUser> {
+  const raw = await request<unknown>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return AuthUser.parse(raw);
+}
+
+/** Logout; clears the cookies and deletes the Valkey session server-side. */
+export async function logout(): Promise<void> {
+  await request<void>("/auth/logout", { method: "POST" });
+}
+
+/**
+ * The current session's user, or `null` when unauthenticated. `/auth/me` answers
+ * 401 for an anonymous caller — a normal "logged out" signal here, not an error,
+ * so swallow it and let callers treat null as unauthenticated.
+ */
+export async function fetchMe(): Promise<AuthUser | null> {
+  try {
+    const raw = await request<unknown>("/auth/me");
+    return AuthUser.parse(raw);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return null;
+    throw err;
+  }
 }
