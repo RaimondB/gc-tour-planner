@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { createHash } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import {
   BadRequestException,
@@ -33,6 +34,14 @@ export interface GpxUploadResult {
    * mark-as-found. The dropzone surfaces this so the detection is visible.
    */
   myFinds: boolean;
+  /**
+   * FR-I12 — true when this byte-identical file was already uploaded by
+   * the same owner and processing was skipped (no re-store, no re-parse,
+   * no re-upsert). `uploadId` points at the existing upload and all the
+   * count/stats fields are zero. The dropzone offers "upload anyway"
+   * (which re-submits with `force`). False on every processed upload.
+   */
+  duplicate: boolean;
 }
 
 export interface IngestOptions {
@@ -44,6 +53,13 @@ export interface IngestOptions {
    * override for marking a *regular* PQ as found.
    */
   markAsFound?: boolean;
+  /**
+   * FR-I12 — bypass the duplicate-file skip. When a byte-identical upload
+   * already exists, `force` re-processes the *existing* stored upload
+   * (re-parse + re-upsert against the same row; no second copy on disk)
+   * instead of short-circuiting. No effect when the file is new.
+   */
+  force?: boolean;
 }
 
 @Injectable()
@@ -63,6 +79,19 @@ export class GpxService {
     xml: string,
     opts: IngestOptions = {},
   ): Promise<GpxUploadResult> {
+    // FR-I12 — hash the bytes once up front. If this owner already has a
+    // successfully-parsed upload of the same bytes, skip the work: don't
+    // store a second copy, don't re-parse, don't re-upsert. `force`
+    // re-processes the *existing* upload instead (no new file on disk).
+    const sha256 = createHash("sha256")
+      .update(Buffer.from(xml, "utf8"))
+      .digest("hex");
+    const existing = await this.repo.findParsedUploadByHash(ownerId, sha256);
+    if (existing) {
+      if (!opts.force) return duplicateResult(existing);
+      return this.parseAndUpsert(ownerId, existing.id, xml, opts);
+    }
+
     // Insert the upload row first so we have a stable id to name the
     // raw file with. The status is `received` until parse + upsert
     // complete; if anything below throws, the row is left in
@@ -74,8 +103,9 @@ export class GpxService {
     // the feature — preserve the original so a future schema bump can
     // reparse without asking the user to re-upload. On filesystem
     // failure we propagate the error (the upload row will linger in
-    // `received`; operator can re-upload).
-    const { sizeBytes, sha256 } = await this.storage.save(uploadId, xml);
+    // `received`; operator can re-upload). We pass the precomputed hash
+    // so the bytes aren't re-hashed.
+    const { sizeBytes } = await this.storage.save(uploadId, xml, sha256);
     await this.repo.markRawStored(uploadId, sizeBytes, sha256);
 
     return this.parseAndUpsert(ownerId, uploadId, xml, opts);
@@ -184,6 +214,7 @@ export class GpxService {
       warnings: parsed.warnings,
       stats,
       myFinds: parsed.isMyFinds,
+      duplicate: false,
     };
   }
 
@@ -218,6 +249,38 @@ export class GpxService {
       );
     }
   }
+}
+
+/**
+ * FR-I12 — the short-circuit response for a byte-identical re-upload.
+ * No work was done: counts are zero, `duplicate` is true, and `uploadId`
+ * points at the existing upload (so the client can offer "upload anyway").
+ * `stats.exportedAt` echoes the stored upload's PQ timestamp for context.
+ */
+function duplicateResult(existing: {
+  id: string;
+  exportedAt: Date | null;
+}): GpxUploadResult {
+  return {
+    uploadId: existing.id,
+    cachesUpserted: 0,
+    waypointsInserted: 0,
+    findsRecorded: 0,
+    warnings: [],
+    stats: {
+      total: 0,
+      byType: {},
+      disabled: 0,
+      archived: 0,
+      new: 0,
+      updated: 0,
+      stale: 0,
+      exportedAt:
+        existing.exportedAt !== null ? existing.exportedAt.toISOString() : null,
+    },
+    myFinds: false,
+    duplicate: true,
+  };
 }
 
 /**

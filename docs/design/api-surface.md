@@ -76,10 +76,11 @@ the current user's (per-user GPX isolation).
 
 ## `POST /gpx/upload`
 
-Multipart upload (`file` + optional `markAsFound` override). A Groundspeak
-**"My Finds"** PQ is auto-detected from its top-level `<gpx><name>` and its
-caches are marked found automatically (FR-I7); `markAsFound=true` is the manual
-override for marking a regular PQ's caches found. Returns:
+Multipart upload (`file` + optional `markAsFound` and `force` flags). A
+Groundspeak **"My Finds"** PQ is auto-detected from its top-level `<gpx><name>`
+and its caches are marked found automatically (FR-I7); `markAsFound=true` is the
+manual override for marking a regular PQ's caches found. `force=true` bypasses
+the FR-I12 duplicate-file skip (see below). Returns:
 
 ```ts
 type UploadGpxResult = {
@@ -100,6 +101,7 @@ type UploadGpxResult = {
     exportedAt: string | null; // top-level <gpx><time>
   };
   myFinds: boolean; // auto-detected "My Finds" PQ
+  duplicate: boolean; // FR-I12 — byte-identical re-upload was skipped
 };
 ```
 
@@ -107,6 +109,7 @@ Side effects:
 
 - **FR-I9**: raw `.gpx` bytes gzipped and persisted to `{UPLOADS_DIR}/{uploadId}.gpx.gz` before parse. Status transitions: `received` → (`parsed` | `failed`). The raw file is kept on the failed path too so a parser fix can be replayed.
 - **FR-I10**: every upserted row's `source_exported_at` is set to the PQ's `<gpx><time>`. The upsert's staleness guard compares incoming vs. existing — older PQs are skipped (counted under `stats.stale`).
+- **FR-I12**: the uncompressed XML is SHA-256-hashed and matched against this owner's existing `status='parsed'` uploads (`raw_sha256`). On a match, processing is skipped — no second file stored, no re-parse — and the response is `duplicate: true` with `uploadId` = the existing upload and all counts/stats zero. `force=true` re-processes the existing stored upload instead of skipping. Dedup is per-owner.
 
 Parsing is synchronous for small files (< 5 MB); large files are queued to `jobs/gpx-parse` and the client polls `GET /gpx/uploads/:id` (M3+).
 

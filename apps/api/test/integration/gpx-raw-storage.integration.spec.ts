@@ -79,7 +79,11 @@ describe("GPX raw storage + reprocess (PR1)", () => {
 
   it("reprocess() re-parses the stored raw and yields the same shape", async () => {
     const xml = await readFile(SAMPLE_GPX, "utf8");
-    const initial = await service.ingest(ownerId, "for-reprocess.gpx", xml);
+    // `force` re-processes despite the FR-I12 byte-identical dedup (the
+    // sample was already ingested by the first test in this file).
+    const initial = await service.ingest(ownerId, "for-reprocess.gpx", xml, {
+      force: true,
+    });
 
     const reprocessed = await service.reprocess(ownerId, initial.uploadId);
     expect(reprocessed.uploadId).toBe(initial.uploadId);
@@ -139,7 +143,11 @@ describe("GPX raw storage + reprocess (PR1)", () => {
 
   it("reprocess() re-upserts caches after they're deleted (the FR-T11 backfill scenario)", async () => {
     const xml = await readFile(SAMPLE_GPX, "utf8");
-    const initial = await service.ingest(ownerId, "for-backfill.gpx", xml);
+    // `force` bypasses the FR-I12 dedup so we re-run the upsert (sample
+    // already ingested above).
+    const initial = await service.ingest(ownerId, "for-backfill.gpx", xml, {
+      force: true,
+    });
     expect(initial.cachesUpserted).toBeGreaterThan(0);
 
     // Wipe the cache rows for this owner (simulates a parser bug fix

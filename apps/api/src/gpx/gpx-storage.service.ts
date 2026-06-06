@@ -62,11 +62,19 @@ export class GpxStorageService {
   async save(
     uploadId: string,
     xml: string,
+    /**
+     * Precomputed SHA-256 of the uncompressed XML. The ingest path hashes
+     * the bytes once up front (for the FR-I12 dedup lookup) and passes it
+     * here to avoid hashing the same multi-MB buffer twice. Omitted callers
+     * fall back to computing it.
+     */
+    precomputedSha256?: string,
   ): Promise<{ sizeBytes: number; sha256: string }> {
     await this.ensureDir();
     const path = this.pathFor(uploadId);
     const xmlBuf = Buffer.from(xml, "utf8");
-    const sha256 = createHash("sha256").update(xmlBuf).digest("hex");
+    const sha256 =
+      precomputedSha256 ?? createHash("sha256").update(xmlBuf).digest("hex");
     const gz = gzipSync(xmlBuf, { level: 9 });
     await writeFile(path, gz);
     return { sizeBytes: gz.byteLength, sha256 };

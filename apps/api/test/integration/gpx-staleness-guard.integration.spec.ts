@@ -244,8 +244,11 @@ describe("GPX staleness guard + upload stats (PR2)", () => {
     expect(first.stats.new).toBe(1);
 
     // Re-upload with even-older actual date doesn't matter — null
-    // exportedAt on either side disables the staleness comparison.
-    const second = await service.ingest(ownerId, "no-time-2.gpx", xml);
+    // exportedAt on either side disables the staleness comparison. `force`
+    // bypasses the FR-I12 byte-identical dedup so the upsert path runs.
+    const second = await service.ingest(ownerId, "no-time-2.gpx", xml, {
+      force: true,
+    });
     expect(second.stats.updated).toBe(1);
     expect(second.stats.stale).toBe(0);
   });
