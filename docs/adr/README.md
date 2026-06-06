@@ -30,3 +30,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0018](0018-zod-4-shared-wire-contract.md)                    | Migrate to zod 4 (the shared wire contract)                   | Accepted                                      |
 | [0019](0019-frontend-majors-react-vite-maplibre.md)           | Frontend majors: React 19 + Vite 8 + maplibre-gl 5 + Vitest 4 | Accepted                                      |
 | [0020](0020-typescript-6.md)                                  | Migrate to TypeScript 6.0                                     | Proposed                                      |
+| [0021](0021-auth-and-session-strategy.md)                     | Authentication & session strategy (argon2 + Valkey sessions)  | Accepted                                      |
+| [0022](0022-tour-sharing-link-security.md)                    | Read-only tour sharing & link security                        | Proposed                                      |

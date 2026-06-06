@@ -140,6 +140,11 @@ CREATE TABLE route_legs (
   PRIMARY KEY (from_cache_id, to_cache_id, profile)
 );
 
+-- DESIGNED but NOT YET MIGRATED. M6-γ ships this in a new migration
+-- (~1779690000000_tours.sql) with the `plan JSONB` column added below, so a
+-- saved tour re-renders without re-planning (FR-P1). See
+-- design/auth-and-sharing.md §8. The UNIQUE on share_slug provides the
+-- slug-lookup index; tours_owner_idx backs the per-user list.
 CREATE TABLE tours (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -151,10 +156,17 @@ CREATE TABLE tours (
   total_seconds   NUMERIC(10,2) NOT NULL,
   geom            GEOGRAPHY(LineString, 4326) NOT NULL,
   score_breakdown JSONB NOT NULL,
+  -- Full in-memory PlanResult stored verbatim (legs, dropped caches, parking
+  -- choice) + a denormalised cache snapshot for the public shared view, so
+  -- GET /shared/:slug never reads owner-scoped cache tables (ADR-0022).
+  plan            JSONB NOT NULL,
   share_slug      TEXT UNIQUE,                                -- nullable until shared
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX tours_owner_idx ON tours (owner_id);
+
+-- No sessions table: M6 stores sessions in Valkey (ADR-0021). Only the
+-- stateless-JWT-with-denylist alternative would add a table here.
 
 CREATE TABLE gpx_uploads (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),

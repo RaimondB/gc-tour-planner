@@ -330,6 +330,41 @@ type ParkingFacilityFeature = {
 };
 ```
 
-## `POST /tours` and `GET /tours/share/:slug`
+## Auth, saved tours, and sharing (M6)
 
-Save a `PlanResult` as a named tour; optional sharing slug. Shared payload omits soft-preference internals.
+Full design — session model, guard swap, the normative public-endpoint inventory, sharing-link mechanics — lives in [auth-and-sharing.md](auth-and-sharing.md). Endpoint summary:
+
+| Method + path | Auth | CSRF | Notes |
+| --- | --- | --- | --- |
+| `POST /auth/register` | public | — | Self-service signup (FR-P5); argon2id |
+| `POST /auth/login` | public | — | Sets session + `csrf` cookies |
+| `POST /auth/logout` | session | yes | Clears cookies (+ deletes Valkey session) |
+| `GET /auth/me` | session | — | Backs the web auth context |
+| `GET /auth/google` → `GET /auth/google/callback` | public | — | OAuth, link-by-verified-email (FR-P4.3) |
+| `POST /tours` | session | yes | Save a `PlanResult` (FR-P1) |
+| `GET /tours` | session | — | Owner-scoped summaries (FR-P2) |
+| `GET /tours/:id` | session | — | Full detail; cross-tenant → 404 |
+| `PATCH /tours/:id` | session | yes | Rename |
+| `DELETE /tours/:id` | session | yes | Delete (revokes any share) |
+| `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
+| `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
+| `GET /shared/:slug` | public | — | Read-only snapshot; no owner identity ([ADR-0022](../adr/0022-tour-sharing-link-security.md)) |
+
+```ts
+const SaveTourInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  plan: PlanResult, // full in-memory result, stored verbatim in `tours.plan` JSONB
+});
+
+type SavedTourSummary = {
+  id: string;
+  name: string;
+  totalMeters: number;
+  totalSeconds: number;
+  cacheCount: number;
+  isShared: boolean;
+  createdAt: string;
+};
+```
+
+The public `SharedTour` DTO is specified in [auth-and-sharing.md §10](auth-and-sharing.md): totals only (distance + time), no `scoreBreakdown` or other soft-preference internals, and no owner identity.

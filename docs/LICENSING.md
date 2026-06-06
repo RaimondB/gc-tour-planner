@@ -121,6 +121,19 @@ Candidates considered: MapTiler (free tier with attribution), Stadia Maps, Stame
 - **Inter** font (OFL 1.1) — UI font.
 - No icon or font sourced from a proprietary tracker (Font Awesome Pro, Stripe, etc.).
 
+### 3.10 Auth dependencies (M6)
+
+M6 adds authentication; every new runtime dep is GPLv3-compatible (vet at install time and keep `pnpm licenses:check` green):
+
+- **argon2** (MIT) — password hashing.
+- **jose** (MIT) — JWT/session signing + verification.
+- **@nestjs/throttler** (MIT) — login rate limiting.
+- **cookie-parser** (MIT) and **helmet** (MIT) — cookie handling + security headers.
+- **@tanstack/react-router** (MIT) — web routing for public vs. protected views.
+- **Google OAuth library** — `openid-client` (MIT) preferred, `passport-google-oauth20` (MIT) as fallback. Confirm the final choice's license when it lands.
+
+See [design/auth-and-sharing.md](design/auth-and-sharing.md) and [ADR-0021](adr/0021-auth-and-session-strategy.md).
+
 ## 4. Contributor expectations
 
 By contributing a PR you agree your contribution is licensed under GPL-3.0-or-later. We don't require a CLA. See [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -158,3 +171,7 @@ When this fails, **don't skip the check**. Either replace the offending dep, or 
 | Inter font        | OFL 1.1                       | UI font                                                         |
 | Groundspeak data  | Proprietary                   | User-uploaded only, per-owner isolated                          |
 | Groundspeak icons | Proprietary                   | **Never bundled**                                               |
+| argon2 / jose     | MIT                           | M6 auth: password hashing + session signing (§3.10)            |
+| @nestjs/throttler | MIT                           | M6 auth: login rate limiting (§3.10)                            |
+| @tanstack/react-router | MIT                      | M6 web routing: public vs. protected views (§3.10)             |
+| Google OAuth lib  | MIT (openid-client / passport-google-oauth20) | M6 auth: confirm final choice (§3.10)             |

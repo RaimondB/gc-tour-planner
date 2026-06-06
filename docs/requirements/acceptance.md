@@ -10,5 +10,6 @@ The full system is "shipped" when this scenario passes end-to-end on a clean mac
 6. Click **Plan loop** with `maxCaches=20`, `distanceBudgetMeters=12 000`, `timeBudgetMinutes=240`.
 7. Verify the result: closed polyline ≤ 12 km, ≤ 4 h, ≤ 20 caches; parking marker (PQ-provided preferred); score breakdown panel shown.
 8. Save the tour. Reload the page. Tour and the chosen landuse profile re-render from the DB.
-9. CI is green: `pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e && pnpm licenses:check`.
-10. `docs/requirements/`, `docs/architecture/`, `docs/design/`, `docs/LICENSING.md`, and `CLAUDE.md` are present and current.
+9. Share the saved tour (mint a link), then open `/shared/:slug` in a logged-out browser context: the read-only map + cache list render, with no owner identity and no edit/save controls. Revoke the share and confirm the link 404s.
+10. CI is green: `pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e && pnpm licenses:check`.
+11. `docs/requirements/`, `docs/architecture/`, `docs/design/`, `docs/LICENSING.md`, and `CLAUDE.md` are present and current.

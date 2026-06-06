@@ -26,9 +26,15 @@ How requests traverse the stack from the user action down to storage and back.
    5. Pick parking by `startPreference`.
 4. Returns `PlanResult` → web renders polyline + parking marker + score breakdown panel.
 
-## Save tour (M6)
+## Auth (M6-α/β)
 
-1. User clicks "Save" → `POST /tours` with the previously-returned `PlanResult`.
-2. API: `tours` service inserts into `tours`, scoped to `req.user.id`. Generates an opaque sharing slug.
-3. Web shows the saved tour in "My tours".
-4. Anonymous viewer hits `GET /tours/share/:slug` → read-only payload (no cache attribute weights, no profile internals).
+1. User registers/logs in → `POST /auth/register` or `POST /auth/login`. API verifies argon2id, establishes a session (Valkey-backed per [ADR-0021](../adr/0021-auth-and-session-strategy.md)) and sets an httpOnly `SameSite=Lax` session cookie + a non-httpOnly `csrf` cookie.
+2. The global `JwtAuthGuard` populates `req.user` on every subsequent request from the session cookie; `@Public()` routes skip it.
+3. Web `api.ts` sends `credentials: "include"` and echoes the `csrf` cookie as `X-CSRF-Token` on mutating calls; a 401 redirects to `/login`.
+
+## Save + share tour (M6-γ/δ)
+
+1. User clicks "Save" → `POST /tours` with the previously-returned `PlanResult`. API: `tours` service inserts into `tours` (full `PlanResult` in `plan` JSONB + a denormalised cache snapshot), scoped to `req.user.id`.
+2. Web shows the saved tour in "My tours"; `GET /tours` lists owner-scoped summaries; reopening restores from `plan` JSONB without re-planning.
+3. User clicks "Share" → `POST /tours/:id/share` mints an opaque slug (idempotent). `DELETE /tours/:id/share` revokes it.
+4. Anonymous viewer hits the **public** `GET /shared/:slug` → read-only snapshot payload (no owner identity, no other tours, no owner-scoped cache reads — see [ADR-0022](../adr/0022-tour-sharing-link-security.md)).
