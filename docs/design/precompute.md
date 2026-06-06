@@ -14,7 +14,7 @@ The remaining queue lives in Valkey via BullMQ. Workers run in the `jobs` contai
 
 The queue is fire-and-forget from the upload handler's perspective. Uploads must not block on precompute.
 
-For the landuse-side daily replication, see the separate `landuse-replication` queue scheduled by [LanduseReplicationScheduler](../../apps/api/src/jobs/landuse-replication/landuse-replication.scheduler.ts).
+For the landuse-side daily replication, see the separate `landuse-replication` queue scheduled by `LanduseReplicationScheduler` (an M4-β follow-up — not yet built; the write path it will drive lives in [LanduseRepository](../../apps/api/src/osm/landuse.repository.ts)).
 
 ## `walking-precompute` algorithm
 
