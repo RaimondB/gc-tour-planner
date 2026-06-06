@@ -125,12 +125,13 @@ Candidates considered: MapTiler (free tier with attribution), Stadia Maps, Stame
 
 M6 adds authentication; every new runtime dep is GPLv3-compatible (vet at install time and keep `pnpm licenses:check` green):
 
-- **argon2** (MIT) — password hashing.
-- **jose** (MIT) — JWT/session signing + verification.
-- **@nestjs/throttler** (MIT) — login rate limiting.
-- **cookie-parser** (MIT) and **helmet** (MIT) — cookie handling + security headers.
-- **@tanstack/react-router** (MIT) — web routing for public vs. protected views.
-- **Google OAuth library** — `openid-client` (MIT) preferred, `passport-google-oauth20` (MIT) as fallback. Confirm the final choice's license when it lands.
+- **argon2** (MIT) — password hashing. _(shipped M6-α)_
+- **jose** (MIT) — OAuth `state` + Google `id_token` verification. _(shipped M6-α)_
+- **@nestjs/throttler** (MIT) — login rate limiting. _(shipped M6-α)_
+- **cookie-parser** (MIT) and **helmet** (MIT) — cookie handling + security headers. _(shipped M6-α)_
+- **ioredis** (MIT) — Valkey client for sessions, the login limiter, and the throttler storage. _(shipped M6-α)_
+- **@tanstack/react-router** (MIT) — web routing for public vs. protected views. _(M6-β)_
+- **Google OAuth library** — none added. M6-α implements the authorization-code flow directly with `jose` + native `fetch` (the most minimal GPLv3-compatible surface), so neither `openid-client` nor `passport-google-oauth20` is a dependency. Revisit only if the flow grows beyond what `jose` covers.
 
 See [design/auth-and-sharing.md](design/auth-and-sharing.md) and [ADR-0021](adr/0021-auth-and-session-strategy.md).
 

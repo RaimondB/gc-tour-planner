@@ -15,8 +15,8 @@ import { AdminPrecomputeService } from "./admin-precompute.service.js";
 
 /**
  * Admin surface for the upload-triggered precompute pipeline. Gated by the
- * existing dev-user middleware today; will need a real admin role check when
- * M6 auth lands.
+ * global auth guard (M6-α): admin = any authenticated user for now (FR-P12),
+ * with `users.is_admin` noted as the future role hook.
  *
  * Backs both the custom `/admin/jobs` web page and ad-hoc curl during
  * incident response.

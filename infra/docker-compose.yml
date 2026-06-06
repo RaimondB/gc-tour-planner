@@ -277,11 +277,17 @@ services:
     # `/api/*` to this container (port 3000), stripping the `/api` prefix.
     # The public edge is the cloudflared tunnel in front of web (ADR-0015).
     environment:
-      # `uat` (not `production`) — until the M6 JWT auth module lands, the
-      # dev-user middleware is the only auth source, and AuthModule throws
-      # on NODE_ENV=production as a safety guard. UAT is intentionally
-      # pre-auth, internal, single-tester.
+      # `uat` (not `production`) — the auth config refuses AUTH_DEV_BYPASS under
+      # NODE_ENV=production as a safety guard, and UAT is intentionally an
+      # internal, single-tester environment that still uses the bypass until the
+      # M6-β login UI ships. Flip NODE_ENV to `production` (and drop the bypass)
+      # once real sign-in is available end-to-end.
       NODE_ENV: uat
+      # M6-α: the global auth guard is live. Until the M6-β login UI lands there
+      # is no way to establish a session from the browser, so UAT keeps the
+      # bypass (attributes every request to dev@gctp.local). Remove this line
+      # when M6-β ships real login.
+      AUTH_DEV_BYPASS: ${AUTH_DEV_BYPASS:-1}
       # Container-internal port. Matches `EXPOSE 3000` in Dockerfile.api and
       # the port the web nginx proxies /api to.
       API_PORT: 3000
@@ -293,7 +299,15 @@ services:
       # public URL path to bake correct asset URLs. See
       # apps/api/src/main.ts for the rationale.
       BULL_BOARD_BASE_PATH: ${BULL_BOARD_BASE_PATH:-/api/admin/queues}
-      JWT_SECRET: ${JWT_SECRET}
+      # Auth (M6, ADR-0021). Session secret signs the OAuth state; OAUTH_* are
+      # optional (the /auth/google routes 503 when unset). Keep real values in
+      # infra/.env, never in the repo.
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-2592000}
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_GOOGLE_REDIRECT_URI: ${OAUTH_GOOGLE_REDIRECT_URI:-}
+      OAUTH_POST_LOGIN_REDIRECT: ${OAUTH_POST_LOGIN_REDIRECT:-/}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}

@@ -173,7 +173,8 @@ VALKEY_URL="$HOST_VALKEY_URL" \
 OSRM_URL="$HOST_OSRM_URL" \
 API_PORT="$API_PORT_DEV" \
 UPLOADS_DIR="$UPLOADS_DIR_DEV" \
-JWT_SECRET="${JWT_SECRET:-dev-secret-change-me}" \
+AUTH_DEV_BYPASS="${AUTH_DEV_BYPASS:-1}" \
+AUTH_SESSION_SECRET="${AUTH_SESSION_SECRET:-dev-insecure-session-secret}" \
 TOUR_PLANNER="${TOUR_PLANNER:-greedy}" \
 LOG_LEVEL="${LOG_LEVEL:-info}" \
   run_prefixed api pnpm --filter @gctp/api dev &
