@@ -1,6 +1,6 @@
 # ADR-0021 — Authentication & session strategy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-06
 - **Deciders:** Raimond Brookman (owner)
 
@@ -13,7 +13,7 @@ The requirement ([FR-P4](../requirements/persistence-sharing.md)) calls for emai
 ## Decision
 
 1. **Passwords:** argon2id via the `argon2` package (MIT), tuned to ~50–100 ms on target hardware. Chosen over bcrypt for memory-hardness.
-2. **Session model:** server-side sessions stored in **Valkey**, keyed by an opaque id carried in an httpOnly, `SameSite=Lax`, `Secure` (prod) cookie. Rationale: instant logout/revocation (FR-P6) and "log out everywhere" come for free; the per-request cost is one Valkey read, and Valkey is already in the hot path for login throttling. The stateless-JWT-in-cookie alternative is recorded below; if adopted instead, the only schema delta is "no session store / optional denylist table." (The cookie + CSRF + guard surface is identical either way — only the guard's verify step differs.)
+2. **Session model:** server-side sessions stored in **Valkey**, keyed by an opaque id carried in an httpOnly, `SameSite=Lax`, `Secure` (prod) cookie. Rationale: instant logout/revocation (FR-P6) and "log out everywhere" come for free; the per-request cost is one Valkey read, and Valkey is already in the hot path for login throttling. This supersedes FR-P4's original "JWT in httpOnly cookie" wording — there is **no** sessions table in Postgres. The stateless-JWT-in-cookie alternative is recorded below; the cookie + CSRF + guard surface would be identical, only the guard's verify step differs.
 3. **CSRF:** double-submit cookie. A non-httpOnly `csrf` cookie is echoed in an `X-CSRF-Token` header on all state-changing methods; `SameSite=Lax` is the primary defense, the token is defense-in-depth.
 4. **Guard:** a global `JwtAuthGuard` replaces `DevUserMiddleware`. Everything is authenticated by default; a `@Public()` decorator exempts the small, enumerated set in [the public-endpoint inventory](../design/auth-and-sharing.md). A dev/e2e bypass stays behind `AUTH_DEV_BYPASS=1`, hard-refused under `NODE_ENV=production`.
 5. **Google OAuth:** authorization-code flow, shipped in M6-α. Links to an existing account by **verified** email, else creates an OAuth-only user (`password_hash IS NULL`). A signed `state` parameter protects the round-trip. **No Google access/refresh tokens are persisted** — we keep project identity only, reinforcing the "no third-party creds in DB" hard rule. Library preference: lightweight `openid-client` + `jose`; `passport-google-oauth20` (MIT) as fallback.

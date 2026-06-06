@@ -19,14 +19,14 @@ FR-P4 originally specified "JWT in httpOnly cookie". Valkey is already a load-be
 | Secret rotation | Sessions survive | Rotating the key invalidates all sessions |
 | Complexity | Session store + sliding expiry | Refresh-token rotation |
 
-**Recommendation:** Valkey-backed sessions — FR-P6 (logout) and FR-P7 (revocation) are materially cleaner and Valkey is already present. If stateless JWT is chosen instead, the only schema delta is "no session store / optional denylist table." ADR-0021 records the final call.
+**Decision (ADR-0021): Valkey-backed sessions.** FR-P6 (logout) and FR-P7 (revocation) are materially cleaner and Valkey is already present. This supersedes FR-P4's original "JWT in cookie" wording; there is no sessions table (§8). The stateless-JWT column is retained above only as the documented alternative.
 
 ## 3. Token / session contents, TTL, refresh
 
 - Claims / session value: `sub` (user id), `email`, `iat`, `exp`.
 - Access lifetime short (≈ 15 min) with sliding extension; a longer refresh/sliding window (≈ 30 days) carried in a separate httpOnly cookie (stateless) or as the session TTL (Valkey).
 - On 401 the client attempts one silent refresh; failing that, it redirects to `/login` (FR-P7).
-- Signing: HS256 with `AUTH_SESSION_SECRET` (env-only) via `jose`. Rotation policy noted in ADR-0021.
+- Session id is an opaque random token; the Valkey value holds the claims above. (`jose`/HS256 signing applies only to the refresh token and the OAuth `state`, signed with `AUTH_SESSION_SECRET`, env-only.)
 
 ## 4. CSRF
 
@@ -66,7 +66,7 @@ This table is a **normative security contract**: adding a `@Public()` route requ
 
 The `tours` table is designed in [data-model.md](data-model.md) but not yet migrated. M6-γ adds a new migration (`~1779690000000_tours.sql`, one change per file) creating it as specified, **plus a `plan JSONB NOT NULL` column** holding the full `PlanResult` for a re-render-without-replan round-trip (FR-P1). The typed columns (`total_meters`, `total_seconds`, `score_breakdown`, `cache_ids`, `geom`) back listing/sorting and spatial queries. The `UNIQUE` constraint on `share_slug` already provides the slug-lookup index; `tours_owner_idx` backs the per-user list. Regenerate Kysely types after the migration (per [../sdlc/migrations.md](../sdlc/migrations.md)).
 
-If Valkey-backed sessions are chosen, there is **no** sessions table — sessions live in Valkey. Only the stateless-JWT-with-denylist variant would add a table; ADR-0021 records which.
+There is **no** sessions table — sessions live in Valkey (ADR-0021). (The stateless-JWT-with-denylist alternative, not adopted, would have been the only variant needing one.)
 
 ## 9. Sharing-link slug
 
