@@ -47,7 +47,7 @@ Keep PRs small enough to review in one sitting (~400 lines diff is a rough north
 `main` is **branch-protected** (configured on GitHub):
 
 - A pull request is required — direct pushes to `main` are blocked.
-- The **`build`**, **`licenses`**, and **`docs-links`** CI checks must pass, and the branch must be up to date with `main`, before merge.
+- The **`build`** and **`licenses`** CI checks must pass, and the branch must be up to date with `main`, before merge. (`docs-links` also runs, but is **advisory** — see CI gate.)
 - No force-pushes or deletions of `main`.
 - **0 required approvals** while this is a solo project (you can't approve your own PR; raise this once there are collaborators). **Admins may bypass** for an emergency hotfix — everything else goes through a PR.
 - Conversation resolution is required before merge.
@@ -60,12 +60,15 @@ Then:
 
 ## CI gate
 
-Three checks gate every PR (all required by branch protection):
+Two checks **gate** every PR (both required by branch protection):
 
 - **`build`** — `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test`. Note: `format:check` does **not** cover Markdown — that's hand-authored prose; see `docs-links` for the check that does apply to it.
 - **`licenses`** — `pnpm licenses:check` (every runtime dep must be GPLv3-compatible).
-- **`docs-links`** — lychee, run **offline**: every relative link and in-page `#anchor` between Markdown files must resolve to a real path/heading. External URLs are intentionally **not** checked (non-deterministic — they'd make a required gate flaky). This is the integrity check for our heavily cross-linked docs/ADRs now that Prettier no longer touches Markdown.
 
-`pnpm test:e2e` (Playwright) is run when touching the API ↔ web boundary. Red CI blocks merge.
+One check is **advisory** (runs on every PR, but deliberately **not** in branch protection's required list, so it never blocks a merge):
 
-> New checks only become _enforced_ once added to branch protection's required-checks list (a GitHub repo setting). `docs-links` runs on every PR regardless; make it required there to block merges on a broken link.
+- **`docs-links`** — lychee, run **offline**: flags relative links and in-page `#anchor`s between Markdown files that don't resolve to a real path/heading. It goes red on a broken link as a visible signal, but a stale doc link shouldn't block shipping code — fix it in-PR or in follow-up. External URLs are intentionally **not** checked (non-deterministic). This is the integrity check for our heavily cross-linked docs/ADRs now that Prettier no longer touches Markdown.
+
+`pnpm test:e2e` (Playwright) is run when touching the API ↔ web boundary. Red CI on a **required** check blocks merge; a red `docs-links` does not.
+
+> To promote `docs-links` from advisory to blocking later, add it to branch protection's required-status-checks list (a GitHub repo setting).
