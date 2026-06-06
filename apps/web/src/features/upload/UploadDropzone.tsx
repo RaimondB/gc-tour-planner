@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useRef, useState, type JSX } from "react";
+import { useRef, useState, type JSX, type MouseEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, uploadGpx, type UploadGpxResult } from "../../lib/api.js";
 
@@ -10,11 +10,17 @@ export function UploadDropzone(): JSX.Element {
   const queryClient = useQueryClient();
   const [dragging, setDragging] = useState(false);
 
-  const mutation = useMutation<UploadGpxResult, Error, File>({
+  const mutation = useMutation<
+    UploadGpxResult,
+    Error,
+    { file: File; force?: boolean }
+  >({
     // A Groundspeak "My Finds" PQ is auto-detected server-side (top-level
     // <name>) and its caches are marked found automatically — no toggle.
-    mutationFn: (file) => uploadGpx(file),
-    onSuccess: () => {
+    mutationFn: ({ file, force }) => uploadGpx(file, { force }),
+    onSuccess: (result) => {
+      // A duplicate skip wrote nothing — no point invalidating the map.
+      if (result.duplicate) return;
       // Invalidate every /caches view; new rows + finds show up on the map immediately.
       void queryClient.invalidateQueries({ queryKey: ["caches"] });
     },
@@ -27,7 +33,7 @@ export function UploadDropzone(): JSX.Element {
       mutation.reset();
       return;
     }
-    mutation.mutate(file);
+    mutation.mutate({ file });
   };
 
   return (
@@ -73,7 +79,18 @@ export function UploadDropzone(): JSX.Element {
             detected automatically and its caches marked as found.
           </div>
         )}
-        {mutation.isSuccess && <UploadSummary result={mutation.data} />}
+        {mutation.isSuccess &&
+          (mutation.data.duplicate ? (
+            <DuplicateNotice
+              onForce={(e) => {
+                e.stopPropagation();
+                const file = mutation.variables?.file;
+                if (file) mutation.mutate({ file, force: true });
+              }}
+            />
+          ) : (
+            <UploadSummary result={mutation.data} />
+          ))}
         {mutation.isError && (
           <div className="dropzone__error">
             {mutation.error instanceof ApiError
@@ -81,6 +98,29 @@ export function UploadDropzone(): JSX.Element {
               : `Upload failed: ${mutation.error.message}`}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * FR-I12 — shown when the server skipped a byte-identical re-upload. The
+ * caches are already in place from the first upload; offer an explicit
+ * "upload anyway" that re-processes the stored file (`force`).
+ */
+function DuplicateNotice({
+  onForce,
+}: {
+  onForce: (e: MouseEvent) => void;
+}): JSX.Element {
+  return (
+    <div className="dropzone__success">
+      <strong>Already uploaded.</strong> This exact file was uploaded before —
+      nothing to do.
+      <div style={{ marginTop: 6 }}>
+        <button type="button" className="chip" onClick={onForce}>
+          Upload anyway
+        </button>
       </div>
     </div>
   );

@@ -52,6 +52,12 @@ export class GpxController {
           description:
             "Optional manual override. A Groundspeak 'My Finds' Pocket Query is auto-detected (top-level <name>My Finds Pocket Query</name>) and always marked found regardless of this flag. Set 'true' to also mark a regular PQ's caches as found.",
         },
+        force: {
+          type: "string",
+          enum: ["true", "false"],
+          description:
+            "FR-I12 — bypass the duplicate-file skip. By default a byte-identical re-upload is detected and skipped (response has `duplicate: true`). Set 'true' to re-process the existing stored upload anyway (re-parse + re-upsert; no second copy stored).",
+        },
       },
       required: ["file"],
     },
@@ -68,13 +74,16 @@ export class GpxController {
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body("markAsFound") markAsFoundRaw?: string,
+    @Body("force") forceRaw?: string,
   ): Promise<GpxUploadResult> {
     if (!file)
       throw new BadRequestException('Multipart field "file" is required');
     const xml = file.buffer.toString("utf8");
     const markAsFound = markAsFoundRaw === "true" || markAsFoundRaw === "1";
+    const force = forceRaw === "true" || forceRaw === "1";
     return this.service.ingest(user.id, file.originalname, xml, {
       markAsFound,
+      force,
     });
   }
 }
