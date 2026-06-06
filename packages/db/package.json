@@ -34,9 +34,9 @@
   },
   "devDependencies": {
     "@gctp/config": "workspace:*",
-    "@types/node": "22.10.1",
+    "@types/node": "22.19.20",
     "@types/pg": "8.11.10",
-    "eslint": "9.15.0",
+    "eslint": "9.39.4",
     "node-pg-migrate": "7.6.1",
     "typescript": "6.0.3"
   }
