@@ -6,6 +6,7 @@ Concrete-level design — schemas, API shapes, algorithms. Read [../requirements
 
 - [Data model](data-model.md) — Postgres + PostGIS tables, spatial helpers, row-level access
 - [API surface](api-surface.md) — selected endpoints with zod schemas
+- [Auth + saved tours + sharing](auth-and-sharing.md) — M6 session model, guard swap, public-endpoint inventory, sharing links
 - [Tour planning](tour-planning.md) — `GreedyTspPlanner` algorithm (Pass 1 + Pass 2)
 - [Precompute](precompute.md) — upload-triggered `walking-precompute` + `overpass-refresh` jobs and `cache_precompute_state` lifecycle
 - [GPX parsing](gpx-parsing.md) — Pocket Query + generic GPX
