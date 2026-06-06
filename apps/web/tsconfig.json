@@ -1,9 +1,13 @@
 {
-  "extends": "@gctp/config/tsconfig.react.json",
+  // Relative extends (not the "@gctp/config/..." specifier): Vite 8's oxc transform
+  // resolves nested tsconfig "extends" against the pnpm symlink dir instead of the
+  // package's real path, so the package-specifier form breaks the build/tests. tsc
+  // handles either; relative keeps both happy. (api/db are tsc-only and keep the spec.)
+  "extends": "../../packages/config/tsconfig.react.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["vite/client"],
+    "types": ["vite/client", "geojson"],
     "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*", "vite.config.ts", "vitest.config.ts"],

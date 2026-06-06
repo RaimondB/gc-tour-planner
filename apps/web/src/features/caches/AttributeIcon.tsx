@@ -13,6 +13,8 @@
  * even when the curated lookup misses an attribute id.
  */
 
+import type { JSX } from "react";
+
 interface IconProps {
   iconKey: string;
   title?: string;

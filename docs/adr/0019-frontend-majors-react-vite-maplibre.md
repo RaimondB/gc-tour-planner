@@ -1,6 +1,6 @@
 # ADR-0019 — Frontend majors: React 19 + Vite 8 + maplibre-gl 5 + Vitest 4
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-05
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0016](0016-staged-dependency-upgrades.md) (the staged strategy this is cluster 5 of), [ADR-0017](0017-nestjs-11-express-5-migration.md) (cluster 3), [ADR-0018](0018-zod-4-shared-wire-contract.md) (cluster 4), [ADR-0001](0001-stack-choices.md), [ADR-0003](0003-license-gplv3.md)
@@ -87,6 +87,43 @@ is built from sub-commits so a red gate points at one major:
 2. **React 18→19** + `@types/react`/`@types/react-dom` 19 + react-dom. Clear the
    `@types/react` 19 typecheck fallout.
 3. **maplibre-gl 4→5.** Verify every map layer via new + existing e2e.
+
+### As shipped
+
+Landed on `chore/deps-frontend` as the three sub-commits above plus an e2e commit.
+The bumps needed only small, well-understood fixes — the audit held:
+
+- **Toolchain.** Vite 8 transforms TS via **oxc**, which (unlike `tsc`) resolves a
+  nested tsconfig `extends` against the **pnpm symlink dir** rather than the
+  package's real path — so the `@gctp/config/...` specifier broke the web build and
+  the shared vitest run (`Tsconfig not found`). Switched the two vite/oxc-processed
+  tsconfigs (`apps/web`, `packages/shared`) to a **relative `extends`**; `apps/api`
+  and `packages/db` are `tsc`-only and keep the specifier. vite 5→8 was taken in one
+  step (stayed green). No 5→6→7 stepping was needed.
+- **React 19.** Exactly the predicted `@types/react` 19 fallout: the global `JSX`
+  namespace moved under `react`, so eight files got `import type { JSX } from "react"`
+  (usage sites untouched); and one `<li ref={el => map.set(...)}>` returned a value,
+  which React 19 now treats as a cleanup function — wrapped in a block. No
+  `defaultProps`/`forwardRef`/string-ref work, as audited.
+- **maplibre-gl 5.** maplibre 5 no longer pulls `@types/geojson` into the program, so
+  the global `GeoJSON.*` namespace the 15 map files use vanished — declared
+  `@types/geojson` as a direct devDep and added `"geojson"` to the web tsconfig
+  `types` array (which pins `types: [...]`, otherwise excluding it). And
+  `Evented.on()` now returns a `Subscription`, not `this`, so the chained
+  `new Popup().on("close", …)` in `WalkingGraphLayer` no longer yields a `Popup` —
+  built on a local and assigned the ref after. No other runtime breakage surfaced.
+
+The new e2e (`apps/web/e2e/map-cluster-plan.smoke.spec.ts`) covers map render +
+upload → Discover clusters → cluster focus → planned loop, with a
+pageerror/console-error collector that fails on any real runtime throw. All three
+specs (plus the existing upload smoke) pass against a vite-8 / React-19 /
+maplibre-5 `pnpm dev` stack — confirming no maplibre-5 runtime regression. The
+"Discover clusters" path now has e2e for the first time. `licenses:check` stayed
+clean (maplibre-gl 5 = BSD-3-Clause, vite 8 = MIT; no SSPL/BUSL transitive drift).
+
+> Noted in passing (not fixed here — out of scope for a deps bump): the sidebar
+> tab buttons carry `aria-controls="sidebar-tabpanel"` but the tabpanel `<div>` has
+> no matching `id`, so the reference dangles. Worth a small a11y follow-up.
 
 ## Breaking changes / blast radius (audited in `apps/web/src`)
 

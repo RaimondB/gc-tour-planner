@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type JSX } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
@@ -576,7 +576,9 @@ export function PlannerSidebar({
               return (
                 <li
                   key={c.clusterId}
-                  ref={(el) => rowRefs.current.set(c.clusterId, el)}
+                  ref={(el) => {
+                    rowRefs.current.set(c.clusterId, el);
+                  }}
                   className={[
                     "cluster",
                     c.clusterId === chosenClusterId ? "picked" : "",
