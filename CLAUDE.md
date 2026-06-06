@@ -42,6 +42,7 @@ These reflect deliberate decisions. Do not "improve" without an ADR.
 - **Zod schemas:** single source of truth in `packages/shared`. Never duplicate a wire-DTO shape between client and server.
 - **PostGIS:** in Kysely, use `sql\`ST_DWithin(...)\`` fragments. Document the index that supports each spatial query in the migration.
 - **Migrations:** plain SQL via `node-pg-migrate`. One change per file. Never edit a merged migration.
+- **tsconfig `extends`:** any package Vite or Vitest compiles (`apps/web`, `packages/shared`, `apps/api`) must use a **relative** `extends` (e.g. `../../packages/config/tsconfig.node.json`), **not** the `@gctp/config/*` specifier. Vite 8's oxc transform resolves a nested `extends` against the pnpm symlink dir and fails with `Tsconfig not found` — while plain `tsc` stays green (that's the tell). `packages/db` is the lone tsc-only package and keeps the specifier. The moment a package gains Vitest, convert its `extends` in the same PR.
 - **Tests:**
   - Unit tests for pure functions (GPX parser, TSP, clustering, filter SQL builder).
   - Integration tests with real PostGIS via **Testcontainers** — do **not** mock the DB. Mocked DBs gave us bad migrations in past projects.
@@ -61,6 +62,8 @@ These reflect deliberate decisions. Do not "improve" without an ADR.
 - **Per-package scripts:** `pnpm --filter @gctp/api dev`, `pnpm --filter @gctp/web dev`, etc.
 - **Lint / typecheck / test:** `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`.
 - **License check:** `pnpm licenses:check` (also runs in CI).
+- **Formatting & docs links:** `pnpm format:check` (Prettier) covers `ts/tsx/js/json/yaml` only — **Markdown is hand-authored and intentionally not Prettier-formatted** (`.prettierignore`). Internal doc links are gated by the **`docs-links`** CI job (lychee, offline): relative links + `#anchors` between Markdown files must resolve. It's advisory (won't block merge) but keep it green; run lychee locally if you touch many links.
+- **Security audit:** `pnpm audit --prod` for shipped deps; when bumping **build/test tooling**, run the full `pnpm audit` too — a dev-only major can silently leave one package behind (e.g. `apps/api` lingered on Vitest 2 → a critical CVE while `--prod` stayed clean).
 - **DB migrations:** `pnpm --filter @gctp/db migrate up`. Generate Kysely types after schema changes.
 
 ## Subagents available
@@ -80,7 +83,7 @@ See [.claude/agents/](.claude/agents/) for repo-local subagent definitions:
 ## Things this project intentionally does _not_ have
 
 - Microservices. It is a modular monolith + workers.
-- GraphQL. REST + OpenAPI generates the client.
+- GraphQL. REST + OpenAPI is the eventual client-gen path — but the web client is currently **hand-written** in `apps/web/src/lib/api.ts`; the generated client is deferred until the API surface stabilises.
 - A DDD "domain" layer. Services own use-cases directly.
 - Global frontend state stores. TanStack Query + URL params are enough.
 - In-memory caching. Everything in Postgres or Valkey.
