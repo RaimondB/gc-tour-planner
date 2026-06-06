@@ -22,8 +22,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,yml,yaml}\"",
     "licenses:check": "pnpm dlx license-checker --production --summary --failOn 'SSPL-1.0;Server Side Public License;RSAL;Commons-Clause;BUSL-1.1;CC-BY-NC-4.0;CC-BY-NC-3.0'",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
