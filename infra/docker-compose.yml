@@ -209,6 +209,10 @@ services:
       OSM2PGSQL_CACHE: ${OSM2PGSQL_CACHE:-256}
       OSM2PGSQL_PROCESSES: ${OSM2PGSQL_PROCESSES:-4}
       OSM2PGSQL_EXTRA: ${OSM2PGSQL_EXTRA:-}
+      # --flat-nodes allocates a node-index file sized by the GLOBAL max OSM
+      # node id (~90+ GB), not by the extract. Default on; set to 0 on a
+      # small-disk host so a regional import doesn't run out of space.
+      OSM2PGSQL_FLAT_NODES: ${OSM2PGSQL_FLAT_NODES:-1}
     volumes:
       # PBF source — read-only.
       - osrm-data:/osrm-data:ro

@@ -111,12 +111,30 @@ rm -f /var/lib/osm2pgsql/flat.bin
 OSM2PGSQL_CACHE="${OSM2PGSQL_CACHE:-256}"
 OSM2PGSQL_PROCESSES="${OSM2PGSQL_PROCESSES:-4}"
 
+# --flat-nodes is a planet-scale optimisation: it allocates a node-index file
+# sized by the GLOBAL max OSM node id (~90+ GB), NOT by this extract. On a
+# constrained disk a regional import fails mid-node-processing with
+# "Could not resize file: Not enough space on filesystem". Default on (fast on
+# a roomy host); set OSM2PGSQL_FLAT_NODES=0 on small-disk hosts to keep node
+# locations in the Postgres slim middle table instead (a few GB for a region).
+OSM2PGSQL_FLAT_NODES="${OSM2PGSQL_FLAT_NODES:-1}"
+case "${OSM2PGSQL_FLAT_NODES}" in
+  0 | false | no | off)
+    FLAT_NODES_ARGS=""
+    echo "[landuse-import] flat-nodes: OFF (node locations in Postgres slim table)"
+    ;;
+  *)
+    FLAT_NODES_ARGS="--flat-nodes /var/lib/osm2pgsql/flat.bin"
+    echo "[landuse-import] flat-nodes: ON (/var/lib/osm2pgsql/flat.bin)"
+    ;;
+esac
+
 echo "[landuse-import] osm2pgsql tuning: cache=${OSM2PGSQL_CACHE}MB processes=${OSM2PGSQL_PROCESSES}${OSM2PGSQL_EXTRA:+ extra=${OSM2PGSQL_EXTRA}}"
 
-# shellcheck disable=SC2086  # OSM2PGSQL_EXTRA is intentionally word-split.
+# shellcheck disable=SC2086  # OSM2PGSQL_EXTRA + FLAT_NODES_ARGS are intentionally word-split.
 osm2pgsql \
   --slim --drop \
-  --flat-nodes /var/lib/osm2pgsql/flat.bin \
+  ${FLAT_NODES_ARGS} \
   --cache "${OSM2PGSQL_CACHE}" \
   --number-processes "${OSM2PGSQL_PROCESSES}" \
   --output=flex \
