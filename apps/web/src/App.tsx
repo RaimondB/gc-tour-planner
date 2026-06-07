@@ -10,6 +10,7 @@ import {
   type JSX,
 } from "react";
 import type maplibregl from "maplibre-gl";
+import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
   ClusterCandidate,
@@ -64,6 +65,7 @@ import {
 } from "./features/planning/PlannerSidebar.js";
 import { AdminPrecomputePanel } from "./features/admin/AdminPrecomputePanel.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
+import { useAuth } from "./features/auth/AuthProvider.js";
 
 /**
  * Sidebar tab id (FR-UX1). Workflow stages map 1:1 — Filter sets up
@@ -97,6 +99,12 @@ function planLoopSettingsKey(
 }
 
 export default function App(): JSX.Element {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const onLogout = useCallback(async () => {
+    await logout();
+    void navigate({ to: "/login" });
+  }, [logout, navigate]);
   const [params, setParams] = useLocalStorageState<SearchParams>(
     "search",
     DEFAULT_SEARCH,
@@ -683,6 +691,21 @@ export default function App(): JSX.Element {
         >
           ⚙ Tools
         </button>
+        {user && (
+          <div className="app-header__user">
+            <span className="app-header__user-name" title={user.email}>
+              {user.displayName}
+            </span>
+            <button
+              type="button"
+              className="app-header__logout"
+              onClick={() => void onLogout()}
+              title="Sign out"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="app-body">

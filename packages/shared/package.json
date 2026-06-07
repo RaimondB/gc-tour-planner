@@ -50,6 +50,10 @@
     "./admin": {
       "types": "./dist/admin/index.d.ts",
       "import": "./dist/admin/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js"
     }
   },
   "files": [

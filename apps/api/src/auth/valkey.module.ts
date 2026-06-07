@@ -4,6 +4,7 @@
 import { Global, Module, type Provider } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Redis } from "ioredis";
+import { ValkeyThrottlerStorage } from "./valkey-throttler.storage.js";
 import { VALKEY } from "./valkey.tokens.js";
 
 const valkeyProvider: Provider = {
@@ -31,7 +32,7 @@ const valkeyProvider: Provider = {
  */
 @Global()
 @Module({
-  providers: [valkeyProvider],
-  exports: [VALKEY],
+  providers: [valkeyProvider, ValkeyThrottlerStorage],
+  exports: [VALKEY, ValkeyThrottlerStorage],
 })
 export class ValkeyModule {}
