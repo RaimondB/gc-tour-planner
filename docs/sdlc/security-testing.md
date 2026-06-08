@@ -30,7 +30,7 @@ You lose only the identity gate; you keep edge TLS, DDoS/WAF, bot mitigation, an
    `X-Forwarded-For`/`CF-Connecting-IP`. *(check-rate-limit.sh)*
 2. **bull-board behind auth** — not reachable unauthenticated. *(check-bull-board.sh)*
 3. **Admin role-gating** on `/admin/*` + `POST /tours/walking-graph/purge-bogus`
-   via `users.is_admin`. *(check-admin-authz.sh)*
+   (add the `users.is_admin` column from FR-P12 + an admin guard). *(check-admin-authz.sh)*
 4. **Registration abuse control** — email verification / CAPTCHA / invite, or an
    explicit accept-with-hard-caps decision. *(manual + check-rate-limit.sh)*
 5. **No exploitable findings** on auth, session, IDOR, CSRF, injection. *(check-idor /

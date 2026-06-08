@@ -37,7 +37,8 @@ that currently **fail open** without Cloudflare in front:
 2. The bull-board queue dashboard is mounted as raw Express middleware
    (`apps/api/src/main.ts`), **outside** the Nest guard — unauthenticated.
 3. `/admin/*` routes and the destructive `POST /tours/walking-graph/purge-bogus`
-   have **no role check** (`users.is_admin` is unused) — any authenticated user.
+   have **no role check** — any authenticated user (`users.is_admin` is the
+   documented FR-P12 hook, but the column isn't built yet).
 4. `POST /auth/register` is fully open (no email verification / CAPTCHA / invite).
 
 ## Decision
