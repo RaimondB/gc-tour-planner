@@ -34,6 +34,14 @@ export interface AuthConfig {
   postLoginRedirect: string;
   /** null when Google OAuth is not configured (the routes then 503). */
   google: GoogleOAuthConfig | null;
+  /**
+   * Cloudflare Turnstile secret for verifying the register challenge (FR-P5,
+   * Gate 1.4). null when unset → captcha is disabled and registration is open
+   * (dev / local / tests). When set, `POST /auth/register` requires a valid
+   * Turnstile token. The matching site key is a build-time frontend env
+   * (`VITE_TURNSTILE_SITE_KEY`), not server config — it is public by design.
+   */
+  turnstileSecret: string | null;
 }
 
 function bool(raw: string | undefined): boolean {
@@ -90,6 +98,7 @@ export function loadAuthConfig(config: ConfigService): AuthConfig {
     cookieDomain: config.get<string>("AUTH_COOKIE_DOMAIN") || undefined,
     postLoginRedirect: config.get<string>("OAUTH_POST_LOGIN_REDIRECT") ?? "/",
     google,
+    turnstileSecret: config.get<string>("TURNSTILE_SECRET")?.trim() || null,
   };
 }
 

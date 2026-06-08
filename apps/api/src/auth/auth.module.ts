@@ -13,6 +13,7 @@ import { JwtAuthGuard } from "./jwt-auth.guard.js";
 import { LoginLimiterService } from "./login-limiter.service.js";
 import { PasswordService } from "./password.service.js";
 import { SessionService } from "./session.service.js";
+import { TurnstileService } from "./turnstile.service.js";
 import { UsersRepository } from "./users.repository.js";
 
 import "./auth.types.js"; // side-effect: augments Express.Request.
@@ -38,6 +39,7 @@ import "./auth.types.js"; // side-effect: augments Express.Request.
     UsersRepository,
     DevUserService,
     GoogleOAuthService,
+    TurnstileService,
     AuthService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],

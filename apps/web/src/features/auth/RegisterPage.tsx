@@ -6,6 +6,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { RegisterInput } from "@gctp/shared/auth";
 import { useAuth } from "./AuthProvider.js";
 import { registerErrorMessage } from "./auth-messages.js";
+import { TurnstileWidget, TURNSTILE_SITE_KEY } from "./TurnstileWidget.js";
 
 type FieldErrors = Partial<
   Record<"email" | "password" | "displayName", string>
@@ -21,6 +22,13 @@ export function RegisterPage(): JSX.Element {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Cloudflare Turnstile token (FR-P5). When captcha is configured the submit
+  // button stays disabled until the challenge is solved.
+  const captchaRequired = TURNSTILE_SITE_KEY !== null;
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  // Bumped to remount (and re-challenge) the widget after a failed submit —
+  // Turnstile tokens are single-use, so a consumed one must be re-solved.
+  const [captchaNonce, setCaptchaNonce] = useState(0);
 
   useEffect(() => {
     if (isAuthenticated) void navigate({ to: "/" });
@@ -41,14 +49,21 @@ export function RegisterPage(): JSX.Element {
       });
       return;
     }
+    if (captchaRequired && !captchaToken) {
+      setError("Please complete the captcha challenge.");
+      return;
+    }
     setFieldErrors({});
     setPending(true);
     try {
-      await register(parsed.data);
+      await register(parsed.data, captchaToken ?? undefined);
       // Navigation handled by the effect once `isAuthenticated` flips true.
     } catch (err) {
       setError(registerErrorMessage(err));
       setPending(false);
+      // The token was consumed by the failed attempt; force a fresh challenge.
+      setCaptchaToken(null);
+      setCaptchaNonce((n) => n + 1);
     }
   };
 
@@ -115,7 +130,19 @@ export function RegisterPage(): JSX.Element {
           )}
         </label>
 
-        <button type="submit" className="auth-submit" disabled={pending}>
+        {captchaRequired && TURNSTILE_SITE_KEY && (
+          <TurnstileWidget
+            key={captchaNonce}
+            siteKey={TURNSTILE_SITE_KEY}
+            onToken={setCaptchaToken}
+          />
+        )}
+
+        <button
+          type="submit"
+          className="auth-submit"
+          disabled={pending || (captchaRequired && !captchaToken)}
+        >
           {pending ? "Creating account…" : "Create account"}
         </button>
 

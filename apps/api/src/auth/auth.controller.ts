@@ -20,6 +20,7 @@ import type { AuthUser } from "./auth.types.js";
 import type { AuthConfig } from "./auth.config.js";
 import { AUTH_CONFIG } from "./auth.config.js";
 import { AuthService, type EstablishedSession } from "./auth.service.js";
+import { clientIp, trustCfFromEnv, type IpRequest } from "./client-ip.js";
 import {
   clearAuthCookies,
   setCsrfCookie,
@@ -29,6 +30,7 @@ import {
 import { CurrentUser } from "./current-user.decorator.js";
 import { GoogleOAuthService } from "./google-oauth.service.js";
 import { Public } from "./public.decorator.js";
+import { TurnstileService } from "./turnstile.service.js";
 
 /** Per-IP throttle for the credential endpoints (FR-P9). */
 const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } } as const;
@@ -39,6 +41,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly google: GoogleOAuthService,
+    private readonly turnstile: TurnstileService,
     @Inject(AUTH_CONFIG) private readonly cfg: AuthConfig,
   ) {}
 
@@ -58,6 +61,11 @@ export class AuthController {
   @Throttle(AUTH_THROTTLE)
   @ApiOperation({ summary: "Self-service registration (email + password)" })
   @ApiResponse({ status: 201, description: "Registered; session established." })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid input or missing captcha.",
+  })
+  @ApiResponse({ status: 403, description: "Captcha verification failed." })
   @ApiResponse({ status: 409, description: "Email already registered." })
   async register(
     @Req() req: Request,
@@ -65,6 +73,19 @@ export class AuthController {
   ): Promise<AuthUser> {
     const parsed = Auth.RegisterInput.safeParse(req.body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    // Human-verification gate (FR-P5, Gate 1.4). The token rides alongside the
+    // account fields in the body; RegisterInput strips it. No-op when disabled.
+    const body = req.body as { turnstileToken?: unknown };
+    const token =
+      typeof body?.turnstileToken === "string"
+        ? body.turnstileToken
+        : undefined;
+    await this.turnstile.verify(
+      token,
+      clientIp(req as unknown as IpRequest, {
+        trustCfConnectingIp: trustCfFromEnv(),
+      }),
+    );
     const established = await this.auth.register(parsed.data);
     return this.applySession(res, established);
   }

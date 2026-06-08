@@ -60,8 +60,13 @@ Must be green first:
    it from the public path).
 3. **Admin role-gating.** Enforce `users.is_admin` on `/admin/*` and the destructive
    purge.
-4. **Registration abuse control.** Add email verification / CAPTCHA / invite, or
-   explicitly accept open signup with hard caps.
+4. **Registration abuse control.** **Decided: Cloudflare Turnstile CAPTCHA** on
+   `POST /auth/register`, verified server-side (fail closed) before account
+   creation — enabled via `TURNSTILE_SECRET` + `VITE_TURNSTILE_SITE_KEY`, which
+   MUST be set before Access is removed (email verification stays deferred past
+   M6 per ADR-0021; Turnstile pairs naturally with the existing CF setup and
+   needs no email infra). See [FR-P5](../requirements/persistence-sharing.md) and
+   [auth-and-sharing.md §7c](../design/auth-and-sharing.md).
 5. **Clean pentest** on auth / session / IDOR / CSRF / injection.
 
 ### Gate 2 — also remove the Tunnel (direct origin exposure)

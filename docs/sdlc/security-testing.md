@@ -31,8 +31,14 @@ You lose only the identity gate; you keep edge TLS, DDoS/WAF, bot mitigation, an
 2. **bull-board behind auth** — not reachable unauthenticated. *(check-bull-board.sh)*
 3. **Admin role-gating** on `/admin/*` + `POST /tours/walking-graph/purge-bogus`
    (add the `users.is_admin` column from FR-P12 + an admin guard). *(check-admin-authz.sh)*
-4. **Registration abuse control** — email verification / CAPTCHA / invite, or an
-   explicit accept-with-hard-caps decision. *(manual + check-rate-limit.sh)*
+4. **Registration abuse control** — **Cloudflare Turnstile captcha** on
+   `POST /auth/register`, verified server-side before account creation (fails
+   closed). Enabled when `TURNSTILE_SECRET` + `VITE_TURNSTILE_SITE_KEY` are set —
+   both MUST be configured on the target before Access is removed. With the secret
+   set, a register without a valid token is refused (400/403); the per-email rate
+   limit (defeatable with `user+N@` aliases) is no longer the only barrier.
+   *(manual + check-rate-limit.sh; the harness uses Cloudflare's always-passes
+   testing keys so seeding still works — see below)*
 5. **No exploitable findings** on auth, session, IDOR, CSRF, injection. *(check-idor /
    check-csrf / check-session + ZAP/sqlmap)*
 
