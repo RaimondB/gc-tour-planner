@@ -17,15 +17,29 @@ const CachesQuery = z.object({
   // FR-I10: defaults exclude archived + disabled. Flip to include.
   includeDisabled: z.boolean().optional(), // 50% opacity + Z overlay on map
   includeArchived: z.boolean().optional(), // no UI today; debug only
+  // FR-SF9: drop Mystery caches without a solved coordinate
+  // (NOT (type='Mystery' AND solved=false)); other types unaffected.
+  solvedMysteriesOnly: z.boolean().optional(),
+  // FR-SF2 / FR-SF6 (now server-side, FR-SF10): keep map == planner pool.
+  multiSubtype: z.enum(["all", "field-puzzle", "mini", "full"]).optional(),
+  hideToolCaches: z.boolean().optional(),
 });
+// FR-SF10: PlanInput.hardFilters carries the SAME filter set (types,
+// attributes, contexts, solvedMysteriesOnly, multiSubtype, hideToolCaches) so
+// the planner's discovery pool equals the map's visible set. excludeFound is
+// the one exception — the pool always forces it true.
 
-// FR-SF1 + FR-SF8 add two derived fields to the wire DTO.
+// FR-SF1 + FR-SF8 + FR-I13 add derived fields to the wire DTO.
 type CacheDTO = {
   // …all earlier fields…
   /** FR-SF1: count of additional_waypoints rows with type='stages'. */
   stageCount: number; // default 0 (pre-PR3 / non-Multi)
   /** FR-SF8: parser-extracted tool-hint keys. */
   descriptionHints: string[]; // default [] (pre-PR3 / scan returned no hits)
+  /** FR-I13: location is a user-supplied solved/corrected coordinate. */
+  solved: boolean; // default false
+  /** FR-I13: original posted coord, kept when solved (else null). */
+  postedLocation: GeoJsonPoint | null;
 };
 type CachesResponse = {
   caches: CacheDTO[];
@@ -37,7 +51,7 @@ type CachesResponse = {
 
 Lists caches in a radius (center + `radiusM`, max 50 000) matching the
 server-side hard filters (`types`, `attributes`, `excludeFound`, `contexts`,
-`includeDisabled`, `includeArchived`). Returns a **lean per-cache summary** to
+`includeDisabled`, `includeArchived`, `solvedMysteriesOnly`). Returns a **lean per-cache summary** to
 keep the payload small over the Cloudflare tunnel — a wide query is thousands of
 caches (responses are gzip-compressed by the nginx edge):
 
@@ -51,8 +65,9 @@ type CacheSummaryDTO = {
   code: string;
   type: CacheType;
   name: string;
-  location: GeoJsonPoint;
+  location: GeoJsonPoint; // FR-I13: effective coord (solved when solved, else posted)
   disabled: boolean;
+  solved: boolean; // FR-I13: badged with a gold ring on the map
   foundByMe: boolean;
   stageCount: number;
   parkingPoints: [number, number][];
@@ -76,11 +91,15 @@ the current user's (per-user GPX isolation).
 
 ## `POST /gpx/upload`
 
-Multipart upload (`file` + optional `markAsFound` and `force` flags). A
-Groundspeak **"My Finds"** PQ is auto-detected from its top-level `<gpx><name>`
-and its caches are marked found automatically (FR-I7); `markAsFound=true` is the
-manual override for marking a regular PQ's caches found. `force=true` bypasses
-the FR-I12 duplicate-file skip (see below). Returns:
+Multipart upload (`file` + optional `markAsFound`, `force`, and
+`solvedCoordinates` flags). A Groundspeak **"My Finds"** PQ is auto-detected from
+its top-level `<gpx><name>` and its caches are marked found automatically
+(FR-I7); `markAsFound=true` is the manual override for marking a regular PQ's
+caches found. `force=true` bypasses the FR-I12 duplicate-file skip (see below).
+`solvedCoordinates=true` (FR-I13) asserts the file carries the user's _solved_
+(corrected) coordinates — every cache in it is marked `solved` and its `location`
+set to the file's coords, while the posted coord is preserved in
+`published_location`. Returns:
 
 ```ts
 type UploadGpxResult = {
@@ -110,6 +129,11 @@ Side effects:
 - **FR-I9**: raw `.gpx` bytes gzipped and persisted to `{UPLOADS_DIR}/{uploadId}.gpx.gz` before parse. Status transitions: `received` → (`parsed` | `failed`). The raw file is kept on the failed path too so a parser fix can be replayed.
 - **FR-I10**: every upserted row's `source_exported_at` is set to the PQ's `<gpx><time>`. The upsert's staleness guard compares incoming vs. existing — older PQs are skipped (counted under `stats.stale`).
 - **FR-I12**: the uncompressed XML is SHA-256-hashed and matched against this owner's existing `status='parsed'` uploads (`raw_sha256`). On a match, processing is skipped — no second file stored, no re-parse — and the response is `duplicate: true` with `uploadId` = the existing upload and all counts/stats zero. `force=true` re-processes the existing stored upload instead of skipping. Dedup is per-owner.
+- **FR-I13** (`solvedCoordinates=true`): every cache in the file is marked `solved` and its `location` set to the file's coord; `published_location` (the posted coord) is preserved, and a solved upload never overwrites it (nor does a later normal PQ overwrite a solved `location`). Bypasses the FR-I10 staleness guard. Because the coordinate moved, the upsert deletes those caches' `route_legs` + `cache_landuse` in-transaction and the walking-precompute re-warm recomputes them.
+
+## `DELETE /caches/:id/solved-coordinates`
+
+FR-I13 — remove a cache's solved coordinate, reverting `location = COALESCE(published_location, location)` and clearing `solved`/`solved_at`. Owner-scoped (**404** for another user's id). Idempotent: returns `{ cleared: boolean }` — `false` when the cache had no solved coordinate. On a successful clear the cache moved back to its posted coord, so its `route_legs` + `cache_landuse` are invalidated and a single-cache walking-precompute is enqueued.
 
 Parsing is synchronous for small files (< 5 MB); large files are queued to `jobs/gpx-parse` and the client polls `GET /gpx/uploads/:id` (M3+).
 

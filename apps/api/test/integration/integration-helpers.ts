@@ -16,6 +16,8 @@ import type { Kysely } from "kysely";
 import type { Queue } from "bullmq";
 import type { Database } from "@gctp/db";
 import { Tsp } from "@gctp/shared";
+import { CachesRepository } from "../../src/caches/caches.repository.js";
+import { CachesService } from "../../src/caches/caches.service.js";
 import { GpxRepository } from "../../src/gpx/gpx.repository.js";
 import { GpxService } from "../../src/gpx/gpx.service.js";
 import { GpxStorageService } from "../../src/gpx/gpx-storage.service.js";
@@ -44,6 +46,14 @@ export function makeGpxService(db: Kysely<Database>): GpxService {
     mkdtempSync(join(tmpdir(), "gctp-it-")),
   );
   return new GpxService(new GpxRepository(db), storage, fakeWalkingQueue());
+}
+
+/**
+ * Build a real CachesService against the Testcontainer DB with a faked
+ * walking-precompute queue (used by the remove-solved re-warm path).
+ */
+export function makeCachesService(db: Kysely<Database>): CachesService {
+  return new CachesService(new CachesRepository(db), fakeWalkingQueue());
 }
 
 /** `new OsrmVersionService()` re-reads its file each `getVersion()` call and

@@ -26,7 +26,21 @@ CREATE TABLE caches (
   code         TEXT NOT NULL,
   type         TEXT NOT NULL,                                 -- Traditional, Multi, Mystery, ...
   name         TEXT NOT NULL,
+  -- The EFFECTIVE coordinate the planner uses: a user-supplied solved
+  -- coordinate when solved=TRUE, otherwise the posted coordinate. ALL spatial
+  -- queries (radius, clustering, walking-graph, landuse) read this column, so
+  -- the FR-I13 solved-coords feature lands entirely on the upload path.
   location     GEOGRAPHY(Point, 4326) NOT NULL,
+  -- FR-I13: the raw coordinate from the most recent Pocket Query (original
+  -- posted coord). A normal PQ refreshes it but only writes `location` when
+  -- NOT solved; a solved upload writes `location` + solved and never touches
+  -- this. NULL only for caches first seen via a solved upload. Lets "remove
+  -- solved coordinates" revert location = COALESCE(published_location, location).
+  published_location GEOGRAPHY(Point, 4326),
+  -- FR-I13: TRUE when `location` holds a user-supplied solved/corrected coord
+  -- (Mystery solution or Multi final), set via a solvedCoordinates upload.
+  solved       BOOLEAN NOT NULL DEFAULT FALSE,
+  solved_at    TIMESTAMPTZ,
   difficulty   NUMERIC(2,1),
   terrain      NUMERIC(2,1),
   size         TEXT,
@@ -52,6 +66,12 @@ CREATE INDEX caches_owner_idx ON caches (owner_id);
 CREATE INDEX caches_owner_active_idx
   ON caches (owner_id)
   WHERE NOT archived AND NOT disabled;
+-- FR-I13: partial index for the "only solved mysteries" filter
+-- (WHERE NOT (type='Mystery' AND solved=false)). Solved caches are rare,
+-- so the partial index stays tiny.
+CREATE INDEX caches_owner_solved_idx
+  ON caches (owner_id)
+  WHERE solved;
 
 CREATE TABLE cache_attributes (
   cache_id BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,
@@ -202,6 +222,25 @@ CREATE TABLE gpx_uploads (
 -- No index — column is SELECT-projected only; filtering happens
 -- client-side after fetch.
 ALTER TABLE caches ADD COLUMN description_hints TEXT[];
+
+-- FR-I13 (migration 1779710000000): solved / corrected coordinates.
+-- Invariant: `location` is the coordinate the planner uses and is
+-- AUTHORITATIVE once solved — a non-solved upload (a routine PQ) writes
+-- only `published_location` + metadata and NEVER overwrites a solved
+-- `location`; a solved upload (solvedCoordinates=true) writes `location` +
+-- solved + solved_at and NEVER overwrites `published_location`. The two
+-- modes touch disjoint coordinate columns, so they can't clobber each other
+-- and solved uploads bypass the FR-I10 staleness guard. Because changing the
+-- solved coordinate MOVES the cache, the upsert (and the
+-- DELETE /caches/:id/solved-coordinates revert) invalidate that cache's
+-- route_legs + cache_landuse in the same transaction so the walking-precompute
+-- re-warm recomputes them (the precompute's freshness filter would otherwise
+-- skip the stale legs).
+ALTER TABLE caches
+  ADD COLUMN published_location GEOGRAPHY(Point, 4326),
+  ADD COLUMN solved             BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN solved_at          TIMESTAMPTZ;
+UPDATE caches SET published_location = location;  -- back-fill: today location == posted
 
 -- FR-SF1: stage_count is NOT a column — it's computed via a sibling
 -- subquery in caches.repository.ts:

@@ -136,6 +136,12 @@ export interface ListCachesParams {
   includeDisabled?: boolean;
   /** FR-I10 — include archived caches. Default false. */
   includeArchived?: boolean;
+  /** Exclude Mystery caches that have no solved coordinate. Default false. */
+  solvedMysteriesOnly?: boolean;
+  /** FR-SF2 Multi sub-type filter ("all" = no narrowing). Server-side. */
+  multiSubtype?: CachesQuery["multiSubtype"];
+  /** FR-SF6 — hide caches requiring special equipment. Server-side. */
+  hideToolCaches?: boolean;
 }
 
 export async function listCaches(
@@ -154,6 +160,10 @@ export async function listCaches(
   for (const c of params.contexts ?? []) search.append("contexts", c);
   if (params.includeDisabled) search.set("includeDisabled", "true");
   if (params.includeArchived) search.set("includeArchived", "true");
+  if (params.solvedMysteriesOnly) search.set("solvedMysteriesOnly", "true");
+  if (params.multiSubtype && params.multiSubtype !== "all")
+    search.set("multiSubtype", params.multiSubtype);
+  if (params.hideToolCaches) search.set("hideToolCaches", "true");
   const raw = await request<unknown>(`/caches?${search.toString()}`, {
     signal,
   });
@@ -245,6 +255,12 @@ export interface UploadGpxOptions {
   markAsFound?: boolean;
   /** FR-I12 — bypass the duplicate-file skip and re-process anyway. */
   force?: boolean;
+  /**
+   * When true, the file carries the user's SOLVED (corrected) coordinates.
+   * Every cache in it is marked solved and its planning location set to the
+   * file's coords; the original posted coord is preserved.
+   */
+  solvedCoordinates?: boolean;
 }
 
 export async function uploadGpx(
@@ -255,6 +271,7 @@ export async function uploadGpx(
   form.append("file", file);
   if (opts.markAsFound) form.append("markAsFound", "true");
   if (opts.force) form.append("force", "true");
+  if (opts.solvedCoordinates) form.append("solvedCoordinates", "true");
   return request<UploadGpxResult>("/gpx/upload", {
     method: "POST",
     body: form,
@@ -269,6 +286,16 @@ export function unmarkCacheFound(
   cacheId: number,
 ): Promise<{ removed: boolean }> {
   return request(`/caches/${cacheId}/finds`, { method: "DELETE" });
+}
+
+/**
+ * Remove a cache's solved coordinate, reverting its planning location to the
+ * posted coord. `cleared: false` when the cache had no solved coordinate.
+ */
+export function clearSolvedCoordinates(
+  cacheId: number,
+): Promise<{ cleared: boolean }> {
+  return request(`/caches/${cacheId}/solved-coordinates`, { method: "DELETE" });
 }
 
 export async function discoverClusters(input: PlanInput) {

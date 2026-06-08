@@ -46,6 +46,14 @@ export async function prepareClusteringContext(
     radiusM: input.radiusM,
     types: input.hardFilters.types,
     attributes: input.hardFilters.attributes,
+    // Forward the map's filters so the clustered pool == the visible set.
+    solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
+    multiSubtype: input.hardFilters.multiSubtype,
+    hideToolCaches: input.hardFilters.hideToolCaches,
+    contexts: input.hardFilters.contexts,
+    // Implicit: never plan a tour to caches the user has already found, even
+    // when the map is showing them (dimmed). This is the one deliberate
+    // pool-vs-map divergence.
     excludeFound: true,
   });
   if (caches.length < 2) return null;

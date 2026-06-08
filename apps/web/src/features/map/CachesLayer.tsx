@@ -6,15 +6,14 @@ import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheType } from "@gctp/shared/caches";
-import { classifyMulti } from "@gctp/shared/caches";
 import {
+  clearSolvedCoordinates,
   fetchCacheDetail,
   listCaches,
   markCacheFound,
   unmarkCacheFound,
   type ListCachesParams,
 } from "../../lib/api.js";
-import type { SearchParams } from "../../lib/search-params.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
 import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
@@ -22,6 +21,48 @@ import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
+const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
+/** addImage id for the canvas-drawn solved checkmark badge. */
+const SOLVED_BADGE_ICON = "gctp-solved-check";
+
+/**
+ * Draw (once) a small green disc with a white checkmark and register it as a
+ * map image, so the solved badge is a real checkmark. We can't use a "✓" text
+ * glyph: the style's glyph source (demotiles) only serves basic-Latin ranges,
+ * so U+2713 would 404 and render nothing. A canvas icon is glyph-independent.
+ * Returns false when no 2D canvas is available (e.g. jsdom in tests) so the
+ * caller can skip the badge layer rather than reference a missing image.
+ */
+function ensureSolvedBadgeIcon(map: maplibregl.Map): boolean {
+  if (map.hasImage(SOLVED_BADGE_ICON)) return true;
+  const size = 24;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const c = size / 2;
+  ctx.beginPath();
+  ctx.arc(c, c, c - 1.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#2e7d32"; // solved green — distinct from the red selection ring
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(size * 0.28, size * 0.52);
+  ctx.lineTo(size * 0.44, size * 0.69);
+  ctx.lineTo(size * 0.74, size * 0.32);
+  ctx.stroke();
+  map.addImage(SOLVED_BADGE_ICON, ctx.getImageData(0, 0, size, size), {
+    pixelRatio: 2,
+  });
+  return true;
+}
 const PARKING_SOURCE = "gctp-parking";
 const PARKING_LAYER = "gctp-parking-circle";
 
@@ -49,6 +90,8 @@ interface CacheProps {
   selected: number; // 0/1 — same MapLibre-filter caveat
   /** 1 when the cache owner has temporarily disabled it (FR-I10). */
   disabled: number;
+  /** 1 when `location` is a user-supplied solved/corrected coordinate. */
+  solved: number;
   /** FR-SF1 count of `stages` additional waypoints. */
   stageCount: number;
 }
@@ -61,13 +104,11 @@ export interface SelectedParking {
 }
 
 export interface CachesLayerProps {
-  params: SearchParams;
   /**
-   * Canonical, debounced caches-query input owned by App (server-relevant
-   * params only). Used as both the React Query key and the fetch args so this
-   * layer and App share one query/cache entry. `params` is still used for the
-   * client-side-only filters (hideToolCaches, multiSubtype) so those stay
-   * instant and never refetch.
+   * Canonical, debounced caches-query input owned by App. Used as both the
+   * React Query key and the fetch args so this layer and App share one
+   * query/cache entry. ALL filters are server-side now (FR-SF10), so this is
+   * the single source of what renders — there's no client-side narrowing.
    */
   queryInput: ListCachesParams;
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
@@ -83,7 +124,6 @@ export interface CachesLayerProps {
 }
 
 export function CachesLayer({
-  params,
   queryInput,
   selectedCacheIds,
   onSelectionChange,
@@ -100,25 +140,12 @@ export function CachesLayer({
   useEffect(() => {
     if (!ready) return;
 
-    const rawCaches = query.data?.caches ?? [];
-
-    // FR-SF2 + FR-SF6: client-side filters applied after fetch so the
-    // user can toggle without a server round-trip. The server still
-    // does the heavy spatial + type filtering; we only narrow further.
-    const caches = rawCaches.filter((c) => {
-      // `requiresTool` is computed server-side (= hasToolRequirement over the
-      // attribute ids + description hints) so this stays an instant client
-      // filter without the lean list shipping those arrays.
-      if (params.hideToolCaches && c.requiresTool) return false;
-      if (params.multiSubtype !== "all" && c.type === "Multi") {
-        // classifyMulti distinguishes field-puzzle (stages=0) from
-        // mini (1-2) and full (3+). Bucketing 0-stage Multis as
-        // mini would be wrong — they're usually field-puzzle
-        // multis where you derive the next coord on-site.
-        if (classifyMulti(c.stageCount) !== params.multiSubtype) return false;
-      }
-      return true;
-    });
+    // FR-SF2 + FR-SF6 + FR-SF9 are now ALL server-side filters (see
+    // CachesQuery): the cache pool the planner clusters must equal the set
+    // shown on the map, so every filter lives in one place — the server
+    // query — and the map just renders whatever `/caches` returned. No
+    // client-side narrowing here anymore.
+    const caches = query.data?.caches ?? [];
 
     const cachesFeatures = caches.map<
       GeoJSON.Feature<GeoJSON.Point, CacheProps>
@@ -135,6 +162,7 @@ export function CachesLayer({
         foundByMe: c.foundByMe ? 1 : 0,
         selected: selectedCacheIds?.has(c.id) ? 1 : 0,
         disabled: c.disabled ? 1 : 0,
+        solved: c.solved ? 1 : 0,
         stageCount: c.stageCount,
       },
     }));
@@ -210,6 +238,32 @@ export function CachesLayer({
         },
       });
     }
+    // Solved-coordinate cue: a small green checkmark badge on the upper-right
+    // of caches whose plotted location is the user's solved/corrected
+    // coordinate (Mystery solution or Multi final) — same idea as the tour
+    // stop's green "T" tool badge, distinct from the red Cluster-Lab selection
+    // ring. The icon is a canvas image (see ensureSolvedBadgeIcon) so it
+    // doesn't depend on the glyph source's symbol range.
+    if (
+      ensureSolvedBadgeIcon(map) &&
+      !map.getLayer(CACHES_SOLVED_BADGE_LAYER)
+    ) {
+      map.addLayer({
+        id: CACHES_SOLVED_BADGE_LAYER,
+        type: "symbol",
+        source: CACHES_SOURCE,
+        filter: ["==", ["get", "solved"], 1],
+        layout: {
+          "icon-image": SOLVED_BADGE_ICON,
+          // upper-right of the marker; offset is in the 24px icon space and
+          // then scaled by icon-size.
+          "icon-offset": [11, -11],
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+      });
+    }
     if (!map.getLayer(PARKING_LAYER)) {
       map.addLayer({
         id: PARKING_LAYER,
@@ -266,18 +320,15 @@ export function CachesLayer({
       });
     }
 
+    // Some MapLibre builds don't schedule a redraw after addLayer + setData on
+    // an otherwise-idle map, so a fresh result (or the first render after the
+    // style loads) can leave markers unpainted until the next interaction —
+    // the "caches only appear after I click the map" symptom. Force a repaint,
+    // matching TourLayer / MapView.
+    map.triggerRepaint();
+
     return undefined;
-    // FR-SF2 + FR-SF6: re-run when the client-side filter toggles
-    // change, even if query.data didn't (e.g. user unchecks
-    // hideToolCaches with the same fetch in the cache).
-  }, [
-    map,
-    ready,
-    query.data,
-    selectedCacheIds,
-    params.hideToolCaches,
-    params.multiSubtype,
-  ]);
+  }, [map, ready, query.data, selectedCacheIds]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.
@@ -336,6 +387,7 @@ export function CachesLayer({
       // the summary props so the popup paints instantly, then detail fills in.
       let detail: CacheDTO | null = null;
       let found = props.foundByMe === 1;
+      let solved = props.solved === 1;
       const renderPopup = () => {
         root.render(
           <CachePopup
@@ -348,6 +400,7 @@ export function CachesLayer({
             attributeIds={detail?.attributeIds ?? []}
             descriptionHints={detail?.descriptionHints ?? []}
             stageCount={props.stageCount}
+            solved={solved}
             loadingDetail={detail === null}
             onToggleFound={async () => {
               try {
@@ -360,6 +413,27 @@ export function CachesLayer({
                 console.error("toggle found failed", err);
               }
             }}
+            onClearSolved={
+              solved
+                ? async () => {
+                    try {
+                      const { cleared } = await clearSolvedCoordinates(id);
+                      if (cleared) solved = false;
+                      renderPopup();
+                      // The cache's location reverted — refetch so the marker
+                      // jumps back to the posted coord.
+                      void queryClient.invalidateQueries({
+                        queryKey: ["caches"],
+                      });
+                      void queryClient.invalidateQueries({
+                        queryKey: ["cache-detail", id],
+                      });
+                    } catch (err) {
+                      console.error("clear solved failed", err);
+                    }
+                  }
+                : undefined
+            }
           />,
         );
       };

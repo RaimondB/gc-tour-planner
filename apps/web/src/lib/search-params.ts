@@ -37,6 +37,13 @@ export interface SearchParams {
    * everything).
    */
   hideToolCaches: boolean;
+  /**
+   * When true, exclude Mystery caches that have no solved coordinate
+   * (`solved=false`). Other types unaffected. Unlike `hideToolCaches`, this
+   * is a SERVER-side hard filter (it changes the SQL), so it must be part of
+   * the query input / React Query key.
+   */
+  solvedMysteriesOnly: boolean;
 }
 
 export const DEFAULT_SEARCH: SearchParams = {
@@ -49,6 +56,7 @@ export const DEFAULT_SEARCH: SearchParams = {
   includeDisabled: false,
   multiSubtype: "all",
   hideToolCaches: false,
+  solvedMysteriesOnly: false,
 };
 
 /**

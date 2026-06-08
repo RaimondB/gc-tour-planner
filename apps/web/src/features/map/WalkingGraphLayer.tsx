@@ -95,6 +95,11 @@ export function WalkingGraphLayer({
         radiusM: cr!.radiusM,
         hardFilters: {
           types: params.types.length > 0 ? params.types : undefined,
+          solvedMysteriesOnly: params.solvedMysteriesOnly || undefined,
+          multiSubtype:
+            params.multiSubtype !== "all" ? params.multiSubtype : undefined,
+          hideToolCaches: params.hideToolCaches || undefined,
+          contexts: params.contexts.length > 0 ? params.contexts : undefined,
         },
         maxLinkMeters,
         distanceBudgetMeters,

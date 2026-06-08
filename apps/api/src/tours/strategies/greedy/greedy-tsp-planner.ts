@@ -113,6 +113,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           radiusM: input.radiusM,
           types: input.hardFilters.types,
           attributes: input.hardFilters.attributes,
+          solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
+          multiSubtype: input.hardFilters.multiSubtype,
+          hideToolCaches: input.hardFilters.hideToolCaches,
+          contexts: input.hardFilters.contexts,
           excludeFound: true,
         })
       ).caches;

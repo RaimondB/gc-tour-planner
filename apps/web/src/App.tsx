@@ -328,8 +328,15 @@ export default function App(): JSX.Element {
         minClusterSize: planSettings.minClusterSize,
         maxLinkMeters: planSettings.maxLinkMeters,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
+        // Forward the FULL map filter set so the clustered pool == the set
+        // shown on the map (excludeFound stays implicit-true server-side).
         hardFilters: {
           types: params.types.length > 0 ? params.types : undefined,
+          solvedMysteriesOnly: params.solvedMysteriesOnly || undefined,
+          multiSubtype:
+            params.multiSubtype !== "all" ? params.multiSubtype : undefined,
+          hideToolCaches: params.hideToolCaches || undefined,
+          contexts: params.contexts.length > 0 ? params.contexts : undefined,
         },
         softPreferences: {
           clusterDensityWeight: 1,
@@ -398,6 +405,12 @@ export default function App(): JSX.Element {
       excludeFound: params.excludeFound || undefined,
       contexts: params.contexts.length > 0 ? params.contexts : undefined,
       includeDisabled: params.includeDisabled || undefined,
+      solvedMysteriesOnly: params.solvedMysteriesOnly || undefined,
+      // FR-SF2 / FR-SF6 are now server-side too, so the cache pool the planner
+      // clusters matches the set shown on the map (one filter definition).
+      multiSubtype:
+        params.multiSubtype !== "all" ? params.multiSubtype : undefined,
+      hideToolCaches: params.hideToolCaches || undefined,
     }),
     [
       params.center,
@@ -406,6 +419,9 @@ export default function App(): JSX.Element {
       params.excludeFound,
       params.contexts,
       params.includeDisabled,
+      params.solvedMysteriesOnly,
+      params.multiSubtype,
+      params.hideToolCaches,
     ],
   );
   const debouncedCacheInput = useDebouncedValue(cacheQueryInput, 350);
@@ -899,7 +915,6 @@ export default function App(): JSX.Element {
             />
             <RadiusLayer params={params} />
             <CachesLayer
-              params={params}
               queryInput={debouncedCacheInput}
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}

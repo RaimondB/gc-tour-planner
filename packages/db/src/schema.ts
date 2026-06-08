@@ -32,7 +32,25 @@ export interface CachesTable {
   code: string;
   type: string;
   name: string;
+  /**
+   * Effective coordinate the planner uses (migration 1779710000000): the
+   * user-supplied solved coordinate when `solved`, otherwise the posted
+   * coordinate. Every spatial query reads this column, so the solved-coords
+   * feature lands entirely on the upload path.
+   */
   location: Geography;
+  /**
+   * Raw coordinate from the most recent Pocket Query (original posted coord).
+   * A normal PQ refreshes this but only writes `location` when `solved` is
+   * false — so a routine re-upload never clobbers a solved coordinate. NULL
+   * only for caches first seen via a solvedCoordinates upload. Used to revert
+   * `location` when solved coords are removed. See migration 1779710000000.
+   */
+  published_location: ColumnType<
+    Geography | null,
+    Geography | null | undefined,
+    Geography | null
+  >;
   difficulty: ColumnType<
     string | null,
     string | number | null,
@@ -80,6 +98,15 @@ export interface CachesTable {
     string[] | null | undefined,
     string[] | null
   >;
+  /**
+   * True when `location` holds a user-supplied solved/corrected coordinate
+   * (Mystery puzzle solution or Multi final), set via a solvedCoordinates GPX
+   * upload. DB default FALSE so insert is optional. Drives the "only solved
+   * mysteries" filter. See migration 1779710000000.
+   */
+  solved: ColumnType<boolean, boolean | undefined, boolean>;
+  /** When `solved` was first set TRUE. NULL while solved=FALSE. */
+  solved_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
 }

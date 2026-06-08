@@ -81,6 +81,26 @@ export class CachesController {
     description:
       "When true, include archived caches (FR-I10). Default false. No UI today; reserved for debug.",
   })
+  @ApiQuery({
+    name: "solvedMysteriesOnly",
+    required: false,
+    type: Boolean,
+    description:
+      "When true, exclude Mystery caches without a solved coordinate. Other types unaffected.",
+  })
+  @ApiQuery({
+    name: "multiSubtype",
+    required: false,
+    enum: ["all", "field-puzzle", "mini", "full"],
+    description:
+      "FR-SF2 Multi sub-type filter. 'all'/omitted = no narrowing; otherwise keep only Multis whose stage count classifies as the given bucket.",
+  })
+  @ApiQuery({
+    name: "hideToolCaches",
+    required: false,
+    type: Boolean,
+    description: "FR-SF6 — hide caches that require special equipment.",
+  })
   @ApiResponse({
     status: 200,
     description:
@@ -97,6 +117,9 @@ export class CachesController {
     @Query("contexts") contextsRaw?: string | string[],
     @Query("includeDisabled") includeDisabledRaw?: string,
     @Query("includeArchived") includeArchivedRaw?: string,
+    @Query("solvedMysteriesOnly") solvedMysteriesOnlyRaw?: string,
+    @Query("multiSubtype") multiSubtypeRaw?: string,
+    @Query("hideToolCaches") hideToolCachesRaw?: string,
   ): Promise<Caches.CachesSummaryResponse> {
     const types =
       typesRaw === undefined
@@ -123,6 +146,10 @@ export class CachesController {
       includeDisabledRaw === "true" || includeDisabledRaw === "1";
     const includeArchived =
       includeArchivedRaw === "true" || includeArchivedRaw === "1";
+    const solvedMysteriesOnly =
+      solvedMysteriesOnlyRaw === "true" || solvedMysteriesOnlyRaw === "1";
+    const hideToolCaches =
+      hideToolCachesRaw === "true" || hideToolCachesRaw === "1";
 
     const parsed = Caches.CachesQuery.safeParse({
       center: [Number(lng), Number(lat)],
@@ -133,6 +160,13 @@ export class CachesController {
       contexts,
       includeDisabled,
       includeArchived,
+      solvedMysteriesOnly,
+      // "all"/undefined both mean "no narrowing"; let zod reject anything else.
+      multiSubtype:
+        multiSubtypeRaw === undefined || multiSubtypeRaw === ""
+          ? undefined
+          : multiSubtypeRaw,
+      hideToolCaches,
     });
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.flatten());
@@ -192,5 +226,26 @@ export class CachesController {
     @Param("id", ParseIntPipe) id: number,
   ): Promise<{ removed: boolean }> {
     return this.service.unmarkFound(user.id, id);
+  }
+
+  @Delete(":id/solved-coordinates")
+  @ApiOperation({
+    summary:
+      "Remove a cache's solved coordinate, reverting its planning location to the posted coord",
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Solved coordinate removed. `cleared: true` if the cache was solved (location reverted, precompute re-warmed), `false` if it had none.",
+  })
+  @ApiResponse({
+    status: 404,
+    description: "No such cache for the current user.",
+  })
+  clearSolved(
+    @CurrentUser() user: AuthUser,
+    @Param("id", ParseIntPipe) id: number,
+  ): Promise<{ cleared: boolean }> {
+    return this.service.clearSolved(user.id, id);
   }
 }

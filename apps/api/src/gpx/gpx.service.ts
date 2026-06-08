@@ -60,6 +60,15 @@ export interface IngestOptions {
    * instead of short-circuiting. No effect when the file is new.
    */
   force?: boolean;
+  /**
+   * The file carries the user's *solved* (corrected) coordinates — a
+   * deliberate assertion, since Groundspeak substitutes corrected coords into
+   * the `<wpt>` with no machine-readable marker. Every cache in the upload is
+   * marked `solved` and its `location` set to the corrected coord (Mystery
+   * solution or Multi final); the original posted coord is preserved in
+   * `published_location`. Bypasses the staleness guard.
+   */
+  solvedCoordinates?: boolean;
 }
 
 @Injectable()
@@ -178,6 +187,7 @@ export class GpxService {
         parsed.caches,
         parsed.waypoints,
         exportedAtDate,
+        { markSolved: opts.solvedCoordinates === true },
       );
 
     // Auto-detected "My Finds" PQ marks finds without the user asking;
@@ -226,10 +236,13 @@ export class GpxService {
    * populate function on first plan.
    */
   /**
-   * Optimization for the precompute fan-out: only enqueue *new* caches
-   * — re-uploaded caches' walking neighbours haven't changed (their
-   * coordinates would be the same). Stale caches are by definition
-   * already in the cache.
+   * Enqueue the walking-precompute re-warm for every cache in the upload.
+   * Re-uploaded caches are usually no-ops on the OSRM side (their coords
+   * didn't change, so the job's freshness filter skips them), but a solved
+   * upload — or a PQ that shifts a cache — moves the coordinate: the upsert
+   * deletes those caches' `route_legs` + `cache_landuse` in-transaction
+   * (see `relocatedCacheIds`), so they fall back into "missing" and this
+   * re-warm recomputes them.
    */
   private async enqueuePrecompute(
     ownerId: string,

@@ -22,7 +22,11 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
-import { fakeComputePool, makeOsrmVersion } from "./integration-helpers.js";
+import {
+  fakeComputePool,
+  fakeWalkingQueue,
+  makeOsrmVersion,
+} from "./integration-helpers.js";
 
 class FakeOsrmClient implements OsrmClient {
   routeCalls = 0;
@@ -196,7 +200,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     await insertCache(pg, ownerId, "GCM5LONE", 5.3, 52.2);
 
     const cachesRepo = new CachesRepository(pg.db);
-    const cachesService = new CachesService(cachesRepo);
+    const cachesService = new CachesService(cachesRepo, fakeWalkingQueue());
     const routingRepo = new RoutingRepository(pg.db);
     const osrmVersion = makeOsrmVersion();
     osrm = new FakeOsrmClient();
