@@ -45,7 +45,12 @@ Thumbs.db
 .env.*.local
 !.env.example
 infra/.env
+infra/pentest.env
 scripts/dev.env
+
+# Pentest harness scratch state (cookie jars, captured ids). The scripts and
+# fixtures under scripts/pentest/ are tracked; their runtime output is not.
+scripts/pentest/.out/
 
 # Logs
 *.log

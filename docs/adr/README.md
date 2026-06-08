@@ -24,7 +24,7 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0012](0012-car-accessible-roads-for-nearest-road-parking.md) | Car-accessible road filter for nearest-road parking           | Accepted                                      |
 | [0013](0013-walkable-cycleways-in-foot-profile.md)            | Walkable cycleways in the OSRM foot profile                   | Accepted                                      |
 | [0014](0014-planner-compute-worker-pool.md)                   | Planner CPU work on a worker-thread pool (piscina)            | Accepted                                      |
-| [0015](0015-isolated-network-dedicated-cloudflare-tunnel.md)  | gctp on an isolated network behind its own Cloudflare Tunnel  | Accepted                                      |
+| [0015](0015-isolated-network-dedicated-cloudflare-tunnel.md)  | gctp on an isolated network behind its own Cloudflare Tunnel  | Accepted; auth premise amended by ADR-0023    |
 | [0016](0016-staged-dependency-upgrades.md)                    | Staged dependency upgrades (clusters, not big-bang)           | Accepted                                      |
 | [0017](0017-nestjs-11-express-5-migration.md)                 | Migrate to NestJS 11 + Express 5 (+ multer 2)                 | Accepted                                      |
 | [0018](0018-zod-4-shared-wire-contract.md)                    | Migrate to zod 4 (the shared wire contract)                   | Accepted                                      |
@@ -32,3 +32,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0020](0020-typescript-6.md)                                  | Migrate to TypeScript 6.0                                     | Proposed                                      |
 | [0021](0021-auth-and-session-strategy.md)                     | Authentication & session strategy (argon2 + Valkey sessions)  | Accepted                                      |
 | [0022](0022-tour-sharing-link-security.md)                    | Read-only tour sharing & link security                        | Proposed                                      |
+| [0023](0023-staged-cloudflare-access-tunnel-removal.md)       | Staged removal of the Cloudflare Access gate (and Tunnel)     | Proposed                                      |
