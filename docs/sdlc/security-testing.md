@@ -134,7 +134,7 @@ runner exits non-zero if any finding fired. Map each finding to its Gate item.
 | Session fixation / replay | scripted | `check-session.sh` |
 | Headers / cookies / CORS | scripted | `check-headers.sh` + production-config pass |
 | GPX XXE / XML-bomb | manual payloads vs `scripts/pentest/fixtures/*.gpx` | ZAP / curl |
-| SQL/SSRF injection | `sqlmap` on `/api/caches` filters + planner bodies | sqlmap |
+| SQL injection | scripted ZAP active scan (SQLi rules) on `GET /caches` filters + `POST /tours/clusters` body; `sqlmap` for deeper coverage | `zap-sqli.sh` / sqlmap |
 | Broad active scan | authenticated ZAP context + nuclei | ZAP / nuclei |
 | Tour sharing (ADR-0022) | design review now; retest `GET /shared/:slug` at M6-δ | manual |
 
