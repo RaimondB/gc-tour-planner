@@ -689,7 +689,7 @@ export default function App(): JSX.Element {
           aria-controls="tools-drawer"
           title="Developer tools (cluster lab, debug overlays, admin)"
         >
-          ⚙ Tools
+          ⚙<span className="app-header__tools-label"> Tools</span>
         </button>
         {user && (
           <div className="app-header__user">
