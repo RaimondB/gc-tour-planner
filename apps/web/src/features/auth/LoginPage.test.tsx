@@ -37,6 +37,7 @@ const USER = {
   id: "11111111-1111-1111-1111-111111111111",
   email: "user@example.com",
   displayName: "Tester",
+  isAdmin: false,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
