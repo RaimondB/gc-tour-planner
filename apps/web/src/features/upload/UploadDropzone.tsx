@@ -9,15 +9,17 @@ export function UploadDropzone(): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const [dragging, setDragging] = useState(false);
+  const [solvedCoordinates, setSolvedCoordinates] = useState(false);
 
   const mutation = useMutation<
     UploadGpxResult,
     Error,
-    { file: File; force?: boolean }
+    { file: File; force?: boolean; solvedCoordinates?: boolean }
   >({
     // A Groundspeak "My Finds" PQ is auto-detected server-side (top-level
     // <name>) and its caches are marked found automatically — no toggle.
-    mutationFn: ({ file, force }) => uploadGpx(file, { force }),
+    mutationFn: ({ file, force, solvedCoordinates }) =>
+      uploadGpx(file, { force, solvedCoordinates }),
     onSuccess: (result) => {
       // A duplicate skip wrote nothing — no point invalidating the map.
       if (result.duplicate) return;
@@ -33,11 +35,27 @@ export function UploadDropzone(): JSX.Element {
       mutation.reset();
       return;
     }
-    mutation.mutate({ file });
+    mutation.mutate({ file, solvedCoordinates });
   };
 
   return (
     <div className="upload">
+      <label className="checkbox" style={{ marginBottom: 8 }}>
+        <input
+          type="checkbox"
+          checked={solvedCoordinates}
+          onChange={(e) => setSolvedCoordinates(e.target.checked)}
+        />
+        This file contains my solved coordinates
+      </label>
+      {solvedCoordinates && (
+        <small className="muted" style={{ display: "block", marginBottom: 8 }}>
+          Every cache in the file is marked solved and its planning location set
+          to the file&rsquo;s coordinates (Mystery solution or Multi final). The
+          original posted coordinate is kept, and a normal Pocket Query
+          re-upload won&rsquo;t overwrite the solved location.
+        </small>
+      )}
       <div
         className={`dropzone${dragging ? " dropzone--active" : ""}`}
         onDragEnter={(e) => {
@@ -85,7 +103,8 @@ export function UploadDropzone(): JSX.Element {
               onForce={(e) => {
                 e.stopPropagation();
                 const file = mutation.variables?.file;
-                if (file) mutation.mutate({ file, force: true });
+                if (file)
+                  mutation.mutate({ file, force: true, solvedCoordinates });
               }}
             />
           ) : (

@@ -9,6 +9,25 @@ import { KYSELY } from "../database/database.tokens.js";
 
 export type CacheUpsertOutcome = "new" | "updated" | "stale";
 
+/**
+ * Cheap equirectangular distance in metres between two lng/lat points. Used
+ * only to decide "did this cache's stored coordinate move?" (threshold ~1 m),
+ * where the small-angle approximation is more than precise enough — we're not
+ * routing, just gating precompute invalidation.
+ */
+function movedMeters(
+  lng1: number,
+  lat1: number,
+  lng2: number,
+  lat2: number,
+): number {
+  const R = 6_371_000;
+  const meanLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLng = (lng2 - lng1) * (Math.PI / 180) * Math.cos(meanLat);
+  return Math.hypot(dLat, dLng) * R;
+}
+
 export interface UpsertCachesResult {
   /** Count of rows actually written (new + updated); excludes `stale`. */
   insertedOrUpdated: number;
@@ -28,6 +47,29 @@ export interface UpsertCachesResult {
    * upsert was a no-op for that cache (FR-I10 staleness guard).
    */
   outcome: ReadonlyMap<string, CacheUpsertOutcome>;
+  /**
+   * Ids of *existing* caches whose stored `location` actually moved in this
+   * upload (a solved upload writing corrected coords, or a normal PQ that
+   * shifted a non-solved cache). Their `route_legs` + `cache_landuse` rows
+   * were invalidated inside the transaction so the precompute re-warm
+   * recomputes them — the OSRM precompute skips pairs it thinks are already
+   * fresh, so stale legs must be deleted, not merely re-enqueued. New rows
+   * are excluded (they have no precompute to invalidate).
+   */
+  relocatedCacheIds: readonly number[];
+}
+
+export interface UpsertFromGpxOptions {
+  /**
+   * When true, the file's `<wpt>` coords are the user's *solved* (corrected)
+   * coordinates — a deliberate assertion (Groundspeak ships no marker). Every
+   * cache in the upload is marked `solved` and its `location` set to the
+   * corrected coord; the original posted coord is preserved in
+   * `published_location` (untouched for existing rows). Bypasses the staleness
+   * guard. A normal upload (`markSolved=false`) never writes `location` on an
+   * already-solved row, so the two upload modes never clobber each other.
+   */
+  markSolved?: boolean;
 }
 
 @Injectable()
@@ -54,13 +96,16 @@ export class GpxRepository {
      * the staleness check degrades to "always allow update".
      */
     exportedAt: Date | null,
+    opts: UpsertFromGpxOptions = {},
   ): Promise<UpsertCachesResult> {
+    const markSolved = opts.markSolved === true;
     if (caches.length === 0 && waypoints.length === 0) {
       return {
         insertedOrUpdated: 0,
         waypointsInserted: 0,
         cacheIdByCode: new Map(),
         outcome: new Map(),
+        relocatedCacheIds: [],
       };
     }
 
@@ -68,6 +113,7 @@ export class GpxRepository {
       let insertedOrUpdated = 0;
       const cacheIdByCode = new Map<string, number>();
       const outcome = new Map<string, CacheUpsertOutcome>();
+      const relocatedCacheIds: number[] = [];
 
       // Bulk-fetch existing rows so the staleness guard can be applied
       // per-cache without per-iteration round-trips. Source is always
@@ -78,7 +124,14 @@ export class GpxRepository {
         incomingCodes.length > 0
           ? await tx
               .selectFrom("caches")
-              .select(["id", "source_id", "source_exported_at"])
+              .select((eb) => [
+                "id",
+                "source_id",
+                "source_exported_at",
+                "solved",
+                sql<number>`ST_X(${eb.ref("location")}::geometry)`.as("lng"),
+                sql<number>`ST_Y(${eb.ref("location")}::geometry)`.as("lat"),
+              ])
               .where("owner_id", "=", ownerId)
               .where("source", "=", "gpx")
               .where("source_id", "in", incomingCodes)
@@ -86,29 +139,39 @@ export class GpxRepository {
           : [];
       const existingBySourceId = new Map<
         string,
-        { id: number; exportedAt: Date | null }
+        {
+          id: number;
+          exportedAt: Date | null;
+          solved: boolean;
+          lng: number;
+          lat: number;
+        }
       >();
       for (const r of existingRows) {
         existingBySourceId.set(r.source_id, {
           id: Number(r.id),
           exportedAt: r.source_exported_at,
+          solved: r.solved,
+          lng: r.lng,
+          lat: r.lat,
         });
       }
 
       for (const c of caches) {
         const existing = existingBySourceId.get(c.sourceId);
+        const isNew = existing === undefined;
 
-        // Staleness decision:
+        // Staleness decision (FR-I10) applies to normal uploads only. A
+        // solved upload is a deliberate coordinate assertion and bypasses
+        // the guard — it never refreshes metadata anyway (see below), so a
+        // stale solved file can't downgrade fresh data.
         //   * No existing row → new (insert).
-        //   * Existing row has no exportedAt or incoming has no
-        //     exportedAt → update (we have no way to compare ages;
-        //     fall back to "incoming wins" to preserve pre-PR2
-        //     behaviour).
+        //   * Existing row or incoming has no exportedAt → update (no way to
+        //     compare ages; "incoming wins", preserving pre-PR2 behaviour).
         //   * Incoming exportedAt < existing exportedAt → stale (skip).
-        //     Equal exportedAt counts as "update" — re-running the
-        //     same PQ should be a no-op data-wise but refresh
-        //     `last_seen_at`.
+        //     Equal counts as "update" (refresh last_seen_at).
         const isStale =
+          !markSolved &&
           existing !== undefined &&
           existing.exportedAt !== null &&
           exportedAt !== null &&
@@ -120,57 +183,134 @@ export class GpxRepository {
           continue;
         }
 
-        const isNew = existing === undefined;
-        const row = await tx
-          .insertInto("caches")
-          .values({
-            owner_id: ownerId,
-            source: "gpx",
-            source_id: c.sourceId,
-            code: c.code,
-            type: c.type,
-            name: c.name,
-            location: sql<string>`ST_SetSRID(ST_MakePoint(${c.location[0]}, ${c.location[1]}), 4326)::geography`,
-            difficulty: c.difficulty,
-            terrain: c.terrain,
-            size: c.size,
-            archived: c.archived,
-            disabled: c.disabled,
-            source_exported_at: exportedAt,
-            // FR-SF8: persist the parser's multilingual tool-keyword
-            // scan. Always non-null on the write path so we can tell
-            // "scanned, no matches" (`[]`) apart from "never scanned"
-            // (`NULL`, pre-PR3 rows) later when back-filling.
-            description_hints: c.descriptionHints,
-            raw: sql<string>`'{}'::jsonb`,
-          })
-          .onConflict((oc) =>
-            oc
-              .columns(["owner_id", "source", "source_id"])
-              // Matches the partial unique index `caches_owner_source_id_idx`.
-              .where("owner_id", "is not", null)
-              .doUpdateSet({
-                code: (eb) => eb.ref("excluded.code"),
-                type: (eb) => eb.ref("excluded.type"),
-                name: (eb) => eb.ref("excluded.name"),
-                location: (eb) => eb.ref("excluded.location"),
-                difficulty: (eb) => eb.ref("excluded.difficulty"),
-                terrain: (eb) => eb.ref("excluded.terrain"),
-                size: (eb) => eb.ref("excluded.size"),
-                archived: (eb) => eb.ref("excluded.archived"),
-                disabled: (eb) => eb.ref("excluded.disabled"),
-                source_exported_at: (eb) =>
-                  eb.ref("excluded.source_exported_at"),
-                description_hints: (eb) => eb.ref("excluded.description_hints"),
-                last_seen_at: sql<Date>`now()`,
-              }),
-          )
-          .returning("id")
-          .executeTakeFirstOrThrow();
+        // Does this write touch `location`? A normal upload writes the
+        // posted coord into `location` UNLESS the existing row is already
+        // solved — then `location` holds the user's solved coord and must be
+        // preserved (the only clobber-guard). A solved upload always writes
+        // `location` (the corrected coord).
+        const writesLocation =
+          markSolved || !existing || existing.solved !== true;
+
+        const row = markSolved
+          ? // Solved upload: set the corrected coord + solved flag. On an
+            // existing row we touch ONLY the solved columns + last_seen — we
+            // trust the file's coordinate assertion, not its metadata
+            // freshness, and we preserve `published_location` (the posted
+            // coord, from a prior normal PQ). A new row has no posted coord
+            // yet, so `published_location` stays NULL until a later PQ.
+            await tx
+              .insertInto("caches")
+              .values({
+                owner_id: ownerId,
+                source: "gpx",
+                source_id: c.sourceId,
+                code: c.code,
+                type: c.type,
+                name: c.name,
+                location: sql<string>`ST_SetSRID(ST_MakePoint(${c.location[0]}, ${c.location[1]}), 4326)::geography`,
+                published_location: null,
+                solved: true,
+                solved_at: sql<Date>`now()`,
+                difficulty: c.difficulty,
+                terrain: c.terrain,
+                size: c.size,
+                archived: c.archived,
+                disabled: c.disabled,
+                source_exported_at: exportedAt,
+                description_hints: c.descriptionHints,
+                raw: sql<string>`'{}'::jsonb`,
+              })
+              .onConflict((oc) =>
+                oc
+                  .columns(["owner_id", "source", "source_id"])
+                  .where("owner_id", "is not", null)
+                  .doUpdateSet({
+                    location: (eb) => eb.ref("excluded.location"),
+                    solved: true,
+                    // Keep the original solved_at if already solved.
+                    solved_at: sql<Date>`COALESCE(caches.solved_at, now())`,
+                    last_seen_at: sql<Date>`now()`,
+                  }),
+              )
+              .returning("id")
+              .executeTakeFirstOrThrow()
+          : // Normal upload: refresh the posted coord + all metadata. Always
+            // updates `published_location`; updates `location` only when the
+            // row isn't already solved (otherwise the solved coord wins).
+            await tx
+              .insertInto("caches")
+              .values({
+                owner_id: ownerId,
+                source: "gpx",
+                source_id: c.sourceId,
+                code: c.code,
+                type: c.type,
+                name: c.name,
+                location: sql<string>`ST_SetSRID(ST_MakePoint(${c.location[0]}, ${c.location[1]}), 4326)::geography`,
+                published_location: sql<string>`ST_SetSRID(ST_MakePoint(${c.location[0]}, ${c.location[1]}), 4326)::geography`,
+                difficulty: c.difficulty,
+                terrain: c.terrain,
+                size: c.size,
+                archived: c.archived,
+                disabled: c.disabled,
+                source_exported_at: exportedAt,
+                // FR-SF8: persist the parser's multilingual tool-keyword
+                // scan. Always non-null on the write path so we can tell
+                // "scanned, no matches" (`[]`) apart from "never scanned"
+                // (`NULL`, pre-PR3 rows) later when back-filling.
+                description_hints: c.descriptionHints,
+                raw: sql<string>`'{}'::jsonb`,
+              })
+              .onConflict((oc) =>
+                oc
+                  .columns(["owner_id", "source", "source_id"])
+                  // Matches the partial unique index `caches_owner_source_id_idx`.
+                  .where("owner_id", "is not", null)
+                  .doUpdateSet({
+                    code: (eb) => eb.ref("excluded.code"),
+                    type: (eb) => eb.ref("excluded.type"),
+                    name: (eb) => eb.ref("excluded.name"),
+                    // Preserve a solved cache's corrected `location`; only
+                    // refresh it for non-solved rows.
+                    ...(writesLocation
+                      ? { location: (eb) => eb.ref("excluded.location") }
+                      : {}),
+                    published_location: (eb) =>
+                      eb.ref("excluded.published_location"),
+                    difficulty: (eb) => eb.ref("excluded.difficulty"),
+                    terrain: (eb) => eb.ref("excluded.terrain"),
+                    size: (eb) => eb.ref("excluded.size"),
+                    archived: (eb) => eb.ref("excluded.archived"),
+                    disabled: (eb) => eb.ref("excluded.disabled"),
+                    source_exported_at: (eb) =>
+                      eb.ref("excluded.source_exported_at"),
+                    description_hints: (eb) =>
+                      eb.ref("excluded.description_hints"),
+                    last_seen_at: sql<Date>`now()`,
+                  }),
+              )
+              .returning("id")
+              .executeTakeFirstOrThrow();
 
         cacheIdByCode.set(c.code, Number(row.id));
         outcome.set(c.code, isNew ? "new" : "updated");
         insertedOrUpdated += 1;
+
+        // Relocation: an existing row whose stored `location` actually moved
+        // (corrected coord differs from the old one) has stale precompute.
+        // New rows are excluded (no legs/landuse to invalidate yet).
+        if (
+          existing &&
+          writesLocation &&
+          movedMeters(
+            existing.lng,
+            existing.lat,
+            c.location[0],
+            c.location[1],
+          ) > 1
+        ) {
+          relocatedCacheIds.push(existing.id);
+        }
 
         // Replace attributes for this cache.
         await tx
@@ -253,7 +393,36 @@ export class GpxRepository {
         waypointsInserted = matchedWaypoints.length;
       }
 
-      return { insertedOrUpdated, waypointsInserted, cacheIdByCode, outcome };
+      // Invalidate location-derived precompute for relocated caches. The
+      // walking-precompute job skips OSRM pairs it thinks are already fresh,
+      // so a moved cache's stale `route_legs` must be deleted to force a
+      // refetch; `cache_landuse` membership is recomputed by the same job's
+      // bbox populate once the stale rows are gone. The precompute re-warm is
+      // enqueued by the service for every cache in the upload, so the moved
+      // caches are back in scope.
+      if (relocatedCacheIds.length > 0) {
+        await tx
+          .deleteFrom("route_legs")
+          .where((eb) =>
+            eb.or([
+              eb("from_cache_id", "in", relocatedCacheIds),
+              eb("to_cache_id", "in", relocatedCacheIds),
+            ]),
+          )
+          .execute();
+        await tx
+          .deleteFrom("cache_landuse")
+          .where("cache_id", "in", relocatedCacheIds)
+          .execute();
+      }
+
+      return {
+        insertedOrUpdated,
+        waypointsInserted,
+        cacheIdByCode,
+        outcome,
+        relocatedCacheIds,
+      };
     });
   }
 

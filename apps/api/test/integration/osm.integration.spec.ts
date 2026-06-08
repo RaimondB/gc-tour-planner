@@ -15,7 +15,7 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
-import { makeGpxService } from "./integration-helpers.js";
+import { fakeWalkingQueue, makeGpxService } from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -75,7 +75,10 @@ describe("OSM landuse integration (PostGIS via Testcontainers)", () => {
     `.execute(pg.db);
 
     osmService = new OsmService(new LanduseRepository(pg.db));
-    cachesService = new CachesService(new CachesRepository(pg.db));
+    cachesService = new CachesService(
+      new CachesRepository(pg.db),
+      fakeWalkingQueue(),
+    );
     gpxService = makeGpxService(pg.db);
 
     // Seed caches so the contexts filter has something to test against.

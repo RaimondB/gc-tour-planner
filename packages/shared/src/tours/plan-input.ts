@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { z } from "zod";
-import { CacheType, AttributeFilterGroups } from "../caches/index.js";
+import {
+  CacheType,
+  AttributeFilterGroups,
+  MultiSubtypeFilter,
+} from "../caches/index.js";
 import { LngLat } from "../geo/index.js";
 import {
   ParkingAccessChip,
@@ -36,6 +40,17 @@ export type SoftPreferences = z.infer<typeof SoftPreferences>;
 export const HardFilters = z.object({
   types: z.array(CacheType).optional(),
   attributes: AttributeFilterGroups.optional(),
+  /**
+   * The map's filter set, forwarded so the discovery pool == the set shown on
+   * the map ("whatever is visible after filtering is what gets clustered").
+   * All optional; omitted = no narrowing. `excludeFound` stays implicit `true`
+   * in the pool regardless — you never plan a tour to caches you've found.
+   */
+  solvedMysteriesOnly: z.boolean().optional(),
+  multiSubtype: MultiSubtypeFilter.optional(),
+  hideToolCaches: z.boolean().optional(),
+  /** Landuse hard-filter kinds (same as CachesQuery.contexts). */
+  contexts: z.array(z.string()).optional(),
 });
 export type HardFilters = z.infer<typeof HardFilters>;
 

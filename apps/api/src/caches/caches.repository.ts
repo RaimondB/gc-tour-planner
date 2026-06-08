@@ -36,6 +36,19 @@ export interface FindCachesParams {
    * for a future debug overlay (archived caches are normally noise).
    */
   includeArchived?: boolean;
+  /**
+   * Exclude Mystery-type caches that have no solved coordinate. Other types
+   * are unaffected. Implemented as `NOT (type='Mystery' AND solved=false)`.
+   */
+  solvedMysteriesOnly?: boolean;
+  /**
+   * Multi sub-type filter (FR-SF2). `"all"`/undefined = no narrowing. Applied
+   * server-side (post-projection, via `classifyMulti(stageCount)`) so the
+   * planner's cache pool matches the map.
+   */
+  multiSubtype?: Caches.MultiSubtypeFilter;
+  /** Hide caches that require special equipment (FR-SF6). Server-side. */
+  hideToolCaches?: boolean;
 }
 
 interface CacheRow {
@@ -52,6 +65,10 @@ interface CacheRow {
   size: string | null;
   archived: boolean;
   disabled: boolean;
+  solved: boolean;
+  /** ST_X/ST_Y of published_location; both null when not solved / unknown. */
+  posted_lng: number | null;
+  posted_lat: number | null;
   attribute_ids: number[];
   parking_lngs: number[];
   parking_lats: number[];
@@ -88,6 +105,13 @@ export class CachesRepository {
         "c.size",
         "c.archived",
         "c.disabled",
+        "c.solved",
+        sql<number | null>`ST_X(c.published_location::geometry)`.as(
+          "posted_lng",
+        ),
+        sql<number | null>`ST_Y(c.published_location::geometry)`.as(
+          "posted_lat",
+        ),
         eb
           .selectFrom("cache_attributes as a")
           .whereRef("a.cache_id", "=", "c.id")
@@ -191,6 +215,13 @@ export class CachesRepository {
       q = q.where("c.type", "in", p.types as unknown as string[]);
     }
 
+    // "Only solved mysteries": drop Mystery caches without a solved
+    // coordinate; every other type passes through. Served by the partial
+    // index `caches_owner_solved_idx` for the solved subset.
+    if (p.solvedMysteriesOnly) {
+      q = q.where(sql<boolean>`NOT (c.type = 'Mystery' AND c.solved = false)`);
+    }
+
     if (p.attributeGroups && p.attributeGroups.length > 0) {
       for (const group of p.attributeGroups) {
         if (group.length === 0) continue;
@@ -217,7 +248,7 @@ export class CachesRepository {
 
     const rows = (await q.execute()) as unknown as CacheRow[];
 
-    return rows.map<Caches.CacheDTO>((r) => {
+    const dtos = rows.map<Caches.CacheDTO>((r) => {
       const parking: Caches.CacheDTO["parkingPoints"] = [];
       const lngs = r.parking_lngs ?? [];
       const lats = r.parking_lats ?? [];
@@ -241,6 +272,11 @@ export class CachesRepository {
         size: r.size,
         archived: r.archived,
         disabled: r.disabled,
+        solved: r.solved,
+        postedLocation:
+          typeof r.posted_lng === "number" && typeof r.posted_lat === "number"
+            ? { type: "Point", coordinates: [r.posted_lng, r.posted_lat] }
+            : null,
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),
@@ -253,6 +289,25 @@ export class CachesRepository {
         descriptionHints: r.description_hints ?? [],
       };
     });
+
+    // FR-SF2 / FR-SF6 applied server-side (post-projection — they need
+    // stageCount + attribute/hint data) so the planner's discovery pool, which
+    // calls this same method, matches exactly what the map shows. Type and
+    // spatial filters already ran in SQL above.
+    let result = dtos;
+    if (p.hideToolCaches) {
+      result = result.filter(
+        (c) => !Caches.hasToolRequirement(c.attributeIds, c.descriptionHints),
+      );
+    }
+    if (p.multiSubtype && p.multiSubtype !== "all") {
+      const want = p.multiSubtype;
+      result = result.filter(
+        (c) =>
+          c.type !== "Multi" || Caches.classifyMulti(c.stageCount) === want,
+      );
+    }
+    return result;
   }
 
   /**
@@ -277,6 +332,50 @@ export class CachesRepository {
       .returning("cache_id")
       .execute();
     return rows.length > 0;
+  }
+
+  /**
+   * Remove a cache's solved coordinate: revert `location` to the posted coord
+   * (`COALESCE(published_location, location)` — when the cache was first seen
+   * via a solved upload there's no posted coord to fall back to, so `location`
+   * stays put) and clear the solved flag. Owner-scoped and idempotent.
+   *
+   * Reverting `location` moves the cache, so its location-derived precompute
+   * is invalidated in the same transaction (route_legs both directions +
+   * cache_landuse); the caller re-warms via the walking-precompute queue.
+   * Returns true when a solved row was actually cleared.
+   */
+  async clearSolved(userId: string, cacheId: number): Promise<boolean> {
+    return this.db.transaction().execute(async (tx) => {
+      const reverted = await tx
+        .updateTable("caches")
+        .set({
+          solved: false,
+          solved_at: null,
+          location: sql<string>`COALESCE(published_location, location)`,
+        })
+        .where("id", "=", cacheId)
+        .where("owner_id", "=", userId)
+        .where("solved", "=", true)
+        .returning("id")
+        .executeTakeFirst();
+      if (!reverted) return false;
+
+      await tx
+        .deleteFrom("route_legs")
+        .where((eb) =>
+          eb.or([
+            eb("from_cache_id", "=", cacheId),
+            eb("to_cache_id", "=", cacheId),
+          ]),
+        )
+        .execute();
+      await tx
+        .deleteFrom("cache_landuse")
+        .where("cache_id", "=", cacheId)
+        .execute();
+      return true;
+    });
   }
 
   /**
@@ -308,6 +407,13 @@ export class CachesRepository {
         "c.size",
         "c.archived",
         "c.disabled",
+        "c.solved",
+        sql<number | null>`ST_X(c.published_location::geometry)`.as(
+          "posted_lng",
+        ),
+        sql<number | null>`ST_Y(c.published_location::geometry)`.as(
+          "posted_lat",
+        ),
         eb
           .selectFrom("cache_attributes as a")
           .whereRef("a.cache_id", "=", "c.id")
@@ -392,6 +498,11 @@ export class CachesRepository {
         size: r.size,
         archived: r.archived,
         disabled: r.disabled,
+        solved: r.solved,
+        postedLocation:
+          typeof r.posted_lng === "number" && typeof r.posted_lat === "number"
+            ? { type: "Point", coordinates: [r.posted_lng, r.posted_lat] }
+            : null,
         attributeIds: r.attribute_ids ?? [],
         parkingPoints: parking,
         foundByMe: Boolean(r.found_by_me),

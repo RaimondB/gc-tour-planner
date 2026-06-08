@@ -35,6 +35,19 @@ export const WAYPOINT_TYPES = [
 export const WaypointType = z.enum(WAYPOINT_TYPES);
 export type WaypointType = z.infer<typeof WaypointType>;
 
+/**
+ * Multi sub-type filter (FR-SF2). `"all"` = no narrowing; the rest map to
+ * `classifyMulti(stageCount)`. Applied server-side so the cache pool the
+ * planner clusters matches the set shown on the map.
+ */
+export const MultiSubtypeFilter = z.enum([
+  "all",
+  "field-puzzle",
+  "mini",
+  "full",
+]);
+export type MultiSubtypeFilter = z.infer<typeof MultiSubtypeFilter>;
+
 export const AttributeFilter = z.object({
   id: z.number().int().positive(),
   positive: z.boolean(),
@@ -67,6 +80,21 @@ export const CacheDTO = z.object({
    * "Z" overlay; archived caches are excluded by default.
    */
   disabled: z.boolean(),
+  /**
+   * True when `location` holds a user-supplied solved/corrected coordinate
+   * (Mystery puzzle solution or Multi final), set via a `solvedCoordinates`
+   * GPX upload. The map badges these; the "only solved mysteries" filter
+   * keys off it. Defaulted for back-compat with pre-feature responses.
+   */
+  solved: z.boolean().default(false),
+  /**
+   * The original posted coordinate (Groundspeak's listing coords), kept when
+   * `solved` so the popup can show posted-vs-solved and offer "remove solved
+   * coordinates". NULL when the cache was first seen via a solved upload (no
+   * posted coord known yet) or when not solved. `location` is always the
+   * effective coordinate the planner uses.
+   */
+  postedLocation: GeoJsonPoint.nullable().default(null),
   attributeIds: z.array(z.number().int()),
   parkingPoints: z.array(LngLat),
   /** True if the current user has logged a find for this cache. */
@@ -107,6 +135,25 @@ export const CachesQuery = z.object({
    * this today; reserved for future debug toggle.
    */
   includeArchived: z.boolean().optional(),
+  /**
+   * When true, exclude Mystery-type caches that have no solved coordinate
+   * (`solved=false`). Other cache types are unaffected. SQL:
+   * `NOT (type='Mystery' AND solved=false)`. The filter sidebar's "Only
+   * solved mysteries" toggle flips this.
+   */
+  solvedMysteriesOnly: z.boolean().optional(),
+  /**
+   * Multi sub-type filter (FR-SF2). `"all"`/undefined = no narrowing; a
+   * concrete value keeps only Multis whose `classifyMulti(stageCount)` matches
+   * (other types pass through). Server-side so the planner pool == the map.
+   */
+  multiSubtype: MultiSubtypeFilter.optional(),
+  /**
+   * Hide caches that require special equipment (FR-SF6) —
+   * `hasToolRequirement(attributeIds, descriptionHints)`. Server-side so the
+   * planner pool == the map.
+   */
+  hideToolCaches: z.boolean().optional(),
 });
 export type CachesQuery = z.infer<typeof CachesQuery>;
 
@@ -149,6 +196,12 @@ export const CacheSummaryDTO = z.object({
   name: z.string(),
   location: GeoJsonPoint,
   disabled: z.boolean(),
+  /**
+   * True when `location` is a user-supplied solved/corrected coordinate. The
+   * map badges these (mirroring the disabled "Z" overlay) and the "only solved
+   * mysteries" filter keys off it. Defaulted for back-compat.
+   */
+  solved: z.boolean().default(false),
   foundByMe: z.boolean(),
   stageCount: z.number().int().nonnegative().default(0),
   parkingPoints: z.array(LngLat),
@@ -172,6 +225,7 @@ export function toCacheSummary(c: CacheDTO): CacheSummaryDTO {
     name: c.name,
     location: c.location,
     disabled: c.disabled,
+    solved: c.solved,
     foundByMe: c.foundByMe,
     stageCount: c.stageCount,
     parkingPoints: c.parkingPoints,

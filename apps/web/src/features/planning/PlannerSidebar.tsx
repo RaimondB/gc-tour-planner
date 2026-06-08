@@ -1615,6 +1615,11 @@ export function ClusterLabPanel({
         radiusM: search.radiusM,
         hardFilters: {
           types: search.types.length > 0 ? search.types : undefined,
+          solvedMysteriesOnly: search.solvedMysteriesOnly || undefined,
+          multiSubtype:
+            search.multiSubtype !== "all" ? search.multiSubtype : undefined,
+          hideToolCaches: search.hideToolCaches || undefined,
+          contexts: search.contexts.length > 0 ? search.contexts : undefined,
         },
         maxLinkMeters: settings.maxLinkMeters,
         minClusterSize: settings.minClusterSize,

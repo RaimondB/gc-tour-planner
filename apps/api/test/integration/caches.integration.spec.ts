@@ -11,7 +11,7 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
-import { makeGpxService } from "./integration-helpers.js";
+import { fakeWalkingQueue, makeGpxService } from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -39,7 +39,7 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
     gpxService = makeGpxService(pg.db);
 
     const cacheRepo = new CachesRepository(pg.db);
-    cachesService = new CachesService(cacheRepo);
+    cachesService = new CachesService(cacheRepo, fakeWalkingQueue());
   });
 
   afterAll(async () => {

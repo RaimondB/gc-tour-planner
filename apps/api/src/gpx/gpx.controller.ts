@@ -58,6 +58,12 @@ export class GpxController {
           description:
             "FR-I12 — bypass the duplicate-file skip. By default a byte-identical re-upload is detected and skipped (response has `duplicate: true`). Set 'true' to re-process the existing stored upload anyway (re-parse + re-upsert; no second copy stored).",
         },
+        solvedCoordinates: {
+          type: "string",
+          enum: ["true", "false"],
+          description:
+            "Set 'true' when this GPX carries your SOLVED (corrected) coordinates. Groundspeak substitutes corrected coords into the primary <wpt> for caches you've solved with no machine-readable marker, so you assert it here. Every cache in the file is marked solved and its planning location set to the file's coords (Mystery solution or Multi final); the original posted coord is preserved and a normal PQ re-upload won't overwrite the solved location.",
+        },
       },
       required: ["file"],
     },
@@ -75,15 +81,19 @@ export class GpxController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body("markAsFound") markAsFoundRaw?: string,
     @Body("force") forceRaw?: string,
+    @Body("solvedCoordinates") solvedCoordinatesRaw?: string,
   ): Promise<GpxUploadResult> {
     if (!file)
       throw new BadRequestException('Multipart field "file" is required');
     const xml = file.buffer.toString("utf8");
     const markAsFound = markAsFoundRaw === "true" || markAsFoundRaw === "1";
     const force = forceRaw === "true" || forceRaw === "1";
+    const solvedCoordinates =
+      solvedCoordinatesRaw === "true" || solvedCoordinatesRaw === "1";
     return this.service.ingest(user.id, file.originalname, xml, {
       markAsFound,
       force,
+      solvedCoordinates,
     });
   }
 }

@@ -353,6 +353,10 @@ export async function purgeBogusWalkingCells(
     radiusM: input.radiusM,
     types: input.hardFilters.types,
     attributes: input.hardFilters.attributes,
+    solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
+    multiSubtype: input.hardFilters.multiSubtype,
+    hideToolCaches: input.hardFilters.hideToolCaches,
+    contexts: input.hardFilters.contexts,
     excludeFound: true,
   });
   if (caches.length === 0) {

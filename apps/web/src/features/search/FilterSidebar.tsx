@@ -209,6 +209,26 @@ export function FilterSidebar({
       </fieldset>
 
       <fieldset className="field">
+        <legend>Mysteries</legend>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={value.solvedMysteriesOnly}
+            onChange={(e) =>
+              onChange({ ...value, solvedMysteriesOnly: e.target.checked })
+            }
+          />
+          Only show solved mysteries
+        </label>
+        <small>
+          Hides Mystery caches you haven&rsquo;t solved (other types are
+          unaffected). To populate solved coordinates, upload a Groundspeak GPX
+          of your solved mysteries and tick &ldquo;contains solved
+          coordinates&rdquo; on upload.
+        </small>
+      </fieldset>
+
+      <fieldset className="field">
         <legend>Equipment</legend>
         <label className="checkbox">
           <input

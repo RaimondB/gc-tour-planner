@@ -1,13 +1,23 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Caches } from "@gctp/shared";
+import type { Queue } from "bullmq";
+import type { WalkingPrecomputeJobData } from "../jobs/walking-precompute/walking-precompute.types.js";
+import { QUEUE_WALKING_PRECOMPUTE } from "../queues/queue.tokens.js";
 import { CachesRepository } from "./caches.repository.js";
 
 @Injectable()
 export class CachesService {
-  constructor(private readonly repo: CachesRepository) {}
+  private readonly logger = new Logger(CachesService.name);
+
+  constructor(
+    private readonly repo: CachesRepository,
+    @InjectQueue(QUEUE_WALKING_PRECOMPUTE)
+    private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
+  ) {}
 
   async list(
     ownerId: string,
@@ -23,6 +33,9 @@ export class CachesService {
       contexts: q.contexts,
       includeDisabled: q.includeDisabled,
       includeArchived: q.includeArchived,
+      solvedMysteriesOnly: q.solvedMysteriesOnly,
+      multiSubtype: q.multiSubtype,
+      hideToolCaches: q.hideToolCaches,
     });
 
     // clustersHint is a coarse grid bucket count; the real cluster discovery
@@ -85,5 +98,38 @@ export class CachesService {
       throw new NotFoundException(`Cache ${cacheId} not found for this user`);
     }
     return { removed: await this.repo.unmarkFound(ownerId, cacheId) };
+  }
+
+  /**
+   * Remove a cache's solved coordinate, reverting its planning `location` to
+   * the posted coord. The repository invalidates the cache's location-derived
+   * precompute (route_legs + cache_landuse); we re-warm it here so the next
+   * plan reads fresh walking distances. `cleared: false` means the cache had
+   * no solved coordinate to remove (idempotent).
+   */
+  async clearSolved(
+    ownerId: string,
+    cacheId: number,
+  ): Promise<{ cleared: boolean }> {
+    if (!(await this.repo.existsForOwner(ownerId, cacheId))) {
+      throw new NotFoundException(`Cache ${cacheId} not found for this user`);
+    }
+    const cleared = await this.repo.clearSolved(ownerId, cacheId);
+    if (cleared) {
+      try {
+        await this.walkingQueue.add("precompute", {
+          ownerId,
+          newCacheIds: [cacheId],
+          reason: "retrigger-one",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `walking precompute enqueue failed after clearing solved coords for ` +
+            `cache=${cacheId}: ${message}. Stale legs were deleted; retry from /admin/jobs.`,
+        );
+      }
+    }
+    return { cleared };
   }
 }
