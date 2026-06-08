@@ -175,11 +175,13 @@ API_PORT="$API_PORT_DEV" \
 UPLOADS_DIR="$UPLOADS_DIR_DEV" \
 AUTH_DEV_BYPASS="${AUTH_DEV_BYPASS:-1}" \
 AUTH_SESSION_SECRET="${AUTH_SESSION_SECRET:-dev-insecure-session-secret}" \
+TURNSTILE_SECRET="${TURNSTILE_SECRET:-}" \
 TOUR_PLANNER="${TOUR_PLANNER:-greedy}" \
 LOG_LEVEL="${LOG_LEVEL:-info}" \
   run_prefixed api pnpm --filter @gctp/api dev &
 
 VITE_API_URL="http://localhost:$API_PORT_DEV" \
+VITE_TURNSTILE_SITE_KEY="${VITE_TURNSTILE_SITE_KEY:-}" \
   run_prefixed web pnpm --filter @gctp/web dev &
 
 wait

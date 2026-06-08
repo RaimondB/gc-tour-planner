@@ -25,7 +25,7 @@ export interface AuthContextValue {
   status: AuthStatus;
   isAuthenticated: boolean;
   login: (input: LoginInput) => Promise<void>;
-  register: (input: RegisterInput) => Promise<void>;
+  register: (input: RegisterInput, turnstileToken?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -59,8 +59,8 @@ export function AuthProvider({
   );
 
   const register = useCallback(
-    async (input: RegisterInput) => {
-      const user = await api.register(input);
+    async (input: RegisterInput, turnstileToken?: string) => {
+      const user = await api.register(input, turnstileToken);
       qc.setQueryData(AUTH_ME_QUERY_KEY, user);
     },
     [qc],

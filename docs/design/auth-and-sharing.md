@@ -56,7 +56,7 @@ This table is a **normative security contract**: adding a `@Public()` route requ
 
 | Public route | Why public | Guardrails |
 | --- | --- | --- |
-| `POST /auth/register` | Can't be logged in to sign up | Rate-limited per **real client IP** + email (FR-P9); generic errors; password rules (FR-P5) |
+| `POST /auth/register` | Can't be logged in to sign up | Rate-limited per **real client IP** + email (FR-P9); **Turnstile captcha when configured** (§7c); generic errors; password rules (FR-P5) |
 | `POST /auth/login` | Establishes the session | Rate-limited; argon2 verify; generic "invalid credentials" |
 | `GET /auth/google`, `GET /auth/google/callback` | OAuth entry + provider return | Signed `state`; link only by verified email; no Google tokens stored |
 | `GET /shared/:slug` | Anonymous read-only shared tour (FR-P3) | Snapshot only; no owner identity / other tours; read-only; revocable |
@@ -78,6 +78,15 @@ The per-IP throttle on the credential endpoints keys on the **real client IP**, 
 - The throttler's `getTracker` prefers Cloudflare's `CF-Connecting-IP` (env `TRUST_CF_CONNECTING_IP`, default on) **while the CF tunnel is the only ingress** — CF sets it and clients can't forge it. Once the origin is directly reachable (tunnel removed), set `TRUST_CF_CONNECTING_IP=0` so the spoofable header is ignored and keying falls back to `trust proxy`/`req.ip`.
 
 Without this the throttle keyed on nginx's socket IP — collapsing every client into a single shared bucket.
+
+### 7c. Registration captcha (FR-P5, Gate 1.4)
+
+`POST /auth/register` is and stays `@Public()` (you can't be logged in to sign up), but once Cloudflare Access is removed it becomes internet-facing. Rate limits alone don't stop scripted mass-registration — the per-email cap is trivially defeated with `user+1@`, `user+2@`… aliases. A **Cloudflare Turnstile** human-verification challenge closes that gap ([ADR-0023](../adr/0023-staged-cloudflare-access-tunnel-removal.md) Gate 1.4).
+
+- **Server (`TurnstileService`, `apps/api/src/auth/turnstile.service.ts`).** When `TURNSTILE_SECRET` is set, the controller verifies the client's token against Cloudflare's `siteverify` endpoint (passing the real client IP as `remoteip`) **before** creating the account. A missing token → 400; a failed challenge → 403; an unreachable `siteverify` → 503 (**fail closed** — never wave a registration through).
+- **Client (`TurnstileWidget`, `apps/web`).** When the build-time `VITE_TURNSTILE_SITE_KEY` is set, the register form renders the Turnstile widget, keeps the submit button disabled until it's solved, and sends the token in the `turnstileToken` body field. The widget loads from Cloudflare (no bundled/managed asset, so no GPLv3 concern) and is remounted to re-challenge after a failed submit (tokens are single-use).
+- **Disabled by default.** With no secret configured the check is a no-op, so dev / local / Playwright e2e keep open registration. The operator **MUST** configure both env vars before removing Cloudflare Access. The site key is public by design (it ships in the static bundle); only the secret is sensitive and stays out of the repo.
+- `RegisterInput` is unchanged — the captcha token rides alongside the account fields and is stripped by the zod parse; verification is a controller concern, not part of the account-data contract.
 
 ## 8. Tours persistence schema & migration
 
@@ -118,7 +127,7 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 
 | Method + path | Auth | CSRF | Notes |
 | --- | --- | --- | --- |
-| `POST /auth/register` | public | — | Self-service (FR-P5) |
+| `POST /auth/register` | public | — | Self-service (FR-P5); Turnstile token in body when configured (§7c) |
 | `POST /auth/login` | public | — | Sets session + `csrf` cookies |
 | `POST /auth/logout` | session | yes | Clears cookies (+ deletes Valkey session) |
 | `GET /auth/me` | session | — | Backs the web auth context |

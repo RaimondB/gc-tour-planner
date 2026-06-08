@@ -314,6 +314,9 @@ services:
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
       OAUTH_GOOGLE_REDIRECT_URI: ${OAUTH_GOOGLE_REDIRECT_URI:-}
       OAUTH_POST_LOGIN_REDIRECT: ${OAUTH_POST_LOGIN_REDIRECT:-/}
+      # Cloudflare Turnstile captcha on /auth/register (FR-P5, Gate 1.4). Unset =
+      # open registration; set (with VITE_TURNSTILE_SITE_KEY) before removing Access.
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
@@ -422,6 +425,9 @@ services:
         # UAT deployment it MUST be the public api URL because the browser
         # makes the request, not the container.
         VITE_API_URL: ${VITE_API_URL}
+        # Turnstile site key (public) — baked in so /register shows the captcha.
+        # Pair with TURNSTILE_SECRET on the api (FR-P5, Gate 1.4).
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
     restart: unless-stopped
     mem_limit: 256m
     memswap_limit: 256m

@@ -410,12 +410,19 @@ export async function retriggerOne(input: RetriggerOneRequest) {
 
 // ─── Auth (M6-β) ───────────────────────────────────────────────────────────
 
-/** Self-service registration; the server establishes a session on success. */
-export async function register(input: RegisterInput): Promise<AuthUser> {
+/**
+ * Self-service registration; the server establishes a session on success. The
+ * optional `turnstileToken` is the Cloudflare Turnstile response (FR-P5); the
+ * server requires it only when captcha is configured.
+ */
+export async function register(
+  input: RegisterInput,
+  turnstileToken?: string,
+): Promise<AuthUser> {
   const raw = await request<unknown>("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, turnstileToken }),
   });
   return AuthUser.parse(raw);
 }
