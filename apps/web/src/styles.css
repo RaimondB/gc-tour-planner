@@ -44,6 +44,9 @@ body,
 .app-header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-header p {
@@ -969,6 +972,13 @@ body,
     grid-template-columns: 1fr;
   }
 
+  /* Tighten the header so hamburger + title + tools + sign-out fit on
+     one row at phone widths instead of wrapping into each other. */
+  .app-header {
+    padding: 0.6rem 0.75rem;
+    gap: 0.5rem;
+  }
+
   .app-header__hamburger {
     display: inline-block;
   }
@@ -980,6 +990,19 @@ body,
   /* Tagline takes a lot of vertical space — hide on phone, the h1
      already says what the app is. */
   .app-header p {
+    display: none;
+  }
+
+  /* Collapse "⚙ Tools" to just the gear icon — the label is dev-tool
+     jargon that doesn't earn its width on a phone. */
+  .app-header__tools-label {
+    display: none;
+  }
+
+  /* The display-name chip is redundant on a phone (the user knows who
+     they're signed in as); drop it so Sign out keeps a comfortable
+     tap target without crowding the title. */
+  .app-header__user-name {
     display: none;
   }
 
