@@ -9,6 +9,7 @@ How we develop, test, ship, and document changes in gc-tour-planner. Read these 
 - [Migrations](migrations.md) — node-pg-migrate, one change per file, Kysely regen
 - [Dependency upgrades](dependency-upgrades.md) — staged-cluster strategy, advisory triage, the license gate
 - [Release + deploy](release-and-deploy.md) — current UAT topology, prod expectations
+- [Security testing](security-testing.md) — pentest harness + the Cloudflare-removal go/no-go gates
 - [Docs policy](docs-policy.md) — the sync rule, requirement-ID allocation, ADR placement
 
 ## Where to start
