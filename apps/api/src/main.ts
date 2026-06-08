@@ -11,8 +11,12 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import type { Queue } from "bullmq";
 import cookieParser from "cookie-parser";
+import type { RequestHandler } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
+import { parseTrustProxy } from "./auth/client-ip.js";
+import { SESSION_COOKIE } from "./auth/cookies.js";
+import { SessionService } from "./auth/session.service.js";
 import { QUEUE_WALKING_PRECOMPUTE } from "./queues/queue.tokens.js";
 
 async function bootstrap(): Promise<void> {
@@ -22,6 +26,13 @@ async function bootstrap(): Promise<void> {
   // Fire OnModuleDestroy on SIGTERM/SIGINT so the ComputePool drains its
   // worker threads cleanly instead of being hard-killed mid-task (ADR-0014).
   app.enableShutdownHooks();
+
+  // The app sits behind nginx (and, in prod, the Cloudflare tunnel), so the
+  // socket peer is the proxy, not the client. Trust the proxy so `req.ip` and
+  // the rate-limit tracker resolve to the real client (FR-P9, Gate 1.1).
+  // Default trusts the single immediate hop (nginx); nginx appends the true
+  // peer to X-Forwarded-For, so an inbound spoofed XFF cannot win.
+  app.set("trust proxy", parseTrustProxy(process.env.TRUST_PROXY));
 
   // Security headers (M6, ADR-0021). `crossOriginResourcePolicy` is relaxed so
   // the API can be consumed from the web origin in split-origin deploys (CORS
@@ -78,7 +89,28 @@ async function bootstrap(): Promise<void> {
     queues: [new BullMQAdapter(walkingQueue)],
     serverAdapter: bullBoardAdapter,
   });
-  app.use(queuesMountPath, bullBoardAdapter.getRouter());
+
+  // Bull-board is raw Express middleware mounted OUTSIDE Nest's routing, so the
+  // global JwtAuthGuard never runs for it — without this gate the queue
+  // dashboard (and its mutating retry/remove actions) would be reachable with no
+  // auth at all. Require an admin session, mirroring AdminGuard (FR-P12).
+  const sessions = app.get(SessionService, { strict: false });
+  const requireAdminSession: RequestHandler = (req, res, next) => {
+    const sid = (req.cookies as Record<string, string> | undefined)?.[
+      SESSION_COOKIE
+    ];
+    void (async () => {
+      const session = sid ? await sessions.get(sid) : null;
+      if (!session) {
+        res.status(401).json({ message: "Not authenticated" });
+      } else if (session.isAdmin !== true) {
+        res.status(403).json({ message: "Admin role required" });
+      } else {
+        next();
+      }
+    })().catch(next);
+  };
+  app.use(queuesMountPath, requireAdminSession, bullBoardAdapter.getRouter());
 
   const port = Number(process.env.API_PORT ?? 3000);
   await app.listen(port);

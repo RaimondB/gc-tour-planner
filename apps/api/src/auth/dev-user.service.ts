@@ -46,6 +46,10 @@ export class DevUserService {
       id: row.id,
       email: row.email,
       displayName: row.display_name,
+      // The dev-bypass principal is treated as an admin so local dev / e2e can
+      // exercise /admin/* exactly as before. The bypass is hard-refused under
+      // NODE_ENV=production (auth.config.ts), so this never grants prod access.
+      isAdmin: true,
     };
     return this.cached;
   }

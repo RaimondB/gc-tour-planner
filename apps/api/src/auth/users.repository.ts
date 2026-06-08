@@ -11,6 +11,7 @@ export interface UserRow {
   email: string;
   displayName: string;
   passwordHash: string | null;
+  isAdmin: boolean;
 }
 
 /** Postgres unique-violation SQLSTATE. */
@@ -37,7 +38,7 @@ export class UsersRepository {
   async findByEmail(email: string): Promise<UserRow | undefined> {
     const row = await this.db
       .selectFrom("users")
-      .select(["id", "email", "display_name", "password_hash"])
+      .select(["id", "email", "display_name", "password_hash", "is_admin"])
       .where("email", "=", email)
       .executeTakeFirst();
     return row ? this.toRow(row) : undefined;
@@ -46,7 +47,7 @@ export class UsersRepository {
   async findById(id: string): Promise<UserRow | undefined> {
     const row = await this.db
       .selectFrom("users")
-      .select(["id", "email", "display_name", "password_hash"])
+      .select(["id", "email", "display_name", "password_hash", "is_admin"])
       .where("id", "=", id)
       .executeTakeFirst();
     return row ? this.toRow(row) : undefined;
@@ -69,7 +70,7 @@ export class UsersRepository {
           display_name: input.displayName,
           password_hash: input.passwordHash,
         })
-        .returning(["id", "email", "display_name", "password_hash"])
+        .returning(["id", "email", "display_name", "password_hash", "is_admin"])
         .executeTakeFirstOrThrow();
       return this.toRow(row);
     } catch (err) {
@@ -83,12 +84,14 @@ export class UsersRepository {
     email: string;
     display_name: string;
     password_hash: string | null;
+    is_admin: boolean;
   }): UserRow {
     return {
       id: row.id,
       email: row.email,
       displayName: row.display_name,
       passwordHash: row.password_hash,
+      isAdmin: row.is_admin,
     };
   }
 }

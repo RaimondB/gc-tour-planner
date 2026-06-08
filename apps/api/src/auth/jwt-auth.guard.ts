@@ -69,6 +69,8 @@ export class JwtAuthGuard implements CanActivate {
       id: session.sub,
       email: session.email,
       displayName: session.displayName,
+      // Coerce so a pre-FR-P12 session (no isAdmin field) fails closed as false.
+      isAdmin: session.isAdmin === true,
     };
 
     this.assertCsrf(req, session.csrf);

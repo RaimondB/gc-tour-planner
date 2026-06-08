@@ -1,8 +1,16 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Body, Controller, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { AdminGuard } from "../../auth/admin.guard.js";
 import { CurrentUser } from "../../auth/current-user.decorator.js";
 import type { AuthUser } from "../../auth/auth.types.js";
 import { GpxService, type GpxUploadResult } from "../../gpx/gpx.service.js";
@@ -14,12 +22,13 @@ import { GpxService, type GpxUploadResult } from "../../gpx/gpx.service.js";
  * lands, reprocessing yesterday's PQs back-fills the column without
  * asking the user to re-upload.
  *
- * Gated by the global auth guard (M6-α): admin = any authenticated user for
- * now (FR-P12); `users.is_admin` is the future role hook. Per-owner: the service rejects
- * cross-tenant ids with a 404 (indistinguishable from "doesn't exist"
- * to keep id probing useless).
+ * Gated by the global auth guard (session) plus `AdminGuard`: requires
+ * `users.is_admin` (FR-P12), not merely a logged-in user. Per-owner: the
+ * service still rejects cross-tenant ids with a 404 (indistinguishable from
+ * "doesn't exist" to keep id probing useless).
  */
 @ApiTags("admin")
+@UseGuards(AdminGuard)
 @Controller("admin/uploads")
 export class AdminUploadsController {
   constructor(private readonly gpx: GpxService) {}

@@ -14,6 +14,8 @@ export interface SessionData {
   sub: string;
   email: string;
   displayName: string;
+  /** Admin role (FR-P12), captured at session establishment. */
+  isAdmin: boolean;
   /** Double-submit CSRF token, minted with the session. */
   csrf: string;
   /** Issued-at, epoch seconds. */
@@ -53,6 +55,7 @@ export class SessionService {
     id: string;
     email: string;
     displayName: string;
+    isAdmin: boolean;
   }): Promise<{ sessionId: string; csrf: string }> {
     const sessionId = this.newToken();
     const csrf = this.newToken();
@@ -60,6 +63,7 @@ export class SessionService {
       sub: user.id,
       email: user.email,
       displayName: user.displayName,
+      isAdmin: user.isAdmin,
       csrf,
       iat: Math.floor(Date.now() / 1000),
     };

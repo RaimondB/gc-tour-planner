@@ -5,6 +5,7 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  isAdmin: boolean;
 }
 
 // Augment Express's Request so request.user is typed across the app.

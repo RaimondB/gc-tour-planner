@@ -1106,7 +1106,10 @@ export default function App(): JSX.Element {
               </button>
             </header>
             <div className="tools-drawer__body">
-              <AdminPrecomputePanel />
+              {/* Admin-only: the panel calls /admin/* (and links to bull-board),
+                  which now require the admin role (FR-P12). Hide it from
+                  non-admins so they don't see features that would 403. */}
+              {user?.isAdmin ? <AdminPrecomputePanel /> : null}
               <DebugOverlaysPanel
                 search={params}
                 settings={planSettings}
