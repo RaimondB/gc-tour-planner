@@ -56,5 +56,7 @@ export const AuthUser = z.object({
   id: z.guid(),
   email: z.string(),
   displayName: z.string(),
+  /** Admin role (FR-P12). Gates `/admin/*` and the bull-board queue dashboard. */
+  isAdmin: z.boolean(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;

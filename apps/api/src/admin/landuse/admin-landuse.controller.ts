@@ -1,9 +1,10 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, UseGuards } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import type { Admin } from "@gctp/shared";
+import { AdminGuard } from "../../auth/admin.guard.js";
 import { AdminLanduseService } from "./admin-landuse.service.js";
 
 /**
@@ -11,10 +12,11 @@ import { AdminLanduseService } from "./admin-landuse.service.js";
  * simplification). Read-only — refreshes are operator-driven via the
  * `scripts/refresh-osm-data.sh` host script, kept in lockstep with OSRM.
  *
- * Gated by the global auth guard (M6-α): admin = any authenticated user for
- * now (FR-P12); a real role check (`users.is_admin`) is the future hook.
+ * Gated by the global auth guard (session) plus `AdminGuard`: requires
+ * `users.is_admin` (FR-P12), not merely a logged-in user.
  */
 @ApiTags("admin")
+@UseGuards(AdminGuard)
 @Controller("admin/landuse")
 export class AdminLanduseController {
   constructor(private readonly service: AdminLanduseService) {}

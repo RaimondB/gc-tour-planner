@@ -8,20 +8,23 @@ import {
   Get,
   Post,
   Query,
+  UseGuards,
 } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Admin } from "@gctp/shared";
+import { AdminGuard } from "../../auth/admin.guard.js";
 import { AdminPrecomputeService } from "./admin-precompute.service.js";
 
 /**
  * Admin surface for the upload-triggered precompute pipeline. Gated by the
- * global auth guard (M6-α): admin = any authenticated user for now (FR-P12),
- * with `users.is_admin` noted as the future role hook.
+ * global auth guard (session) plus `AdminGuard`: requires `users.is_admin`
+ * (FR-P12), not merely a logged-in user.
  *
  * Backs both the custom `/admin/jobs` web page and ad-hoc curl during
  * incident response.
  */
 @ApiTags("admin")
+@UseGuards(AdminGuard)
 @Controller("admin/precompute")
 export class AdminPrecomputeController {
   constructor(private readonly service: AdminPrecomputeService) {}

@@ -56,13 +56,28 @@ This table is a **normative security contract**: adding a `@Public()` route requ
 
 | Public route | Why public | Guardrails |
 | --- | --- | --- |
-| `POST /auth/register` | Can't be logged in to sign up | Rate-limited per-IP + email (FR-P9); generic errors; password rules (FR-P5) |
+| `POST /auth/register` | Can't be logged in to sign up | Rate-limited per **real client IP** + email (FR-P9); generic errors; password rules (FR-P5) |
 | `POST /auth/login` | Establishes the session | Rate-limited; argon2 verify; generic "invalid credentials" |
 | `GET /auth/google`, `GET /auth/google/callback` | OAuth entry + provider return | Signed `state`; link only by verified email; no Google tokens stored |
 | `GET /shared/:slug` | Anonymous read-only shared tour (FR-P3) | Snapshot only; no owner identity / other tours; read-only; revocable |
 | `/health` | Liveness probe | No data |
 
 **Explicitly NOT public** (require a valid session): `GET /auth/me`, `POST /auth/logout`, and `POST`/`DELETE /tours/:id/share` (share _management_ stays owner-auth; only the `GET /shared/:slug` _read_ is public). Every other endpoint requires auth (FR-P12).
+
+### 7a. Admin role (FR-P12)
+
+`/admin/*` and the destructive `POST /tours/walking-graph/purge-bogus` require the **admin role**, not merely a session. The `users.is_admin` column (added by `1779700000000_users_is_admin.sql`, default `FALSE`) is captured into the session at login and carried on `AuthUser.isAdmin`; an `AdminGuard` (a route guard layered after the global `JwtAuthGuard`) returns 403 for non-admins and **fails closed** (a legacy session with no `isAdmin` field is treated as non-admin). No user is an admin until an operator promotes one: `UPDATE users SET is_admin = TRUE WHERE email = '<operator>'`.
+
+The **bull-board** queue dashboard (`/admin/queues`) is mounted as raw Express middleware *outside* Nest's routing, so the global guard never runs for it. A dedicated `requireAdminSession` middleware (mirroring `AdminGuard`) authenticates the session and requires `isAdmin` before the dashboard router — closing what was an unauthenticated admin surface.
+
+### 7b. Rate-limit client-IP keying (FR-P9)
+
+The per-IP throttle on the credential endpoints keys on the **real client IP**, resolved behind the reverse proxy:
+
+- Express `trust proxy` is set (env `TRUST_PROXY`, default `1` = the immediate nginx hop) so `req.ip` is the client, not nginx's socket address. nginx appends the true peer to `X-Forwarded-For`, so an inbound spoofed `X-Forwarded-For` cannot win.
+- The throttler's `getTracker` prefers Cloudflare's `CF-Connecting-IP` (env `TRUST_CF_CONNECTING_IP`, default on) **while the CF tunnel is the only ingress** — CF sets it and clients can't forge it. Once the origin is directly reachable (tunnel removed), set `TRUST_CF_CONNECTING_IP=0` so the spoofable header is ignored and keying falls back to `trust proxy`/`req.ip`.
+
+Without this the throttle keyed on nginx's socket IP — collapsing every client into a single shared bucket.
 
 ## 8. Tours persistence schema & migration
 

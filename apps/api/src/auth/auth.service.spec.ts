@@ -15,6 +15,7 @@ const USER: UserRow = {
   email: "jane@example.com",
   displayName: "Jane",
   passwordHash: "$argon2id$stored",
+  isAdmin: false,
 };
 
 describe("AuthService", () => {
@@ -57,6 +58,7 @@ describe("AuthService", () => {
         id: "u1",
         email: "jane@example.com",
         displayName: "Jane",
+        isAdmin: false,
       });
       expect(result.sessionId).toBe("sid");
     });

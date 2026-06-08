@@ -8,6 +8,7 @@ import { AdminLanduseModule } from "./admin/landuse/admin-landuse.module.js";
 import { AdminPrecomputeModule } from "./admin/precompute/admin-precompute.module.js";
 import { AdminUploadsModule } from "./admin/uploads/admin-uploads.module.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { clientIp, trustCfFromEnv, type IpRequest } from "./auth/client-ip.js";
 import { ValkeyModule } from "./auth/valkey.module.js";
 import { ValkeyThrottlerStorage } from "./auth/valkey-throttler.storage.js";
 import { CachesModule } from "./caches/caches.module.js";
@@ -32,10 +33,20 @@ import { ToursModule } from "./tours/tours.module.js";
     ThrottlerModule.forRootAsync({
       imports: [ValkeyModule],
       inject: [ValkeyThrottlerStorage],
-      useFactory: (storage: ValkeyThrottlerStorage) => ({
-        throttlers: [{ name: "default", ttl: 60_000, limit: 60 }],
-        storage,
-      }),
+      useFactory: (storage: ValkeyThrottlerStorage) => {
+        // Key the per-IP cap on the REAL client IP, not nginx's socket address
+        // (FR-P9, Gate 1.1). Behind the CF tunnel use CF-Connecting-IP; otherwise
+        // rely on Express `trust proxy` having resolved req.ip (see main.ts).
+        const trustCf = trustCfFromEnv();
+        return {
+          throttlers: [{ name: "default", ttl: 60_000, limit: 60 }],
+          storage,
+          getTracker: (req: Record<string, unknown>) =>
+            clientIp(req as unknown as IpRequest, {
+              trustCfConnectingIp: trustCf,
+            }),
+        };
+      },
     }),
     DatabaseModule,
     QueueModule,

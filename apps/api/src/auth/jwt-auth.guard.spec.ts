@@ -35,6 +35,7 @@ const SESSION: SessionData = {
   sub: "user-1",
   email: "u@e.com",
   displayName: "U",
+  isAdmin: false,
   csrf: "csrf-token",
   iat: 0,
 };
@@ -131,7 +132,38 @@ describe("JwtAuthGuard", () => {
       id: "user-1",
       email: "u@e.com",
       displayName: "U",
+      isAdmin: false,
     });
+  });
+
+  it("coerces a legacy session with no isAdmin field to isAdmin=false", async () => {
+    const legacy = { ...SESSION } as Partial<SessionData>;
+    delete legacy.isAdmin;
+    sessions.get.mockResolvedValue(legacy);
+    const guard = makeGuard(baseConfig, false);
+    const req: FakeReq = {
+      method: "GET",
+      cookies: { sid: "abc" },
+      headers: {},
+    };
+    await expect(guard.canActivate(makeContext(req, false))).resolves.toBe(
+      true,
+    );
+    expect((req.user as { isAdmin: boolean }).isAdmin).toBe(false);
+  });
+
+  it("carries isAdmin=true through from an admin session", async () => {
+    sessions.get.mockResolvedValue({ ...SESSION, isAdmin: true });
+    const guard = makeGuard(baseConfig, false);
+    const req: FakeReq = {
+      method: "GET",
+      cookies: { sid: "abc" },
+      headers: {},
+    };
+    await expect(guard.canActivate(makeContext(req, false))).resolves.toBe(
+      true,
+    );
+    expect((req.user as { isAdmin: boolean }).isAdmin).toBe(true);
   });
 
   it("enforces double-submit CSRF on mutating methods", async () => {

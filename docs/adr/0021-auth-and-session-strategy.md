@@ -43,4 +43,4 @@ The requirement ([FR-P4](../requirements/persistence-sharing.md)) calls for emai
 **Not in scope here**
 
 - Forgot-password / email verification (need email infra) — deferred past M6.
-- A real admin role — `/admin/*` is "admin = authenticated" for now, with `users.is_admin` noted as the future hook (FR-P12).
+- A real admin role — `/admin/*` is "admin = authenticated" for now, with `users.is_admin` noted as the future hook (FR-P12). _(Since implemented: the `users.is_admin` column + an `AdminGuard` now gate `/admin/*` and the destructive purge route — see [FR-P12](../requirements/persistence-sharing.md).)_

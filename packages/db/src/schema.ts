@@ -20,6 +20,7 @@ export interface UsersTable {
   email: string;
   display_name: string;
   password_hash: string | null;
+  is_admin: Generated<boolean>;
   created_at: Generated<Date>;
 }
 

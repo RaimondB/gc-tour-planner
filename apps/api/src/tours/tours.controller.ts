@@ -1,9 +1,16 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { BadRequestException, Body, Controller, Post } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Tours } from "@gctp/shared";
+import { AdminGuard } from "../auth/admin.guard.js";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import type { AuthUser } from "../auth/auth.types.js";
 import { ToursService } from "./tours.service.js";
@@ -95,6 +102,9 @@ export class ToursController {
   }
 
   @Post("walking-graph/purge-bogus")
+  // Destructive maintenance — admin only (FR-P12), unlike the owner-scoped
+  // planning routes on this controller.
+  @UseGuards(AdminGuard)
   @ApiOperation({
     summary:
       "Destructive: delete suspicious zero-distance route_legs rows for caches in the search area, forcing a fresh OSRM refetch on the next planner pass.",

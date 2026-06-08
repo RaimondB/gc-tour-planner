@@ -31,7 +31,12 @@ export class AuthService {
   ) {}
 
   private toAuthUser(row: UserRow): AuthUser {
-    return { id: row.id, email: row.email, displayName: row.displayName };
+    return {
+      id: row.id,
+      email: row.email,
+      displayName: row.displayName,
+      isAdmin: row.isAdmin,
+    };
   }
 
   private async establish(user: AuthUser): Promise<EstablishedSession> {
