@@ -34,7 +34,7 @@ export const PlanLoopInput = z.object({
    * (distance budget, parking selection, leg picking).
    */
   toolBonusMinutes: z.number().int().nonnegative().max(60).default(5),
-  startPreference: StartPreference.default("parking-waypoint"),
+  startPreference: StartPreference.default("auto"),
   userSuppliedStart: LngLat.optional(),
   /**
    * Pass-1 link cap, re-supplied for Pass 2 so the parking selection can

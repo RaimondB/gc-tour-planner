@@ -101,6 +101,19 @@ Dropped caches surface in the `PlanResult.droppedCacheIds` field and
 get a gray-x marker on the map so the user can see they were trimmed
 deliberately, not just absent from the cluster.
 
+## Pass 2 — Automatic start (default)
+
+`startPreference="auto"` is the default. It tries each source in turn —
+**`parking-waypoint` → `osm-parking` → `osrm-nearest-road`** — and uses the
+**first** that yields a feasible start (one reachable within `maxLinkMeters`).
+Auto reuses the OSM access/fee defaults (`["yes", "customers"]` / `"any"`); the
+sidebar only exposes those chips for the explicit `osm-parking` mode, so Auto is
+zero-config. When every source comes up empty the planner starts at the cluster
+centroid and sets `ParkingChoice.fallback = true` — the web client then renders
+a distinct red **"P?"** marker instead of the usual blue **"P"**, so "no parking
+found within range" is visible without a separate banner. The same `fallback`
+flag is set whenever an explicit single mode finds nothing reachable.
+
 ## Pass 2 — OSM parking start (ADR-0011)
 
 When `startPreference="osm-parking"` is selected, the planner picks a

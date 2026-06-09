@@ -647,107 +647,207 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         return {
           type: "user",
           point: { type: "Point", coordinates: input.userSuppliedStart },
-          reason: "User-supplied start point",
+          reason: "Manually picked start point",
+          fallback: false,
         };
       }
       case "osrm-nearest-road": {
-        // Snap parking onto the *car-accessible* roads closest to the tour
-        // path (ADR-0012), then score them loop-aware like the other
-        // multi-candidate modes. Pass the ordered cycle (closed) so candidates
-        // are ranked by proximity to the legs, not just the centroid.
-        const byIdCoord = new Map<number, [number, number]>(
-          cluster.map((c) => [
-            c.id,
-            c.location.coordinates as [number, number],
-          ]),
-        );
-        const tourPath = baseCycleIds
-          .map((id) => byIdCoord.get(id))
-          .filter((p): p is [number, number] => p !== undefined);
-        if (tourPath.length > 0) tourPath.push(tourPath[0]!); // close the loop
-        const choices = await this.enumerateCarRoadParking(
-          tourPath,
-          input.maxLinkMeters,
-        );
-        const picked = await this.pickLoopAwareParking(
-          choices,
+        const picked = await this.tryCarRoadParking(
+          input,
+          cluster,
           baseCycleIds,
           connectedIds,
-          cluster,
           distances,
-          input.maxLinkMeters,
         );
-        if (picked) return picked;
         // No eligible car road reachable (rural gap, or the car_roads table
         // is absent, e.g. in Testcontainers) — fall back to the foot-snap of
         // the centroid so a plan is always produced.
-        return this.osrmNearestParking(centroid);
+        return picked ?? this.osrmNearestParking(centroid);
       }
       case "osm-parking": {
-        const cands = await enumerateOsmParking(
-          this.parkingFacilities,
+        const picked = await this.tryOsmParking(
           input,
           centroid,
-        );
-        const choices = cands.map<Tours.ParkingChoice>((c) => {
-          const label = c.name ?? `osm-${c.osmType}/${c.osmId}`;
-          return {
-            type: "osm",
-            point: { type: "Point", coordinates: c.point },
-            reason: `OSM amenity=parking — ${label} (access=${c.access ?? "unknown"}, fee=${c.fee ?? "unknown"})`,
-            osm: {
-              osmId: c.osmId,
-              osmType: c.osmType,
-              access: c.access,
-              fee: c.fee,
-              name: c.name,
-            },
-          };
-        });
-        const picked = await this.pickLoopAwareParking(
-          choices,
+          cluster,
           baseCycleIds,
           connectedIds,
-          cluster,
           distances,
-          input.maxLinkMeters,
         );
-        if (picked) return picked;
-        // No OSM parking reachable within maxLinkMeters — fall back to
-        // OSRM-nearest so the planner still produces a tour. The reason
-        // string makes the fallback visible in the UI.
-        return {
-          type: "osrm-nearest",
-          point: { type: "Point", coordinates: centroid },
-          reason:
-            "No walkable OSM amenity=parking within maxLinkMeters — fell back to cluster centroid",
-        };
+        // No OSM parking reachable within maxLinkMeters — fall back to the
+        // cluster centroid. The `fallback` flag makes that visible in the UI.
+        return (
+          picked ??
+          this.centroidFallback(
+            centroid,
+            "No public parking within range — starting at cluster centroid",
+          )
+        );
+      }
+      case "auto": {
+        // Try every source in turn; the first that yields a feasible start
+        // (one reachable within maxLinkMeters) wins. Order: cache-owner
+        // parking → public OSM parking → nearest car-accessible road.
+        const picked =
+          (await this.tryPqParking(
+            cluster,
+            baseCycleIds,
+            connectedIds,
+            distances,
+            input.maxLinkMeters,
+          )) ??
+          (await this.tryOsmParking(
+            input,
+            centroid,
+            cluster,
+            baseCycleIds,
+            connectedIds,
+            distances,
+          )) ??
+          (await this.tryCarRoadParking(
+            input,
+            cluster,
+            baseCycleIds,
+            connectedIds,
+            distances,
+          ));
+        return (
+          picked ??
+          this.centroidFallback(
+            centroid,
+            "No parking found near this cluster — starting at cluster centroid",
+          )
+        );
       }
       case "parking-waypoint":
       default: {
-        const points = enumeratePqParking(cluster);
-        const choices = points.map<Tours.ParkingChoice>((p) => ({
-          type: "pq",
-          point: { type: "Point", coordinates: p },
-          reason: "Cache-owner parking waypoint",
-        }));
-        const picked = await this.pickLoopAwareParking(
-          choices,
+        const picked = await this.tryPqParking(
+          cluster,
           baseCycleIds,
           connectedIds,
-          cluster,
           distances,
           input.maxLinkMeters,
         );
-        if (picked) return picked;
-        return {
-          type: "osrm-nearest",
-          point: { type: "Point", coordinates: centroid },
-          reason:
-            "No PQ parking waypoint in the cluster — fell back to cluster centroid",
-        };
+        return (
+          picked ??
+          this.centroidFallback(
+            centroid,
+            "No cache-owner parking near this cluster — starting at cluster centroid",
+          )
+        );
       }
     }
+  }
+
+  /** Cache-owner (PQ) parking waypoints, scored loop-aware. `null` when none
+   *  is reachable within `maxLinkMeters`. */
+  private tryPqParking(
+    cluster: readonly Caches.CacheDTO[],
+    baseCycleIds: readonly number[],
+    connectedIds: readonly number[],
+    distances: (number | null)[][],
+    maxLinkMeters: number,
+  ): Promise<Tours.ParkingChoice | null> {
+    const choices = enumeratePqParking(cluster).map<Tours.ParkingChoice>(
+      (p) => ({
+        type: "pq",
+        point: { type: "Point", coordinates: p },
+        reason: "Cache-owner parking waypoint",
+        fallback: false,
+      }),
+    );
+    return this.pickLoopAwareParking(
+      choices,
+      baseCycleIds,
+      connectedIds,
+      cluster,
+      distances,
+      maxLinkMeters,
+    );
+  }
+
+  /** Public OSM amenity=parking facilities, scored loop-aware (ADR-0011).
+   *  `null` when none is reachable within `maxLinkMeters`. */
+  private async tryOsmParking(
+    input: Tours.PlanLoopInput,
+    centroid: [number, number],
+    cluster: readonly Caches.CacheDTO[],
+    baseCycleIds: readonly number[],
+    connectedIds: readonly number[],
+    distances: (number | null)[][],
+  ): Promise<Tours.ParkingChoice | null> {
+    const choices = (
+      await enumerateOsmParking(this.parkingFacilities, input, centroid)
+    ).map<Tours.ParkingChoice>((c) => {
+      const label = c.name ?? `osm-${c.osmType}/${c.osmId}`;
+      return {
+        type: "osm",
+        point: { type: "Point", coordinates: c.point },
+        reason: `OSM amenity=parking — ${label} (access=${c.access ?? "unknown"}, fee=${c.fee ?? "unknown"})`,
+        fallback: false,
+        osm: {
+          osmId: c.osmId,
+          osmType: c.osmType,
+          access: c.access,
+          fee: c.fee,
+          name: c.name,
+        },
+      };
+    });
+    return this.pickLoopAwareParking(
+      choices,
+      baseCycleIds,
+      connectedIds,
+      cluster,
+      distances,
+      input.maxLinkMeters,
+    );
+  }
+
+  /** Nearest car-accessible road snap points, scored loop-aware (ADR-0012).
+   *  `null` when none is reachable (or the car_roads table is absent). */
+  private async tryCarRoadParking(
+    input: Tours.PlanLoopInput,
+    cluster: readonly Caches.CacheDTO[],
+    baseCycleIds: readonly number[],
+    connectedIds: readonly number[],
+    distances: (number | null)[][],
+  ): Promise<Tours.ParkingChoice | null> {
+    // Snap parking onto the *car-accessible* roads closest to the tour path
+    // (ADR-0012). Pass the ordered cycle (closed) so candidates are ranked by
+    // proximity to the legs, not just the centroid.
+    const byIdCoord = new Map<number, [number, number]>(
+      cluster.map((c) => [c.id, c.location.coordinates as [number, number]]),
+    );
+    const tourPath = baseCycleIds
+      .map((id) => byIdCoord.get(id))
+      .filter((p): p is [number, number] => p !== undefined);
+    if (tourPath.length > 0) tourPath.push(tourPath[0]!); // close the loop
+    const choices = await this.enumerateCarRoadParking(
+      tourPath,
+      input.maxLinkMeters,
+    );
+    return this.pickLoopAwareParking(
+      choices,
+      baseCycleIds,
+      connectedIds,
+      cluster,
+      distances,
+      input.maxLinkMeters,
+    );
+  }
+
+  /** Centroid fallback used when no source yields a feasible start. Flagged
+   *  `fallback: true` so the UI can render a distinct "no parking" marker. */
+  private centroidFallback(
+    centroid: [number, number],
+    reason: string,
+  ): Tours.ParkingChoice {
+    return {
+      type: "osrm-nearest",
+      point: { type: "Point", coordinates: centroid },
+      reason,
+      fallback: true,
+    };
   }
 
   /**
@@ -783,6 +883,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       type: "osrm-nearest",
       point: { type: "Point", coordinates: c.point },
       reason: `Car-accessible road — ${c.name ?? c.highway}`,
+      fallback: false,
     }));
   }
 
@@ -798,6 +899,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         type: "osrm-nearest",
         point: { type: "Point", coordinates: snapped },
         reason: "Cluster centroid snapped to nearest walkable road",
+        fallback: true,
       };
     }
     return {
@@ -805,6 +907,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       point: { type: "Point", coordinates: centroid },
       reason:
         "OSRM /nearest found no walkable road — using raw cluster centroid",
+      fallback: true,
     };
   }
 

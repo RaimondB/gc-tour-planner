@@ -52,6 +52,7 @@ The camera and the search circle behave predictably, and what a background map c
 
 Per step:
 
+- **Start-point pick (any step)** — when `startPreference === "Pick a point on the map"` (`user-supplied-point`), a background map click sets the **tour start point** (amber "P" preview) instead of the per-step click behaviour below. The Plan button is disabled until a point is set. This takes precedence in every step because the user explicitly chose the mode.
 - **① Find caches** — a background map click sets the search center (scoped to this step only); the radius circle is prominent and its center is a **draggable handle**. The camera does not jump on a center change.
 - **② Pick a cluster** — a background click is a no-op (it never moves the search center). **Tapping a cluster centroid or its list row frames + picks it** (the one explicit camera move; replaces the old hover-fit and dbl-click-to-select). Desktop hover only brightens the cluster (`focusedClusterId`) — no camera. The radius circle is dimmed, non-interactive context.
 - **③ Plan & export** — a background click is a no-op (edit-mode leg clicks keep their own handlers). The camera frames the tour once when planning completes and via the ⊕ Frame control.

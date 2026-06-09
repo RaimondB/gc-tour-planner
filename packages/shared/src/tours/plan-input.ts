@@ -55,8 +55,14 @@ export const HardFilters = z.object({
 export type HardFilters = z.infer<typeof HardFilters>;
 
 export const StartPreference = z.enum([
+  // Try every source in turn — cache-owner parking → OSM amenity=parking →
+  // nearest car-accessible road — and use the first that yields a feasible
+  // start (one reachable within `maxLinkMeters`). The default; zero-config.
+  "auto",
   "parking-waypoint",
   "osrm-nearest-road",
+  // The user clicks the map to set an explicit start point (carried in
+  // `userSuppliedStart`).
   "user-supplied-point",
   // OSM-sourced amenity=parking facilities (ADR-0011). Filtered by
   // `osmParkingAccessFilter` + `osmParkingFeeFilter`; the planner walks
@@ -107,7 +113,7 @@ export const PlanInput = z.object({
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   hardFilters: HardFilters,
   softPreferences: SoftPreferences,
-  startPreference: StartPreference.default("parking-waypoint"),
+  startPreference: StartPreference.default("auto"),
   userSuppliedStart: LngLat.optional(),
   /**
    * How many ranked clusters to return from Pass 1. The planner always

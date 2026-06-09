@@ -22,6 +22,13 @@ const TOUR_HIT_LAYER = "gctp-tour-hit";
 const PARKING_SOURCE = "gctp-tour-parking";
 const PARKING_LAYER = "gctp-tour-parking-circle";
 const PARKING_LABEL_LAYER = "gctp-tour-parking-label";
+const PARKING_LEADER_SOURCE = "gctp-tour-parking-leader";
+const PARKING_LEADER_LAYER = "gctp-tour-parking-leader-line";
+// When the parking marker lands within this many screen pixels of a stop the
+// two ~11–12px circles overlap; offset the parking marker by OFFSET_PX and draw
+// a short leader line back to its true location so both stay legible.
+const COLLIDE_PX = 22;
+const OFFSET_PX: [number, number] = [14, -14];
 const STOP_SOURCE = "gctp-tour-stops";
 const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
 const STOP_LABEL_LAYER = "gctp-tour-stops-label";
@@ -139,7 +146,12 @@ export function TourLayer({
             {
               type: "Feature",
               geometry: result.parking.point,
-              properties: { type: result.parking.type },
+              properties: {
+                type: result.parking.type,
+                // 1 → no feasible parking found; the planner started at the
+                // cluster centroid. Drives the distinct red "P?" marker.
+                fallback: result.parking.fallback ? 1 : 0,
+              },
             },
           ],
         }
@@ -201,6 +213,11 @@ export function TourLayer({
 
     upsertGeoJsonSource(map, TOUR_SOURCE, tourFc);
     upsertGeoJsonSource(map, PARKING_SOURCE, parkingFc);
+    // Leader line is populated by the collision effect below; start empty.
+    upsertGeoJsonSource(map, PARKING_LEADER_SOURCE, {
+      type: "FeatureCollection",
+      features: [],
+    });
     upsertGeoJsonSource(map, STOP_SOURCE, stopsFc);
     upsertGeoJsonSource(map, DROPPED_SOURCE, droppedFc);
 
@@ -285,13 +302,31 @@ export function TourLayer({
         "text-halo-width": 1.8,
       },
     });
+    // Leader line, added before the parking circle so it draws beneath it.
+    addLayerSafe(PARKING_LEADER_LAYER, {
+      id: PARKING_LEADER_LAYER,
+      type: "line",
+      source: PARKING_LEADER_SOURCE,
+      paint: {
+        "line-color": "#607d8b",
+        "line-width": 1.5,
+        "line-opacity": 0.9,
+      },
+    });
     addLayerSafe(PARKING_LAYER, {
       id: PARKING_LAYER,
       type: "circle",
       source: PARKING_SOURCE,
       paint: {
         "circle-radius": 11,
-        "circle-color": "#1565c0",
+        // Red when the planner found no feasible parking and fell back to the
+        // cluster centroid; the usual blue otherwise.
+        "circle-color": [
+          "case",
+          ["==", ["get", "fallback"], 1],
+          "#b71c1c",
+          "#1565c0",
+        ],
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2,
       },
@@ -301,7 +336,8 @@ export function TourLayer({
       type: "symbol",
       source: PARKING_SOURCE,
       layout: {
-        "text-field": "P",
+        // "P?" signals "no parking found here" without needing a banner.
+        "text-field": ["case", ["==", ["get", "fallback"], 1], "P?", "P"],
         "text-font": SYMBOL_FONT,
         "text-size": 13,
         "text-allow-overlap": true,
@@ -427,6 +463,81 @@ export function TourLayer({
     // plan response lands.
     map.triggerRepaint();
   }, [map, ready, result, caches, editMode, legPicks, selectedLegIndex]);
+
+  // Keep the parking "P" marker legible when it sits on top of a stop: offset
+  // it a few pixels and draw a short leader line back to its true location.
+  // Pixel-based, so it recomputes on zoom/move. The constant pixel translate is
+  // zoom-invariant; only the leader's unprojected endpoint needs refreshing.
+  useEffect(() => {
+    if (!ready) return;
+    const parking = result?.parking.point.coordinates as
+      | [number, number]
+      | undefined;
+    const byId = new Map<number, CacheSummaryDTO>();
+    for (const c of caches ?? []) byId.set(c.id, c);
+
+    const clearOffset = () => {
+      if (map.getLayer(PARKING_LAYER))
+        map.setPaintProperty(PARKING_LAYER, "circle-translate", [0, 0]);
+      if (map.getLayer(PARKING_LABEL_LAYER))
+        map.setPaintProperty(PARKING_LABEL_LAYER, "text-translate", [0, 0]);
+      const src = map.getSource(PARKING_LEADER_SOURCE);
+      if (src && "setData" in src)
+        (src as maplibregl.GeoJSONSource).setData({
+          type: "FeatureCollection",
+          features: [],
+        });
+    };
+
+    const recompute = () => {
+      if (!parking || !result) {
+        clearOffset();
+        return;
+      }
+      const pPx = map.project(parking);
+      let nearest: { coord: [number, number]; distPx: number } | null = null;
+      for (const id of result.orderedCacheIds) {
+        const cache = byId.get(id);
+        if (!cache) continue;
+        const coord = cache.location.coordinates as [number, number];
+        const sPx = map.project(coord);
+        const d = Math.hypot(sPx.x - pPx.x, sPx.y - pPx.y);
+        if (!nearest || d < nearest.distPx) nearest = { coord, distPx: d };
+      }
+      if (!nearest || nearest.distPx > COLLIDE_PX) {
+        clearOffset();
+        return;
+      }
+      if (map.getLayer(PARKING_LAYER))
+        map.setPaintProperty(PARKING_LAYER, "circle-translate", OFFSET_PX);
+      if (map.getLayer(PARKING_LABEL_LAYER))
+        map.setPaintProperty(PARKING_LABEL_LAYER, "text-translate", OFFSET_PX);
+      const tip = map.unproject([pPx.x + OFFSET_PX[0], pPx.y + OFFSET_PX[1]]);
+      const src = map.getSource(PARKING_LEADER_SOURCE);
+      if (src && "setData" in src)
+        (src as maplibregl.GeoJSONSource).setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "LineString",
+                coordinates: [nearest.coord, [tip.lng, tip.lat]],
+              },
+            },
+          ],
+        });
+    };
+
+    recompute();
+    map.on("move", recompute);
+    map.on("zoom", recompute);
+    return () => {
+      map.off("move", recompute);
+      map.off("zoom", recompute);
+    };
+  }, [map, ready, result, caches]);
 
   // Edit-mode click handler. Bound separately so the layer-create
   // effect can re-run without rebinding the listener. `useMap`'s `ready`

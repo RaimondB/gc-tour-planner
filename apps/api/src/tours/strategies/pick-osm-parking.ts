@@ -46,7 +46,13 @@ export async function enumerateOsmParking(
   input: Tours.PlanLoopInput,
   centroid: [number, number],
 ): Promise<OsmParkingCandidate[]> {
-  if (input.startPreference !== "osm-parking") return [];
+  // Also used as Auto's OSM step (ADR-0011) — Auto enumerates the same way the
+  // explicit `osm-parking` mode does, reusing the access/fee filter defaults.
+  if (
+    input.startPreference !== "osm-parking" &&
+    input.startPreference !== "auto"
+  )
+    return [];
   const candidates = await repo.findNear(centroid, input.maxLinkMeters, {
     access: input.osmParkingAccessFilter as readonly string[],
     fee: input.osmParkingFeeFilter,
@@ -68,7 +74,11 @@ export async function pickOsmParking(
   cluster: readonly Caches.CacheDTO[],
   centroid: [number, number],
 ): Promise<Tours.ParkingChoice | null> {
-  if (input.startPreference !== "osm-parking") return null;
+  if (
+    input.startPreference !== "osm-parking" &&
+    input.startPreference !== "auto"
+  )
+    return null;
 
   const accessFilter = input.osmParkingAccessFilter as readonly string[];
   const feeFilter = input.osmParkingFeeFilter;
@@ -122,6 +132,7 @@ export async function pickOsmParking(
     type: "osm",
     point: { type: "Point", coordinates: best.point },
     reason: `OSM amenity=parking — ${label} (access=${best.access ?? "unknown"}, fee=${best.fee ?? "unknown"}, ~${Math.round(best.walkingMeters)}m walk)`,
+    fallback: false,
     osm: {
       osmId: best.osmId,
       osmType: best.osmType,
