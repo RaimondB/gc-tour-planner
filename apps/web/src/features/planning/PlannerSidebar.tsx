@@ -107,7 +107,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   maxCaches: 15,
   minClusterSize: 8,
   maxLinkMeters: 1_500,
-  startPreference: "parking-waypoint",
+  startPreference: "auto",
   timePerCacheMinutes: 5,
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
@@ -1290,11 +1290,18 @@ export function DebugOverlaysPanel({
 export interface TourSettingsPanelProps {
   settings: PlanSettings;
   onSettingsChange: (next: PlanSettings) => void;
+  /** Map-picked start point ([lng, lat]) when `startPreference ===
+   *  "user-supplied-point"`. `null` until the user clicks the map. */
+  pickedStart?: [number, number] | null;
+  /** Clear the picked start so the user can click the map again. */
+  onClearPickedStart?: () => void;
 }
 
 export function TourSettingsPanel({
   settings,
   onSettingsChange,
+  pickedStart = null,
+  onClearPickedStart,
 }: TourSettingsPanelProps): JSX.Element {
   return (
     <aside className="sidebar planner-sidebar">
@@ -1355,10 +1362,11 @@ export function TourSettingsPanel({
         <legend>Start preference</legend>
         {(
           [
-            ["parking-waypoint", "Cache-owner parking (PQ)"],
-            ["osrm-nearest-road", "Nearest car-accessible road"],
-            ["user-supplied-point", "Use current search center"],
-            ["osm-parking", "OSM amenity=parking (ADR-0011)"],
+            ["auto", "Automatic (recommended)"],
+            ["parking-waypoint", "Cache-owner parking"],
+            ["osm-parking", "Public parking lots"],
+            ["osrm-nearest-road", "Nearest road I can drive to"],
+            ["user-supplied-point", "Pick a point on the map"],
           ] as const
         ).map(([val, label]) => (
           <label key={val} className="checkbox">
@@ -1432,6 +1440,34 @@ export function TourSettingsPanel({
                 </label>
               ))}
             </div>
+          </div>
+        )}
+        {settings.startPreference === "user-supplied-point" && (
+          <div className="start-pick-hint" style={{ marginTop: 8 }}>
+            {pickedStart ? (
+              <div
+                className="muted"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <span>
+                  Start: {pickedStart[1].toFixed(5)},{" "}
+                  {pickedStart[0].toFixed(5)}
+                </span>
+                {onClearPickedStart && (
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={onClearPickedStart}
+                  >
+                    Pick again
+                  </button>
+                )}
+              </div>
+            ) : (
+              <small className="muted">
+                Click the map to set your start point.
+              </small>
+            )}
           </div>
         )}
       </fieldset>

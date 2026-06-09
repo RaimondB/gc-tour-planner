@@ -386,27 +386,16 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         return {
           type: "user",
           point: { type: "Point", coordinates: input.userSuppliedStart },
-          reason: "User-supplied start point",
+          reason: "Manually picked start point",
+          fallback: false,
         };
       }
-      case "osrm-nearest-road": {
+      case "osrm-nearest-road":
         // Snap centroid to a real road via OSRM /nearest — otherwise a
         // centroid in a river / field becomes a huge parking-to-first detour.
-        const snapped = await this.osrm.nearest(centroid, PROFILE);
-        if (snapped) {
-          return {
-            type: "osrm-nearest",
-            point: { type: "Point", coordinates: snapped },
-            reason: "Cluster centroid snapped to nearest walkable road",
-          };
-        }
-        return {
-          type: "osrm-nearest",
-          point: { type: "Point", coordinates: centroid },
-          reason:
-            "OSRM /nearest found no walkable road — using raw cluster centroid",
-        };
-      }
+        // This is the intended result for the mode, so it isn't a fallback
+        // unless /nearest finds nothing at all.
+        return this.snapCentroid(centroid, { snapIsFallback: false });
       case "osm-parking": {
         const osm = await pickOsmParking(
           this.parkingFacilities,
@@ -415,33 +404,90 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           cluster,
           centroid,
         );
+        return (
+          osm ??
+          this.centroidFallback(
+            centroid,
+            "No public parking within range — starting at cluster centroid",
+          )
+        );
+      }
+      case "auto": {
+        // First feasible source wins. The solver has no car-road enumerate, so
+        // Auto's third step is the OSRM-nearest snap (which always resolves to
+        // some point); the fallback only trips if even /nearest finds nothing.
+        const best = await this.tryPqParking(cluster);
+        if (best) return best;
+        const osm = await pickOsmParking(
+          this.parkingFacilities,
+          this.osrm,
+          input,
+          cluster,
+          centroid,
+        );
         if (osm) return osm;
-        return {
-          type: "osrm-nearest",
-          point: { type: "Point", coordinates: centroid },
-          reason:
-            "No walkable OSM amenity=parking within maxLinkMeters — fell back to cluster centroid",
-        };
+        return this.snapCentroid(centroid, { snapIsFallback: true });
       }
       case "parking-waypoint":
       default: {
-        const best = await pickBestPqParking(cluster, this.osrm);
-        if (best) {
-          return {
-            type: "pq",
-            point: { type: "Point", coordinates: best },
-            reason:
-              "Cache-owner parking waypoint with shortest walking route to a cluster cache",
-          };
-        }
-        return {
-          type: "osrm-nearest",
-          point: { type: "Point", coordinates: centroid },
-          reason:
-            "No PQ parking waypoint in the cluster — fell back to cluster centroid",
-        };
+        const best = await this.tryPqParking(cluster);
+        return (
+          best ??
+          this.centroidFallback(
+            centroid,
+            "No cache-owner parking near this cluster — starting at cluster centroid",
+          )
+        );
       }
     }
+  }
+
+  /** Cache-owner (PQ) parking with the shortest walk to a cluster cache.
+   *  `null` when none is OSRM-routable. */
+  private async tryPqParking(
+    cluster: readonly Caches.CacheDTO[],
+  ): Promise<Tours.ParkingChoice | null> {
+    const best = await pickBestPqParking(cluster, this.osrm);
+    if (!best) return null;
+    return {
+      type: "pq",
+      point: { type: "Point", coordinates: best },
+      reason:
+        "Cache-owner parking waypoint with shortest walking route to a cluster cache",
+      fallback: false,
+    };
+  }
+
+  /** Snap the centroid to the nearest walkable road. Used both as the explicit
+   *  osrm-nearest-road mode (where a successful snap is the intended result) and
+   *  as Auto's last resort (where it always counts as a fallback). A raw
+   *  centroid — when /nearest finds no road — is always a fallback. */
+  private async snapCentroid(
+    centroid: [number, number],
+    opts: { snapIsFallback: boolean },
+  ): Promise<Tours.ParkingChoice> {
+    const snapped = await this.osrm.nearest(centroid, PROFILE);
+    return {
+      type: "osrm-nearest",
+      point: { type: "Point", coordinates: snapped ?? centroid },
+      reason: snapped
+        ? "Cluster centroid snapped to nearest walkable road"
+        : "OSRM /nearest found no walkable road — using raw cluster centroid",
+      fallback: snapped ? opts.snapIsFallback : true,
+    };
+  }
+
+  /** Centroid fallback used when no parking source yields a feasible start. */
+  private centroidFallback(
+    centroid: [number, number],
+    reason: string,
+  ): Tours.ParkingChoice {
+    return {
+      type: "osrm-nearest",
+      point: { type: "Point", coordinates: centroid },
+      reason,
+      fallback: true,
+    };
   }
 }
 

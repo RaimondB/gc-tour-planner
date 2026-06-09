@@ -320,6 +320,37 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     });
     expect(result.parking.type).toBe("user");
     expect(result.parking.point.coordinates).toEqual(start);
+    expect(result.parking.fallback).toBe(false);
+  });
+
+  it("planLoop Auto picks cache-owner parking when one is reachable", async () => {
+    const result = await planner.planLoop(ownerId, {
+      cacheIds: clusterCacheIds,
+      distanceBudgetMeters: 8_000,
+      timePerCacheMinutes: 5,
+      toolBonusMinutes: 5,
+      startPreference: "auto",
+      maxLinkMeters: 1_000,
+    });
+    // PQ is the first Auto source and the cluster has a co-located waypoint.
+    expect(result.parking.type).toBe("pq");
+    expect(result.parking.fallback).toBe(false);
+  });
+
+  it("planLoop Auto flags a fallback when no parking source is reachable", async () => {
+    // Drop the only cache carrying a PQ waypoint; no parking_facilities or
+    // car_roads are seeded in this fixture, so every Auto source comes up
+    // empty and the planner falls back to the cluster centroid.
+    const result = await planner.planLoop(ownerId, {
+      cacheIds: clusterCacheIds.slice(1),
+      distanceBudgetMeters: 8_000,
+      timePerCacheMinutes: 5,
+      toolBonusMinutes: 5,
+      startPreference: "auto",
+      maxLinkMeters: 1_000,
+    });
+    expect(result.parking.type).toBe("osrm-nearest");
+    expect(result.parking.fallback).toBe(true);
   });
 
   it("planLoop rejects caches not owned by the user", async () => {

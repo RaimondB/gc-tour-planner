@@ -47,6 +47,7 @@ import { OsmParkingLayer } from "./features/map/OsmParkingLayer.js";
 import { ParkingOwnerLinkLayer } from "./features/map/ParkingOwnerLinkLayer.js";
 import { ParkingPreviewLayer } from "./features/map/ParkingPreviewLayer.js";
 import { RadiusLayer } from "./features/map/RadiusLayer.js";
+import { StartPointPickLayer } from "./features/map/StartPointPickLayer.js";
 import { TourLayer } from "./features/map/TourLayer.js";
 import { WalkingGraphLayer } from "./features/map/WalkingGraphLayer.js";
 import { TestRouteLayer } from "./features/map/TestRouteLayer.js";
@@ -79,7 +80,7 @@ import { useAuth } from "./features/auth/AuthProvider.js";
  */
 function planLoopSettingsKey(
   s: PlanSettings,
-  center: readonly [number, number],
+  pickedStart: readonly [number, number] | null,
 ): string {
   return JSON.stringify({
     distanceBudgetMeters: s.distanceBudgetMeters,
@@ -90,7 +91,9 @@ function planLoopSettingsKey(
     fringeTrimMeters: s.fringeTrimMeters,
     osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
     osmParkingFeeFilter: s.osmParkingFeeFilter,
-    userStart: s.startPreference === "user-supplied-point" ? center : null,
+    // The start rides on the map-picked point now (not the search center), so
+    // re-picking a start flags the plan stale.
+    userStart: s.startPreference === "user-supplied-point" ? pickedStart : null,
   });
 }
 
@@ -205,6 +208,13 @@ export default function App(): JSX.Element {
   );
   const [toolsOpen, setToolsOpen] = useState(false);
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
+  // Map-picked start point ([lng, lat]) for startPreference="user-supplied-point".
+  // Set by clicking the map; replaces the old "use search center" auto-fill.
+  const [pickedStart, setPickedStart] = useState<[number, number] | null>(null);
+  // "Pick a point on the map" is selected but the user hasn't clicked yet —
+  // block planning (the API requires userSuppliedStart for this mode).
+  const needsPickedStart =
+    planSettings.startPreference === "user-supplied-point" && !pickedStart;
   const [previewAlternativeIndex, setPreviewAlternativeIndex] = useState<
     number | null
   >(null);
@@ -257,7 +267,7 @@ export default function App(): JSX.Element {
       setChosenClusterId(cluster.clusterId);
       pendingPlanKeyRef.current = planLoopSettingsKey(
         planSettings,
-        params.center,
+        pickedStart,
       );
       return planLoop({
         cacheIds: cluster.cacheIds,
@@ -267,8 +277,9 @@ export default function App(): JSX.Element {
         startPreference: planSettings.startPreference,
         maxLinkMeters: planSettings.maxLinkMeters,
         fringeTrimMeters: planSettings.fringeTrimMeters,
-        ...(planSettings.startPreference === "user-supplied-point"
-          ? { userSuppliedStart: params.center }
+        ...(planSettings.startPreference === "user-supplied-point" &&
+        pickedStart
+          ? { userSuppliedStart: pickedStart }
           : {}),
         osmParkingAccessFilter: [...planSettings.osmParkingAccessFilter],
         osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
@@ -327,9 +338,9 @@ export default function App(): JSX.Element {
         startPreference: planSettings.startPreference,
         clusteringStrategy: planSettings.clusteringStrategy,
         topNClusters: planSettings.topNClusters,
-        ...(planSettings.startPreference === "user-supplied-point"
-          ? { userSuppliedStart: params.center }
-          : {}),
+        // Cluster discovery (Pass 1) doesn't use the start point — it's a
+        // Pass-2 parking concern — so we no longer send it here. The map-picked
+        // start rides only on planLoop.
         osmParkingAccessFilter: [...planSettings.osmParkingAccessFilter],
         osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
       });
@@ -495,7 +506,7 @@ export default function App(): JSX.Element {
   const planStale =
     planResult !== null &&
     plannedKey !== null &&
-    planLoopSettingsKey(planSettings, params.center) !== plannedKey;
+    planLoopSettingsKey(planSettings, pickedStart) !== plannedKey;
   const clustersStale =
     clusters !== null &&
     clusters.length > 0 &&
@@ -753,11 +764,13 @@ export default function App(): JSX.Element {
                   type="button"
                   className="primary"
                   onClick={() => planCluster(chosenCluster)}
-                  disabled={planMutation.isPending}
+                  disabled={planMutation.isPending || needsPickedStart}
                 >
                   {planMutation.isPending
                     ? "Planning…"
-                    : `Plan cluster #${chosenClusterRank} (${chosenCluster.cacheIds.length} caches)`}
+                    : needsPickedStart
+                      ? "Click the map to set your start"
+                      : `Plan cluster #${chosenClusterRank} (${chosenCluster.cacheIds.length} caches)`}
                 </button>
               ) : (
                 <span className="muted">
@@ -787,13 +800,15 @@ export default function App(): JSX.Element {
             type="button"
             className="primary"
             onClick={replan}
-            disabled={planMutation.isPending}
+            disabled={planMutation.isPending || needsPickedStart}
           >
             {planMutation.isPending
               ? "Planning…"
-              : planResult
-                ? "Replan"
-                : "Plan"}
+              : needsPickedStart
+                ? "Set start on map"
+                : planResult
+                  ? "Replan"
+                  : "Plan"}
           </button>
         </div>
         {planResult && (
@@ -887,6 +902,8 @@ export default function App(): JSX.Element {
         <TourSettingsPanel
           settings={planSettings}
           onSettingsChange={setPlanSettings}
+          pickedStart={pickedStart}
+          onClearPickedStart={() => setPickedStart(null)}
         />
         {planMutation.error && (
           <p className="error">{(planMutation.error as Error).message}</p>
@@ -963,7 +980,11 @@ export default function App(): JSX.Element {
             initialCenter={viewport?.center ?? params.center}
             initialZoom={viewport?.zoom ?? zoomForRadius(params.radiusM)}
             onPickCenter={
-              activeStep === "caches" ? handlePickCenter : undefined
+              planSettings.startPreference === "user-supplied-point"
+                ? setPickedStart
+                : activeStep === "caches"
+                  ? handlePickCenter
+                  : undefined
             }
             onReady={(m) => {
               mapRef.current = m;
@@ -979,6 +1000,14 @@ export default function App(): JSX.Element {
               params={params}
               interactive={activeStep === "caches"}
               onCenterChange={handlePickCenter}
+            />
+            <StartPointPickLayer
+              point={
+                planSettings.startPreference === "user-supplied-point" &&
+                !planResult
+                  ? pickedStart
+                  : null
+              }
             />
             <CachesLayer
               queryInput={debouncedCacheInput}

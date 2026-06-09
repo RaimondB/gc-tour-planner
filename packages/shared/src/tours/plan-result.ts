@@ -9,6 +9,14 @@ export const ParkingChoice = z.object({
   point: GeoJsonPoint,
   reason: z.string(),
   /**
+   * True when no feasible parking was found within `maxLinkMeters` and the
+   * planner fell back to the cluster centroid (Auto exhausted every source, or
+   * an explicit single mode found nothing reachable). The UI renders a distinct
+   * "no parking found here" marker. Defaults false so successful picks render
+   * normally.
+   */
+  fallback: z.boolean().default(false),
+  /**
    * When `type === "osm"`, identifies the source feature in
    * `parking_facilities`. Lets the UI link the picked parking back to its
    * map polygon and surface attributes (fee, access, capacity).

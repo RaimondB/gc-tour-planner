@@ -15,7 +15,7 @@ describe("PlanInput", () => {
 
     expect(parsed.maxCaches).toBe(15);
     expect(parsed.distanceBudgetMeters).toBe(8_000);
-    expect(parsed.startPreference).toBe("parking-waypoint");
+    expect(parsed.startPreference).toBe("auto");
     expect(parsed.softPreferences.clusterDensityWeight).toBe(1);
     expect(parsed.softPreferences.loopCompactnessWeight).toBe(1);
   });
