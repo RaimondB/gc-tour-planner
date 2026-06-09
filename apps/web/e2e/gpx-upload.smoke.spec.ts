@@ -18,16 +18,18 @@ const FIXTURE = join(__dirname, "fixtures", "smoke-pq.gpx");
  * is where it shows. Runs against the dev stack (`pnpm dev`, ports 15432/16379);
  * point it elsewhere with `E2E_BASE_URL`.
  */
-test("GPX upload ingests caches and unlocks the Plan tab", async ({ page }) => {
+test("GPX upload ingests caches and unlocks the Pick-a-cluster step", async ({
+  page,
+}) => {
   await page.goto("/");
 
-  // The Filter tab is active on load and renders the upload dropzone, which
-  // wraps a hidden <input type=file>. Drive it directly (no real drag-drop).
+  // The "Find caches" step is active on load and renders the upload dropzone,
+  // which wraps a hidden <input type=file>. Drive it directly (no real DnD).
   await expect(
     page.getByRole("heading", { name: "gc-tour-planner" }),
   ).toBeVisible();
-  const planTab = page.getByRole("tab", { name: "Plan" });
-  await expect(planTab).toBeDisabled(); // no caches yet → Plan is gated
+  const clustersChip = page.getByRole("button", { name: /Pick a cluster/ });
+  await expect(clustersChip).toBeDisabled(); // no caches yet → step is gated
 
   await page.locator('input[type="file"]').setInputFiles(FIXTURE);
 
@@ -39,7 +41,7 @@ test("GPX upload ingests caches and unlocks the Plan tab", async ({ page }) => {
   await expect(summary).toBeVisible({ timeout: 15_000 });
   await expect(summary).toContainText("3 caches");
 
-  // The uploaded caches round-trip through the /caches query and flip
-  // `planTabEnabled` true — the "plan renders" gate for this smoke.
-  await expect(planTab).toBeEnabled({ timeout: 15_000 });
+  // The uploaded caches round-trip through the /caches query and flip the
+  // Pick-a-cluster journey step enabled — the "flow unlocks" gate for this smoke.
+  await expect(clustersChip).toBeEnabled({ timeout: 15_000 });
 });

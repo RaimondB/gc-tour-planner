@@ -3,8 +3,62 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+:root {
+  /* Color */
+  --color-accent: #d84315;
+  --color-accent-strong: #bf360c;
+  --color-accent-tint: #fff7ed;
+  --color-accent-border: #fed7aa;
+  --color-text: #1f2937;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-surface: #ffffff;
+  --color-surface-alt: #fafafa;
+  --color-hover: #f3f4f6;
+  --color-danger: #b91c1c;
+  --color-success: #166534;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* Radii */
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 10px;
+  --radius-pill: 999px;
+
+  /* Touch target floor (modern, finger-friendly) */
+  --tap-min: 44px;
+
+  /* Layout */
+  --panel-width: 360px;
+
+  /* Z-index layers */
+  --z-map-control: 40;
+  --z-rail: 60;
+  --z-sheet: 80;
+  --z-drawer: 100;
+
+  --shadow-1: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-3: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+
 * {
   box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 html,
@@ -88,49 +142,114 @@ body,
   display: none;
 }
 
-/* --- Sidebar tabs (FR-UX1) -------------------------------------------- */
+/* --- Journey rail (map-first overhaul) -------------------------------- */
 
-.sidebar-tabs {
+/* Persistent "where am I" stepper floating over the top of the map. */
+.journey-rail {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-rail);
+  max-width: calc(100% - 2 * var(--space-3));
+}
+
+.journey-rail__list {
   display: flex;
-  gap: 0.25rem;
-  margin: -1rem -1rem 0.75rem;
-  padding: 0 1rem;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f3f4f6;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
 }
 
-.sidebar-tab {
-  appearance: none;
-  background: transparent;
+.journey-rail__item {
+  display: flex;
+  align-items: center;
+}
+
+/* A thin connector "─" between chips via ::after, except the last. */
+.journey-rail__item:not(:last-child)::after {
+  content: "";
+  width: 12px;
+  height: 1px;
+  background: var(--color-border-strong);
+}
+
+.journey-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
   border: none;
-  border-bottom: 2px solid transparent;
-  padding: 0.7rem 0.8rem;
-  font-size: 0.9rem;
-  color: #4b5563;
-  cursor: pointer;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.85rem;
   font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.sidebar-tab:hover:not(:disabled) {
-  color: #1f2937;
+.journey-chip:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
-.sidebar-tab--active {
-  color: #d84315;
-  border-bottom-color: #d84315;
-  background: #fafafa;
+.journey-chip--current {
+  background: var(--color-accent);
+  color: #fff;
 }
 
-.sidebar-tab:disabled {
+.journey-chip--current:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.journey-chip--done .journey-chip__marker {
+  color: var(--color-success);
+}
+
+.journey-chip--current .journey-chip__marker {
+  color: #fff;
+}
+
+.journey-chip:disabled {
   color: #9ca3af;
   cursor: not-allowed;
 }
 
-.sidebar-tabpanel {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
+/* "Needs attention" notification dot (e.g. clusters stale → re-discover). The
+   white ring keeps it visible on both the white and accent (current) chips. */
+.journey-chip__dot {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+.journey-chip--current .journey-chip__dot {
+  background: #fff;
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.journey-chip__marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25em;
+  font-weight: 700;
 }
 
 .muted {
@@ -194,21 +313,13 @@ body,
   overflow-y: auto;
 }
 
+/* Map-first layout: the map fills the body; the command panel is a fixed
+   right-hand dock at desktop widths (becomes a bottom sheet on mobile). */
 .app-body {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 1fr var(--panel-width);
   min-height: 0;
   overflow: hidden;
-}
-
-.left-pane {
-  border-right: 1px solid #e5e7eb;
-  padding: 1rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  background: #fafafa;
 }
 
 .app-main {
@@ -219,15 +330,6 @@ body,
 .map-view {
   position: absolute;
   inset: 0;
-}
-
-/* The drawer backdrop is a MOBILE-only overlay. It must not exist in the
-   desktop layout: it's rendered as a direct child of `.app-body` (the
-   320px 1fr grid), so if it were visible it would consume a grid track and
-   shove the map out of place. Hidden by default; the media query below makes
-   it a fixed overlay on phones. */
-.sidebar-backdrop {
-  display: none;
 }
 
 .app-footer {
@@ -638,6 +740,96 @@ body,
   color: #c2410c;
 }
 
+/* --- Cluster cards (the "Pick a cluster" picker) --------------------- */
+
+/* Desktop: a vertical list of compact cards in the dock (capped + scrollable).
+   Mobile overrides this to a horizontal scroll-snap carousel further down. */
+.cluster-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+.cluster-card {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+}
+
+.cluster-card.focused {
+  border-color: #fb923c;
+  background: var(--color-accent-tint);
+}
+
+.cluster-card.picked {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-border);
+}
+
+.cluster-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The card itself is a single-line stat button (rank + caches · km · time). */
+.cluster-card__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.cluster-card__rank {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.cluster-card__stat {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Details live behind this info icon — no second line on the card by default. */
+.cluster-card__info {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-right: var(--space-1);
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.cluster-card__info:hover,
+.cluster-card__info[aria-expanded="true"] {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.cluster-card__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 var(--space-3) var(--space-2);
+}
+
 /* --- Cluster picker ---------------------------------------------------- */
 
 .cluster-picker ol {
@@ -876,175 +1068,38 @@ body,
   color: #1f2937;
 }
 
-/* --- Tour stats overlay (FR-UX1 follow-up, both viewports) ----------- */
+/* --- Responsive: phone tweaks (the command panel becomes a bottom
+   sheet via the dedicated media query further down) ------------------- */
 
-/* Always-visible "at a glance" card when a tour is planned. Floats
-   over the top of the map, semi-transparent so the polyline behind
-   isn't lost. Click → opens Tour tab + drawer for the full panel. */
-.map-tour-overlay {
-  position: absolute;
-  top: 0.75rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  max-width: calc(100% - 1.5rem);
-}
-
-.map-tour-stats {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.1rem;
-  padding: 0.45rem 0.9rem;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  cursor: pointer;
-  font-family: inherit;
-  text-align: center;
-  min-width: 0;
-}
-
-.map-tour-stats:hover {
-  background: rgba(255, 255, 255, 1);
-}
-
-/* Sibling pill with the one-tap GPX download. Same float-pill style
-   for visual cohesion with the stats card. */
-.map-tour-download {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.45rem 0.8rem;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #e5e7eb;
-  border-radius: 999px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: #166534;
-  font-weight: 600;
-}
-
-.map-tour-download:hover {
-  background: rgba(255, 255, 255, 1);
-}
-
-.map-tour-stats__primary {
-  font-weight: 700;
-  color: #d84315;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.map-tour-stats__secondary {
-  color: #6b7280;
-  font-size: 0.72rem;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-/* --- Floating "Plan this cluster" button (FR-UX1, mobile-only) ------- */
-
-/* Hidden by default — the in-drawer "Plan this loop" row buttons are
-   the desktop affordance. Surfaced on phone when the user focused a
-   cluster on the map but doesn't want to re-open the drawer just to
-   start the plan. The media query at the bottom flips display:flex. */
-.map-plan-fab-row,
-.map-plan-fab,
-.map-fab-nav,
-.map-discover-fab {
-  display: none;
-}
-
-/* --- Responsive: mobile drawer (FR-UX1 phase C) --------------------- */
-
-/* The grid switches to a single column at ≤ 768 px so the map fills
-   the screen. The sidebar becomes a fixed-position left drawer slid
-   off-screen by default; hamburger toggles it on. Backdrop sits
-   between map and drawer so a tap outside the drawer closes it. */
 @media (max-width: 768px) {
+  /* Map fills the whole body; the command panel floats over it as a
+     fixed bottom sheet (see the .command-panel mobile rules below). */
   .app-body {
     grid-template-columns: 1fr;
   }
 
-  /* Tighten the header so hamburger + title + tools + sign-out fit on
-     one row at phone widths instead of wrapping into each other. */
   .app-header {
     padding: 0.6rem 0.75rem;
     gap: 0.5rem;
-  }
-
-  .app-header__hamburger {
-    display: inline-block;
   }
 
   .app-header h1 {
     font-size: 1.05rem;
   }
 
-  /* Tagline takes a lot of vertical space — hide on phone, the h1
-     already says what the app is. */
-  .app-header p {
-    display: none;
-  }
-
-  /* Collapse "⚙ Tools" to just the gear icon — the label is dev-tool
-     jargon that doesn't earn its width on a phone. */
-  .app-header__tools-label {
-    display: none;
-  }
-
-  /* The display-name chip is redundant on a phone (the user knows who
-     they're signed in as); drop it so Sign out keeps a comfortable
-     tap target without crowding the title. */
+  /* Tagline / tools-label / name chip don't earn their width on a phone. */
+  .app-header p,
+  .app-header__tools-label,
   .app-header__user-name {
     display: none;
   }
 
-  .sidebar-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.25);
-    z-index: 90;
-  }
-
-  .left-pane {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: min(360px, 85vw);
-    z-index: 95;
-    transform: translateX(-100%);
-    transition: transform 200ms ease;
-    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.1);
-    border-right: none;
-  }
-
-  .left-pane--open {
-    transform: translateX(0);
-  }
-
-  /* Map fills the whole app body; nothing competing for width when
-     drawer is closed. */
-  .app-main {
-    grid-column: 1;
-  }
-
-  /* Bump tap targets so they're reachable with a thumb. Sliders are
-     still slim by default; the wrapped label gets enough padding for
-     the input to be hit comfortably. */
+  /* Bump tap targets so they're reachable with a thumb. */
   .sidebar button,
   .sidebar .checkbox,
   .sidebar input[type="checkbox"],
   .sidebar input[type="radio"] {
-    min-height: 44px;
+    min-height: var(--tap-min);
   }
 
   .sidebar button {
@@ -1062,119 +1117,9 @@ body,
     height: 22px;
   }
 
-  /* Sidebar tabs sit at the top of the drawer — bump their hit area
-     too. */
-  .sidebar-tab {
-    min-height: 44px;
-    font-size: 0.95rem;
-    flex: 1;
-    text-align: center;
-  }
-
-  /* Tools drawer covers more of the screen on phone (a 420 px
-     drawer on a 400 px viewport made no sense). */
+  /* Admin tools drawer covers the full width on a phone. */
   .tools-drawer {
     width: 100vw;
-  }
-
-  /* Floating "Plan cluster #N/M" FAB row — bottom-centre of the
-     map, thumb-reachable. ◀ / ▶ flank the main Plan button so the
-     user can step through candidates from the map view. Auto-hides
-     when the focused cluster turns into the planned tour
-     (focusedClusterId clears on plan-success). */
-  .map-plan-fab-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    position: absolute;
-    left: 50%;
-    bottom: 1.5rem;
-    transform: translateX(-50%);
-    z-index: 80;
-  }
-
-  .map-plan-fab,
-  .map-fab-nav {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: #d84315;
-    color: white;
-    border: none;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-    min-height: 44px;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .map-plan-fab {
-    border-radius: 999px;
-    padding: 0.85rem 1.2rem;
-    font-size: 0.95rem;
-  }
-
-  .map-fab-nav {
-    width: 44px;
-    border-radius: 999px;
-    font-size: 1rem;
-  }
-
-  .map-plan-fab:disabled,
-  .map-fab-nav:disabled {
-    background: #9ca3af;
-    cursor: not-allowed;
-  }
-
-  .map-plan-fab:disabled {
-    cursor: progress;
-  }
-
-  /* When the focused cluster IS the planned tour, the middle button
-     becomes a "view tour" affordance. Green tint matches the
-     "Found" pill / planned-state convention elsewhere. */
-  .map-plan-fab--planned {
-    background: #166534;
-  }
-
-  /* Discover FAB — same bottom-centre slot as the Plan FAB but
-     shown when no clusters have been discovered yet. The two are
-     mutually exclusive (Discover gates on `clusters === null ||
-     empty`; Plan FAB requires a focused cluster which can only
-     exist after Discover). */
-  .map-discover-fab {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: absolute;
-    left: 50%;
-    bottom: 1.5rem;
-    transform: translateX(-50%);
-    z-index: 80;
-    background: #d84315;
-    color: white;
-    border: none;
-    border-radius: 999px;
-    padding: 0.85rem 1.4rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-    min-height: 44px;
-    cursor: pointer;
-  }
-
-  .map-discover-fab:disabled {
-    background: #9ca3af;
-    cursor: progress;
-  }
-
-  /* Stats overlay shrinks on phone — top of map, single line. */
-  .map-tour-stats__secondary {
-    display: none;
-  }
-
-  .map-tour-stats {
-    padding: 0.4rem 0.75rem;
-    top: 0.5rem;
   }
 }
 
@@ -1332,4 +1277,395 @@ body,
   text-align: center;
   font-size: 0.85rem;
   color: #6b7280;
+}
+
+/* --- Command panel (adaptive dock / bottom sheet) --------------------- */
+
+.command-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface-alt);
+  border-left: 1px solid var(--color-border);
+}
+
+/* Drag handle is mobile-only; the dock has no grip. */
+.command-panel__grip {
+  display: none;
+}
+
+.command-panel__header {
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.command-panel__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.command-panel__peek {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.command-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Generic primary button (peek CTAs, GPX track, replan). */
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: #fff;
+  border-radius: var(--radius-1);
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: var(--tap-min);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--color-accent-strong);
+}
+
+button.primary:disabled {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  cursor: default;
+}
+
+/* --- Step peek (the always-visible CTA row for the current step) ------ */
+
+.step-peek {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.step-peek--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.step-peek__stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.step-peek--stack > .primary {
+  width: 100%;
+}
+
+.step-peek__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Quick GPX downloads, surfaced directly in the Tour peek. */
+.gpx-quick {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.gpx-quick button {
+  flex: 1;
+}
+
+.gpx-quick button:not(.primary) {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-1);
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-height: var(--tap-min);
+}
+
+.gpx-quick button:not(.primary):hover {
+  background: var(--color-hover);
+}
+
+.badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-pill);
+}
+
+.badge--stale {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.stale-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-2);
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+p.error,
+.command-panel .error {
+  margin: var(--space-1) 0;
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+/* --- On-map "frame current view" control ----------------------------- */
+
+.map-frame-btn {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: var(--z-map-control);
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-2);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.map-frame-btn:hover {
+  background: #fff;
+}
+
+/* --- Uniform "Advanced …" disclosure --------------------------------- */
+
+.advanced-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.advanced-section > .advanced-section__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: var(--space-2) 0;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-align: left;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.advanced-section > .advanced-section__summary:hover {
+  color: var(--color-text);
+}
+
+.advanced-section--open > .advanced-section__summary {
+  color: var(--color-text);
+}
+
+.advanced-section__chevron {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+
+.advanced-section--open > .advanced-section__summary .advanced-section__chevron {
+  transform: rotate(90deg);
+}
+
+.advanced-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+/* --- Cluster row as a tap target ------------------------------------- */
+
+.cluster .cluster-row-main {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  min-height: var(--tap-min);
+}
+
+.cluster .cluster-row-main:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+/* --- Mobile: command panel becomes a draggable bottom sheet ----------- */
+
+@media (max-width: 768px) {
+  /* Cluster cards become a horizontal scroll-snap carousel (native swipe). */
+  .cluster-carousel {
+    flex-direction: row;
+    max-height: none;
+    overflow-y: hidden;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--space-1);
+    scroll-padding-inline: var(--space-2);
+  }
+
+  .cluster-card {
+    flex: 0 0 80%;
+    scroll-snap-align: center;
+  }
+
+  .command-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-sheet);
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    border-radius: var(--radius-3) var(--radius-3) 0 0;
+    box-shadow: var(--shadow-3);
+    overflow: hidden; /* clip the body when collapsed to the grab bar */
+    transition: height 160ms ease;
+    /* height is set inline by JS per the active snap point */
+  }
+
+  /* The step title lives in the journey rail on mobile — drop the dock
+     header so the peek CTA stays visible in the collapsed sheet. */
+  .command-panel__header {
+    display: none;
+  }
+
+  /* The whole grab bar is the drag/tap target (not a tiny handle) so it
+     reacts reliably. A pill on top reads as draggable; the title doubles as
+     a reopen label when the sheet is collapsed; the chevron toggles state. */
+  .command-panel__grip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    position: relative;
+    min-height: 46px;
+    padding: 8px var(--space-3) 0;
+    cursor: grab;
+    touch-action: none;
+    flex: none;
+  }
+
+  .command-panel__grip:active {
+    cursor: grabbing;
+  }
+
+  .command-panel__handle {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 5px;
+    border-radius: var(--radius-pill);
+    background: var(--color-border-strong);
+  }
+
+  .command-panel__grip-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .command-panel__grip-toggle {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  .command-panel__grip-toggle:hover {
+    background: var(--color-hover);
+  }
+
+  /* Frame control would hide behind the sheet — pin it top-right under the
+     rail instead. */
+  .map-frame-btn {
+    top: calc(var(--space-3) + 52px);
+    bottom: auto;
+  }
+
+  /* Collapse the stepper on narrow screens: only the CURRENT step shows its
+     label (as a pill); the others shrink to circular markers (number / ✓ /
+     🔒). Removes truncation/overflow and frees map space, while keeping
+     tap-to-navigate and the "where am I" read. */
+  .journey-rail__list {
+    gap: var(--space-1);
+    padding: var(--space-1);
+  }
+
+  .journey-chip {
+    min-height: 40px;
+  }
+
+  .journey-chip:not(.journey-chip--current) {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .journey-chip:not(.journey-chip--current) .journey-chip__label {
+    display: none;
+  }
+
+  /* The current step keeps its full label — no truncation now that it's the
+     only one showing text. */
+  .journey-chip--current .journey-chip__label {
+    max-width: none;
+  }
+
+  .journey-rail__item:not(:last-child)::after {
+    width: 8px;
+  }
 }

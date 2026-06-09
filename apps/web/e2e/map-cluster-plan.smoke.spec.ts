@@ -78,13 +78,14 @@ test("upload → discover clusters → focus → plan a loop", async ({ page }) 
     timeout: 15_000,
   });
 
-  const planTab = page.getByRole("tab", { name: "Plan" });
-  await expect(planTab).toBeEnabled({ timeout: 15_000 });
-  await planTab.click();
+  // The journey rail's "Pick a cluster" step unlocks once caches exist.
+  const clustersChip = page.getByRole("button", { name: /Pick a cluster/ });
+  await expect(clustersChip).toBeEnabled({ timeout: 15_000 });
+  await clustersChip.click();
 
-  // Scope all sidebar interactions to the tabpanel — the map FAB shares the
+  // Scope sidebar interactions to the command-panel body — the peek shares the
   // "Discover clusters" label, so an unscoped getByRole would be ambiguous.
-  const sidebar = page.getByRole("tabpanel");
+  const sidebar = page.locator(".command-panel__body");
 
   // The fixture has only 3 caches, but min-cluster-size defaults to 8 — nothing
   // would cluster. Open Advanced settings and drop the slider to its min (2) via
@@ -110,9 +111,10 @@ test("upload → discover clusters → focus → plan a loop", async ({ page }) 
   await firstRow.hover();
   await expect(firstRow).toHaveClass(/focused/);
 
-  // --- plan a loop: commit the cluster (→ Tour tab) and route it ---
-  await firstRow.getByRole("button", { name: /Open in Tour/ }).click();
-  const planButton = page.getByRole("button", { name: /^(Plan|Replan)$/ });
+  // --- plan a loop: tapping the row frames + picks the cluster; the peek's
+  //     "Plan cluster #N" button then routes it (→ Plan & export step) ---
+  await firstRow.locator(".cluster-row-main").click();
+  const planButton = page.getByRole("button", { name: /Plan cluster #/ });
   await expect(planButton).toBeVisible({ timeout: 10_000 });
   await planButton.click();
 

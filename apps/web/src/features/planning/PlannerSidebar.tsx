@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, type JSX } from "react";
+import { type JSX } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
@@ -35,6 +35,7 @@ import {
 } from "../../lib/persistent-state.js";
 import { useQueryClient } from "@tanstack/react-query";
 import type { SearchParams } from "../../lib/search-params.js";
+import { AdvancedSection } from "../shell/AdvancedSection.js";
 
 export interface PlanSettings {
   distanceBudgetMeters: number;
@@ -226,9 +227,7 @@ export function PlannerSidebar({
   onClustersChange,
   diagnostics,
   onDiagnosticsChange,
-  chosenClusterId,
   onChosenClusterChange,
-  focusedClusterId,
   onFocusClusterChange,
   result,
   onResultChange,
@@ -254,9 +253,6 @@ export function PlannerSidebar({
   hideResultPanel = false,
   hideClusterLab = false,
   hideDebugOverlays = false,
-  onPlanCluster,
-  planPending,
-  planPendingClusterId,
   planError,
   onDiscover,
   discoverPending,
@@ -323,20 +319,13 @@ export function PlannerSidebar({
   // Scroll the focused cluster row into view when focus is set externally
   // (i.e. by clicking a centroid on the map). Idempotent — if the row is
   // already visible, scrollIntoView is a no-op.
-  const rowRefs = useRef(new Map<string, HTMLLIElement | null>());
-  useEffect(() => {
-    if (!focusedClusterId) return;
-    const el = rowRefs.current.get(focusedClusterId);
-    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [focusedClusterId]);
-
   return (
     <aside className="sidebar planner-sidebar">
       <h2>Find clusters</h2>
       <p className="muted">
-        These settings shape which clusters are discovered. Pick a candidate
-        below to open it in the Tour tab, where you set the start preference and
-        plan the route.
+        These settings shape which clusters are discovered. Press{" "}
+        <strong>Discover clusters</strong>, then pick a candidate from the
+        carousel at the top of the drawer to plan its loop.
       </p>
 
       <div className="field">
@@ -430,8 +419,7 @@ export function PlannerSidebar({
         </label>
       </fieldset>
 
-      <details className="advanced">
-        <summary>Advanced cluster settings</summary>
+      <AdvancedSection title="Advanced cluster settings">
         <div className="field">
           <label>
             Min caches per cluster: {settings.minClusterSize}
@@ -504,7 +492,7 @@ export function PlannerSidebar({
             </label>
           ))}
         </fieldset>
-      </details>
+      </AdvancedSection>
 
       {!hideDebugOverlays && (
         <DebugOverlaysPanel
@@ -553,102 +541,6 @@ export function PlannerSidebar({
         <div className="planner-empty">
           No clusters found in this area. Try widening the radius or loosening
           the filters.
-        </div>
-      )}
-
-      {clusters && clusters.length > 0 && (
-        <div className="cluster-picker">
-          <h3>Candidate clusters</h3>
-          <ol>
-            {clusters.map((c, i) => {
-              // Humanised summary: estimated loop length (fall back to MST×2
-              // when the estimate is absent) + a rough total time = walking at
-              // the user's avg speed + visit time per cache.
-              const loopKm =
-                (c.estimatedTourMeters > 0
-                  ? c.estimatedTourMeters
-                  : c.mstLengthMeters * 2) / 1000;
-              const totalMin =
-                (settings.avgWalkingKmh > 0
-                  ? (loopKm / settings.avgWalkingKmh) * 60
-                  : 0) +
-                settings.timePerCacheMinutes * c.cacheIds.length;
-              return (
-                <li
-                  key={c.clusterId}
-                  ref={(el) => {
-                    rowRefs.current.set(c.clusterId, el);
-                  }}
-                  className={[
-                    "cluster",
-                    c.clusterId === chosenClusterId ? "picked" : "",
-                    c.clusterId === focusedClusterId ? "focused" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  // Focus is sticky — set on hover or via map-centroid click,
-                  // only changes when the user picks a different row or clears.
-                  onMouseEnter={() => onFocusClusterChange(c.clusterId)}
-                  onFocus={() => onFocusClusterChange(c.clusterId)}
-                  // Hover/focus previews; double-click commits to the Tour tab
-                  // (same as the "Open in Tour" button).
-                  onDoubleClick={() => onPlanCluster(c)}
-                  tabIndex={0}
-                  title="Double-click to plan this cluster in the Tour tab"
-                >
-                  <div className="cluster-head">
-                    <span className="cluster-rank">#{i + 1}</span>
-                    <strong className="cluster-caches">
-                      {c.cacheIds.length} caches
-                    </strong>
-                    <span className="cluster-summary">
-                      ~{loopKm.toFixed(1)} km loop · ~{minutes(totalMin)}
-                    </span>
-                  </div>
-                  <details className="cluster-metrics">
-                    <summary>details</summary>
-                    <div className="cluster-breakdown">
-                      <span className="chip">
-                        MST {(c.mstLengthMeters / 1000).toFixed(2)} km
-                      </span>
-                      {c.estimatedTourMeters > 0 && (
-                        <span
-                          className="chip"
-                          title="NN+2-opt × 1.4 haversine→walking; Pass-2 produces the real OSRM-routed value."
-                        >
-                          est. {(c.estimatedTourMeters / 1000).toFixed(1)} km
-                        </span>
-                      )}
-                      <span className="chip">score {c.score.toFixed(3)}</span>
-                      {Object.entries(c.scoreBreakdown).map(([k, v]) => (
-                        <span key={k} className="chip">
-                          {k}: {v.toFixed(2)}
-                        </span>
-                      ))}
-                    </div>
-                  </details>
-                  <div className="cluster-row-actions">
-                    <button
-                      type="button"
-                      onClick={() => onPlanCluster(c)}
-                      disabled={planPending}
-                    >
-                      {planPending && c.clusterId === planPendingClusterId
-                        ? "Planning…"
-                        : "Open in Tour ▸"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSelectionChange(new Set(c.cacheIds))}
-                      title="Copy this cluster into the manual selection so you can shift-click caches off and re-explain"
-                    >
-                      Use as selection
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
         </div>
       )}
 
@@ -1027,8 +919,7 @@ export function PlanResultPanel({
         </p>
       </div>
 
-      <details className="planner-actions-advanced">
-        <summary>Developer downloads</summary>
+      <AdvancedSection title="Developer downloads">
         <div className="planner-actions">
           <button
             type="button"
@@ -1048,7 +939,7 @@ export function PlanResultPanel({
             Download parking options JSON
           </button>
         </div>
-      </details>
+      </AdvancedSection>
     </div>
   );
 }
@@ -1545,8 +1436,7 @@ export function TourSettingsPanel({
         )}
       </fieldset>
 
-      <details className="advanced">
-        <summary>Advanced tour settings</summary>
+      <AdvancedSection title="Advanced tour settings">
         <div className="field">
           <label>
             Trim out-and-back spurs: {settings.fringeTrimMeters} m
@@ -1569,7 +1459,7 @@ export function TourSettingsPanel({
             </small>
           </label>
         </div>
-      </details>
+      </AdvancedSection>
     </aside>
   );
 }

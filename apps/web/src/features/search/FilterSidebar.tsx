@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { CACHE_TYPES, type CacheType } from "@gctp/shared/caches";
 import { LANDUSE_KINDS, type LanduseKind } from "@gctp/shared/landuse";
 import type { SearchParams } from "../../lib/search-params.js";
+import { AdvancedSection } from "../shell/AdvancedSection.js";
 
 export interface FilterSidebarProps {
   value: SearchParams;
@@ -189,104 +190,106 @@ export function FilterSidebar({
         </small>
       </fieldset>
 
-      <fieldset className="field">
-        <legend>Availability</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={value.includeDisabled}
-            onChange={(e) =>
-              onChange({ ...value, includeDisabled: e.target.checked })
-            }
-          />
-          Include temporarily-disabled caches
-        </label>
-        <small>
-          Disabled caches are temporarily out of service (owner maintenance).
-          Hidden by default; when shown they render at 50 % opacity with a
-          &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
-        </small>
-      </fieldset>
+      <AdvancedSection title="More filters">
+        <fieldset className="field">
+          <legend>Availability</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={value.includeDisabled}
+              onChange={(e) =>
+                onChange({ ...value, includeDisabled: e.target.checked })
+              }
+            />
+            Include temporarily-disabled caches
+          </label>
+          <small>
+            Disabled caches are temporarily out of service (owner maintenance).
+            Hidden by default; when shown they render at 50 % opacity with a
+            &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
+          </small>
+        </fieldset>
 
-      <fieldset className="field">
-        <legend>Mysteries</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={value.solvedMysteriesOnly}
-            onChange={(e) =>
-              onChange({ ...value, solvedMysteriesOnly: e.target.checked })
-            }
-          />
-          Only show solved mysteries
-        </label>
-        <small>
-          Hides Mystery caches you haven&rsquo;t solved (other types are
-          unaffected). To populate solved coordinates, upload a Groundspeak GPX
-          of your solved mysteries and tick &ldquo;contains solved
-          coordinates&rdquo; on upload.
-        </small>
-      </fieldset>
+        <fieldset className="field">
+          <legend>Mysteries</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={value.solvedMysteriesOnly}
+              onChange={(e) =>
+                onChange({ ...value, solvedMysteriesOnly: e.target.checked })
+              }
+            />
+            Only show solved mysteries
+          </label>
+          <small>
+            Hides Mystery caches you haven&rsquo;t solved (other types are
+            unaffected). To populate solved coordinates, upload a Groundspeak
+            GPX of your solved mysteries and tick &ldquo;contains solved
+            coordinates&rdquo; on upload.
+          </small>
+        </fieldset>
 
-      <fieldset className="field">
-        <legend>Equipment</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={value.hideToolCaches}
-            onChange={(e) =>
-              onChange({ ...value, hideToolCaches: e.target.checked })
-            }
-          />
-          Hide caches requiring special tools
-        </label>
-        <small>
-          Excludes caches with attributes like climbing gear, boat, scuba,
-          flashlight, snowshoes, or &ldquo;special tool required&rdquo; (e.g.
-          angler pole). Also catches caches whose description mentions a tool
-          (fishing rod, ladder, mirror, &hellip;) in en/nl/de.
-        </small>
-      </fieldset>
+        <fieldset className="field">
+          <legend>Equipment</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={value.hideToolCaches}
+              onChange={(e) =>
+                onChange({ ...value, hideToolCaches: e.target.checked })
+              }
+            />
+            Hide caches requiring special tools
+          </label>
+          <small>
+            Excludes caches with attributes like climbing gear, boat, scuba,
+            flashlight, snowshoes, or &ldquo;special tool required&rdquo; (e.g.
+            angler pole). Also catches caches whose description mentions a tool
+            (fishing rod, ladder, mirror, &hellip;) in en/nl/de.
+          </small>
+        </fieldset>
 
-      <fieldset className="field">
-        <legend>Landuse context</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={value.showLanduse}
-            onChange={(e) =>
-              onChange({ ...value, showLanduse: e.target.checked })
-            }
-          />
-          Show landuse overlay
-        </label>
-        {value.showLanduse && (
-          <>
-            {LANDUSE_KINDS.map((k) => (
-              <label key={k} className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={value.contexts.includes(k)}
-                  onChange={() => {
-                    const isOn = value.contexts.includes(k);
-                    onChange({
-                      ...value,
-                      contexts: isOn
-                        ? value.contexts.filter((c) => c !== k)
-                        : [...value.contexts, k],
-                    });
-                  }}
-                />
-                {labelForKind(k)}
-              </label>
-            ))}
-            <small>
-              Pick one or more to hard-filter caches to those areas. Polygons
-              are fetched from OpenStreetMap on demand.
-            </small>
-          </>
-        )}
-      </fieldset>
+        <fieldset className="field">
+          <legend>Landuse context</legend>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={value.showLanduse}
+              onChange={(e) =>
+                onChange({ ...value, showLanduse: e.target.checked })
+              }
+            />
+            Show landuse overlay
+          </label>
+          {value.showLanduse && (
+            <>
+              {LANDUSE_KINDS.map((k) => (
+                <label key={k} className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={value.contexts.includes(k)}
+                    onChange={() => {
+                      const isOn = value.contexts.includes(k);
+                      onChange({
+                        ...value,
+                        contexts: isOn
+                          ? value.contexts.filter((c) => c !== k)
+                          : [...value.contexts, k],
+                      });
+                    }}
+                  />
+                  {labelForKind(k)}
+                </label>
+              ))}
+              <small>
+                Pick one or more to hard-filter caches to those areas. Polygons
+                are fetched from OpenStreetMap on demand.
+              </small>
+            </>
+          )}
+        </fieldset>
+      </AdvancedSection>
 
       <div className="result-count">
         {loading
@@ -299,8 +302,8 @@ export function FilterSidebar({
       {!loading && !cacheCount && (
         <div className="empty-hint">
           No caches here yet. <strong>Upload a GPX</strong> above to load your
-          caches, or widen the radius / move the search center (click the map).
-          Then open the <strong>Plan</strong> tab.
+          caches, or widen the radius / move the search center (click the map or
+          drag the center handle). Then press <strong>Find clusters →</strong>.
         </div>
       )}
     </aside>
