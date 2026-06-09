@@ -979,12 +979,14 @@ export default function App(): JSX.Element {
           <MapView
             initialCenter={viewport?.center ?? params.center}
             initialZoom={viewport?.zoom ?? zoomForRadius(params.radiusM)}
+            // A background tap is used ONLY to drop the user-supplied tour
+            // start point. Tap-to-set-*center* is gone: in the Find step the
+            // search circle is a viewport-centred reticle and panning the map
+            // repositions it (see RadiusLayer).
             onPickCenter={
               planSettings.startPreference === "user-supplied-point"
                 ? setPickedStart
-                : activeStep === "caches"
-                  ? handlePickCenter
-                  : undefined
+                : undefined
             }
             onReady={(m) => {
               mapRef.current = m;
@@ -1092,6 +1094,12 @@ export default function App(): JSX.Element {
             attention={{ clusters: clustersStale }}
             onSelect={selectStep}
           />
+
+          {activeStep === "caches" && (
+            <p className="map-reticle-hint" aria-hidden="true">
+              Pan the map to aim — the circle is your search area
+            </p>
+          )}
 
           <button
             type="button"

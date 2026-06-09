@@ -1461,6 +1461,25 @@ p.error,
   background: #fff;
 }
 
+/* Discoverability caption for the reticle model — sits just below the centred
+   search dot in the Find step. Non-interactive so it never blocks panning. */
+.map-reticle-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 18px);
+  transform: translateX(-50%);
+  z-index: var(--z-map-control);
+  margin: 0;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-2);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* --- Uniform "Advanced …" disclosure --------------------------------- */
 
 .advanced-section {

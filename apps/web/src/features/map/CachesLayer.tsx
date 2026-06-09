@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import {
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
 import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
+import { isDragGesture } from "./pointer-drag.js";
 
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
@@ -131,6 +132,10 @@ export function CachesLayer({
 }: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
+  // Screen point of the last pointer-down, used to tell a tap from a pan so a
+  // pan that happens to end on a marker doesn't open its popup. See the click
+  // handlers below and ./pointer-drag.
+  const downPointRef = useRef<{ x: number; y: number } | null>(null);
   const query = useQuery({
     queryKey: ["caches", queryInput],
     queryFn: ({ signal }) => listCaches(queryInput, signal),
@@ -339,6 +344,9 @@ export function CachesLayer({
         features?: maplibregl.MapGeoJSONFeature[];
       },
     ) => {
+      // Ignore clicks that are really the tail of a pan — under the reticle
+      // model the user pans over caches constantly to reposition the area.
+      if (isDragGesture(downPointRef.current, e.point)) return;
       const f = e.features?.[0];
       if (!f) return;
       const props = f.properties as unknown as CacheProps;
@@ -478,6 +486,7 @@ export function CachesLayer({
         features?: maplibregl.MapGeoJSONFeature[];
       },
     ) => {
+      if (isDragGesture(downPointRef.current, e.point)) return;
       const f = e.features?.[0];
       if (!f) return;
       const props = f.properties as { cacheCode?: string; cacheId?: number };
@@ -497,6 +506,15 @@ export function CachesLayer({
         onParkingSelect({ point: [lng, lat], ownerCacheId: cacheId });
       }
     };
+    // Track the pointer-down screen point map-wide so the layer click handlers
+    // can distinguish a tap from a pan that ends on a marker.
+    const rememberDown = (
+      e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent,
+    ) => {
+      downPointRef.current = { x: e.point.x, y: e.point.y };
+    };
+    map.on("mousedown", rememberDown);
+    map.on("touchstart", rememberDown);
     map.on("click", CACHES_CIRCLE_LAYER, handler);
     map.on("mouseenter", CACHES_CIRCLE_LAYER, enter);
     map.on("mouseleave", CACHES_CIRCLE_LAYER, leave);
@@ -504,6 +522,8 @@ export function CachesLayer({
     map.on("mouseenter", PARKING_LAYER, enter);
     map.on("mouseleave", PARKING_LAYER, leave);
     return () => {
+      map.off("mousedown", rememberDown);
+      map.off("touchstart", rememberDown);
       map.off("click", CACHES_CIRCLE_LAYER, handler);
       map.off("mouseenter", CACHES_CIRCLE_LAYER, enter);
       map.off("mouseleave", CACHES_CIRCLE_LAYER, leave);
