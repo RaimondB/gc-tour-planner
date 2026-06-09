@@ -1461,21 +1461,22 @@ p.error,
   background: #fff;
 }
 
-/* Discoverability caption for the reticle model — sits just below the centred
-   search dot in the Find step. Non-interactive so it never blocks panning. */
+/* One-time discoverability caption for the reticle model. Kept small, faint and
+   anchored to the bottom edge so it never obscures the map or the centred
+   circle; it disappears for good after the first pan. Non-interactive. */
 .map-reticle-hint {
   position: absolute;
   left: 50%;
-  top: calc(50% + 18px);
+  bottom: var(--space-5);
   transform: translateX(-50%);
   z-index: var(--z-map-control);
   margin: 0;
-  padding: 0.25rem 0.6rem;
+  padding: 0.15rem 0.55rem;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: var(--shadow-2);
-  color: var(--color-text);
-  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--color-muted, #6b7280);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   pointer-events: none;
 }

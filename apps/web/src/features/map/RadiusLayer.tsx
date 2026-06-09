@@ -155,14 +155,19 @@ export function RadiusLayer({
     };
 
     // Redraw the reticle at the screen centre each frame so it stays pinned
-    // while the basemap + cache markers slide underneath.
+    // while the basemap + cache markers slide underneath. Runs for programmatic
+    // camera moves too (e.g. framing the circle), keeping it centred throughout.
     const onMove = () => {
       const c = map.getCenter();
       drawAt([c.lng, c.lat]);
     };
     // Commit the chosen centre once the camera settles (debounced refetch
-    // downstream via setParams). Pure state update — must not move the camera.
-    const onMoveEnd = () => {
+    // downstream via setParams). Only for USER-initiated moves — `originalEvent`
+    // is undefined for programmatic frames (fitBounds/flyTo), so framing the
+    // circle never overwrites the centre with the padded screen point. Pure
+    // state update — must not move the camera.
+    const onMoveEnd = (e: maplibregl.MapLibreEvent) => {
+      if (!e.originalEvent) return;
       const c = map.getCenter();
       onCenterChange([c.lng, c.lat]);
     };
