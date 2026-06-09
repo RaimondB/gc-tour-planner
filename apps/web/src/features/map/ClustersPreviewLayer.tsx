@@ -22,10 +22,12 @@ const PREVIEW_LINES_LAYER = "gctp-cluster-preview-lines";
  *     preview polyline that walks its member caches in radial order around
  *     the centroid. The preview is intentionally a thin dashed line — it
  *     is a "shape of the area" hint, not a routed path.
- *   - The currently-focused cluster (hovered in the sidebar or clicked on
- *     the map) gets thicker, brighter strokes and emphasized cache markers.
- *   - Clicking a centroid on the map calls `onCentroidClick(clusterId)` so
- *     the sidebar can highlight + scroll the corresponding row.
+ *   - The currently-focused cluster (hovered in the sidebar/map) gets thicker,
+ *     brighter strokes and emphasized cache markers — but hovering NEVER moves
+ *     the camera.
+ *   - A single tap on a centroid calls `onCentroidClick(clusterId)` — the one
+ *     explicit "frame this cluster + make it the Tour context" gesture
+ *     (touch-friendly; replaces the old dbl-click-to-select).
  *
  * The OSRM-routed polyline (real plan) lives in `TourLayer.tsx` and renders
  * only after the user commits via "Plan this loop".
@@ -35,16 +37,15 @@ export function ClustersPreviewLayer({
   caches,
   focusedClusterId,
   onCentroidClick,
-  onCentroidDblClick,
+  onCentroidHover,
 }: {
   candidates: ClusterCandidate[] | null;
   caches: readonly CacheSummaryDTO[] | undefined;
   focusedClusterId: string | null;
-  /** Single click — currently a no-op (App passes `() => {}`) so clicking
-   *  around the map never changes focus or moves the camera. Kept as a hook. */
+  /** Single tap — frame the cluster + select it as the Tour context. */
   onCentroidClick: (clusterId: string) => void;
-  /** Double click — commit the cluster as the Tour context. */
-  onCentroidDblClick: (clusterId: string) => void;
+  /** Hover (desktop) — emphasize the cluster without moving the camera. */
+  onCentroidHover: (clusterId: string | null) => void;
 }): null {
   const { map, ready } = useMap();
 
@@ -222,7 +223,7 @@ export function ClustersPreviewLayer({
     }
   }, [map, ready, candidates, focusedClusterId, cacheById]);
 
-  // --- Centroid click → notify parent (sidebar highlights + scrolls) ----
+  // --- Centroid tap → frame + select; hover → emphasize (no camera) ----
   useEffect(() => {
     if (!ready) return;
     const handler = (
@@ -235,35 +236,29 @@ export function ClustersPreviewLayer({
       const id = (f.properties as { clusterId?: string }).clusterId;
       if (id) onCentroidClick(id);
     };
-    const dblHandler = (
+    const enter = (
       e: maplibregl.MapMouseEvent & {
         features?: maplibregl.MapGeoJSONFeature[];
       },
     ) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      // Stop the map's default double-click zoom — here a dbl-click selects.
-      e.preventDefault();
-      const id = (f.properties as { clusterId?: string }).clusterId;
-      if (id) onCentroidDblClick(id);
-    };
-    const enter = () => {
       map.getCanvas().style.cursor = "pointer";
+      const id = (e.features?.[0]?.properties as { clusterId?: string })
+        ?.clusterId;
+      if (id) onCentroidHover(id);
     };
     const leave = () => {
       map.getCanvas().style.cursor = "";
+      onCentroidHover(null);
     };
     map.on("click", CENTROIDS_LAYER, handler);
-    map.on("dblclick", CENTROIDS_LAYER, dblHandler);
     map.on("mouseenter", CENTROIDS_LAYER, enter);
     map.on("mouseleave", CENTROIDS_LAYER, leave);
     return () => {
       map.off("click", CENTROIDS_LAYER, handler);
-      map.off("dblclick", CENTROIDS_LAYER, dblHandler);
       map.off("mouseenter", CENTROIDS_LAYER, enter);
       map.off("mouseleave", CENTROIDS_LAYER, leave);
     };
-  }, [map, ready, onCentroidClick, onCentroidDblClick]);
+  }, [map, ready, onCentroidClick, onCentroidHover]);
 
   return null;
 }

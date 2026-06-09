@@ -204,3 +204,26 @@ export function resolvePick(
   // for the chosen pick.
   return { meters: leg.meters, seconds: leg.seconds, geometry: leg.geometry };
 }
+
+/**
+ * The tour polyline with the user's per-leg edits applied (alt swaps /
+ * via-points). Returns the planner's original polyline when there are no edits.
+ * Shared so the Tour-step quick download and the result-panel download produce
+ * an identical track.
+ */
+export function buildEditedPolyline(
+  result: PlanResult,
+  legPicks: LegPicks,
+): PlanResult["polyline"] {
+  const hasEdits = Object.keys(legPicks).length > 0;
+  if (!hasEdits || result.legs.length === 0) return result.polyline;
+  return {
+    type: "LineString",
+    coordinates: result.legs.flatMap((leg, i) => {
+      const r = resolvePick(leg, legPicks[leg.index]);
+      const coords = r.geometry.coordinates;
+      // Drop the duplicated junction vertex on inner legs.
+      return i === 0 ? coords : coords.slice(1);
+    }),
+  };
+}

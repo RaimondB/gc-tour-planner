@@ -4,6 +4,7 @@
 import { useRef, useState, type JSX, type MouseEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, uploadGpx, type UploadGpxResult } from "../../lib/api.js";
+import { AdvancedSection } from "../shell/AdvancedSection.js";
 
 export function UploadDropzone(): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,22 +41,24 @@ export function UploadDropzone(): JSX.Element {
 
   return (
     <div className="upload">
-      <label className="checkbox" style={{ marginBottom: 8 }}>
-        <input
-          type="checkbox"
-          checked={solvedCoordinates}
-          onChange={(e) => setSolvedCoordinates(e.target.checked)}
-        />
-        This file contains my solved coordinates
-      </label>
-      {solvedCoordinates && (
-        <small className="muted" style={{ display: "block", marginBottom: 8 }}>
-          Every cache in the file is marked solved and its planning location set
-          to the file&rsquo;s coordinates (Mystery solution or Multi final). The
-          original posted coordinate is kept, and a normal Pocket Query
-          re-upload won&rsquo;t overwrite the solved location.
-        </small>
-      )}
+      <AdvancedSection title="Upload options">
+        <label className="checkbox" style={{ marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={solvedCoordinates}
+            onChange={(e) => setSolvedCoordinates(e.target.checked)}
+          />
+          This file contains my solved coordinates
+        </label>
+        {solvedCoordinates && (
+          <small className="muted" style={{ display: "block" }}>
+            Every cache in the file is marked solved and its planning location
+            set to the file&rsquo;s coordinates (Mystery solution or Multi
+            final). The original posted coordinate is kept, and a normal Pocket
+            Query re-upload won&rsquo;t overwrite the solved location.
+          </small>
+        )}
+      </AdvancedSection>
       <div
         className={`dropzone${dragging ? " dropzone--active" : ""}`}
         onDragEnter={(e) => {
