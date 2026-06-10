@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Logger } from "@nestjs/common";
-import type { Routing, Tours } from "@gctp/shared";
+import { Geo, type Routing, type Tours } from "@gctp/shared";
 import type { CacheLanduseRepository } from "../../../../caches/cache-landuse.repository.js";
 import type { CachesRepository } from "../../../../caches/caches.repository.js";
 import type { CachesService } from "../../../../caches/caches.service.js";
@@ -108,6 +108,7 @@ export async function prepareClusteringContext(
     edges,
     subgraphs,
     input,
+    projection: Geo.makeProjection(input.center[0], input.center[1]),
     landuseKindsByCacheId,
   };
 }
