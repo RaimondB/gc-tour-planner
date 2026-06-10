@@ -73,6 +73,9 @@ export function fakeComputePool(): ComputePool {
     async solveTwoOpt(distances, startIndex, options) {
       return Tsp.solveTwoOpt(distances, startIndex, options);
     },
+    async solveLowOverlapLoop(distances, startIndex, coords, options) {
+      return Tsp.solveLowOverlapLoop(distances, startIndex, coords, options);
+    },
     async computeClusters(ctx, strategyName, preferredLanduseKinds) {
       return computeClusters(ctx, strategyName, [...preferredLanduseKinds]);
     },

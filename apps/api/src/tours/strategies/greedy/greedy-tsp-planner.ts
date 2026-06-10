@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
+import type { Caches, Geo, Routing, Tours, Tsp } from "@gctp/shared";
 import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { CachesRepository } from "../../../caches/caches.repository.js";
@@ -38,6 +38,10 @@ import {
   resolveMarginalTrimThreshold,
   trimMarginalCaches,
 } from "./marginal-trim.js";
+import {
+  readLowOverlapOptions,
+  resolveLoopObjective,
+} from "./resolve-loop-objective.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
 /** Default cut-off when PlanInput omits `topNClusters` (defensive; the
@@ -218,10 +222,41 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     ];
     const startIndex = nearestCacheIndexTo(connectedCaches, centroid);
 
+    // Pick the loop solver (ADR-0024): `shortest` (default) minimises distance;
+    // `low-overlap` minimises `Σ dist + β · retrace` to stop the order walking
+    // the same street twice. `solveOrder` dispatches to whichever was selected,
+    // building the overlap proxy from the caches aligned to the given matrix.
+    // The post-order leg picker + fringe trim below are unaffected either way.
+    const objective = resolveLoopObjective(
+      input.loopObjective,
+      process.env.PLANNER_LOOP_OBJECTIVE,
+    );
+    const lowOverlap =
+      objective === "low-overlap" ? readLowOverlapOptions() : null;
+    const coordsOf = (
+      caches: readonly { location: { coordinates: readonly number[] } }[],
+    ): [number, number][] =>
+      caches.map((c) => [
+        c.location.coordinates[0]!,
+        c.location.coordinates[1]!,
+      ]);
+    const solveOrder = (
+      d: Tsp.DistanceMatrix,
+      s: number,
+      caches: readonly { location: { coordinates: readonly number[] } }[],
+    ): Promise<{ order: number[] }> =>
+      lowOverlap
+        ? this.computePool.solveLowOverlapLoop(d, s, coordsOf(caches), {
+            beta: lowOverlap.beta,
+            gridMeters: lowOverlap.gridMeters,
+          })
+        : this.computePool.solveTwoOpt(d, s);
+
     // TSP solve runs on the worker pool (ADR-0014) — never on the event loop.
-    const { order: tspOrder } = await this.computePool.solveTwoOpt(
+    const { order: tspOrder } = await solveOrder(
       distances,
       startIndex,
+      connectedCaches,
     );
     const initialOrderedIds = tspOrder.map((i) => connectedIds[i]!);
 
@@ -533,12 +568,15 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           return v === undefined || v === null ? null : v;
         }),
       );
-      // Start at the cache nearest to parking in the survivor set.
+      // Start at the cache nearest to parking in the survivor set. Re-solve
+      // with the same objective the first solve used (so a low-overlap order
+      // stays low-overlap after a fringe drop).
       const survivingCaches = survivingIds.map((id) => byId.get(id)!);
       const startIdx = nearestCacheIndexTo(survivingCaches, parkingCoord);
-      const { order: subOrder } = await this.computePool.solveTwoOpt(
+      const { order: subOrder } = await solveOrder(
         subDistances,
         startIdx,
+        survivingCaches,
       );
       currentOrderedIds = rotateForBestParkingInsertion(
         subOrder.map((i) => survivingIds[i]!),

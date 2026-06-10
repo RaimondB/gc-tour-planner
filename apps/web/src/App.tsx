@@ -89,6 +89,7 @@ function planLoopSettingsKey(
     startPreference: s.startPreference,
     maxLinkMeters: s.maxLinkMeters,
     fringeTrimMeters: s.fringeTrimMeters,
+    loopObjective: s.loopObjective,
     osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
     osmParkingFeeFilter: s.osmParkingFeeFilter,
     // The start rides on the map-picked point now (not the search center), so
@@ -277,6 +278,7 @@ export default function App(): JSX.Element {
         startPreference: planSettings.startPreference,
         maxLinkMeters: planSettings.maxLinkMeters,
         fringeTrimMeters: planSettings.fringeTrimMeters,
+        loopObjective: planSettings.loopObjective,
         ...(planSettings.startPreference === "user-supplied-point" &&
         pickedStart
           ? { userSuppliedStart: pickedStart }

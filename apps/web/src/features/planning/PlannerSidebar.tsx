@@ -8,6 +8,7 @@ import type {
   ClusterCandidate,
   ClusterDiagnostics,
   ClusteringStrategyName,
+  LoopObjectiveName,
   PlanResult,
   StartPreference,
   TestRouteResponse,
@@ -65,6 +66,12 @@ export interface PlanSettings {
    */
   clusteringStrategy: ClusteringStrategyName;
   /**
+   * Pass-2 loop solver (ADR-0024). `shortest` minimises total walking
+   * distance; `low-overlap` shapes the cache order to avoid retracing the
+   * same street. Runs side by side with `shortest`, which stays the default.
+   */
+  loopObjective: LoopObjectiveName;
+  /**
    * How many ranked candidate clusters to ask the planner for. Default 5.
    * Larger area + sparser caches → bump it to surface lower-scoring
    * alternatives the planner would otherwise hide.
@@ -112,6 +119,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "louvain",
+  loopObjective: "shortest",
   topNClusters: 5,
   fringeTrimMeters: 500,
   landuseProfileId: undefined,
@@ -129,6 +137,13 @@ const STRATEGY_OPTIONS: ReadonlyArray<
   ["dbscan", "DBSCAN"],
   ["hdbscan", "HDBSCAN (density)"],
   ["components", "Components (baseline)"],
+];
+
+const LOOP_OBJECTIVE_OPTIONS: ReadonlyArray<
+  readonly [LoopObjectiveName, string]
+> = [
+  ["shortest", "Shortest path (default)"],
+  ["low-overlap", "Low-overlap (less retracing)"],
 ];
 
 export interface PlannerSidebarProps {
@@ -491,6 +506,27 @@ export function PlannerSidebar({
               {label}
             </label>
           ))}
+        </fieldset>
+
+        <fieldset className="field">
+          <legend>Loop objective</legend>
+          {LOOP_OBJECTIVE_OPTIONS.map(([val, label]) => (
+            <label key={val} className="checkbox">
+              <input
+                type="radio"
+                name="loop-objective"
+                checked={settings.loopObjective === val}
+                onChange={() =>
+                  onSettingsChange({ ...settings, loopObjective: val })
+                }
+              />
+              {label}
+            </label>
+          ))}
+          <small className="muted">
+            Low-overlap orders caches to avoid walking the same street twice;
+            may add a little distance.
+          </small>
         </fieldset>
       </AdvancedSection>
 

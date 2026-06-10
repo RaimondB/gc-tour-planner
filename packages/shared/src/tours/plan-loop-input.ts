@@ -10,6 +10,19 @@ import {
 import { StartPreference } from "./plan-input.js";
 
 /**
+ * Which Pass-2 loop solver to run. Two side-by-side algorithms (ADR-0024):
+ *  - `shortest`     — minimise total walking distance (the default, proven
+ *                     NN + 2-opt + Or-opt solver).
+ *  - `low-overlap`  — minimise `Σ distance + β · retrace`, shaping the cache
+ *                     order to avoid walking the same street twice.
+ *
+ * When omitted, the server falls back to the `PLANNER_LOOP_OBJECTIVE` env
+ * default (and ultimately `shortest`).
+ */
+export const LoopObjectiveName = z.enum(["shortest", "low-overlap"]);
+export type LoopObjectiveName = z.infer<typeof LoopObjectiveName>;
+
+/**
  * Pass 2 input: turn a user-chosen cluster (a set of cache ids picked from
  * `/tours/clusters` candidates) into a routed closed loop.
  *
@@ -59,5 +72,10 @@ export const PlanLoopInput = z.object({
     .array(ParkingAccessChip)
     .default(["yes", "customers"]),
   osmParkingFeeFilter: ParkingFeeFilter.default("any"),
+  /**
+   * Which loop solver to run (ADR-0024). When omitted, the server resolves the
+   * `PLANNER_LOOP_OBJECTIVE` env default (ultimately `shortest`).
+   */
+  loopObjective: LoopObjectiveName.optional(),
 });
 export type PlanLoopInput = z.infer<typeof PlanLoopInput>;

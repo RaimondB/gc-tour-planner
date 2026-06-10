@@ -23,6 +23,13 @@ export interface ComputePool {
     startIndex: number,
     options?: Tsp.SolveTwoOptOptions,
   ): Promise<Tsp.TwoOptResult>;
+  /** Low-overlap loop solver (ADR-0024); `coords` feed the overlap proxy. */
+  solveLowOverlapLoop(
+    distances: Tsp.DistanceMatrix,
+    startIndex: number,
+    coords: readonly (readonly [number, number])[],
+    options: Tsp.SolveLowOverlapOptions,
+  ): Promise<Tsp.LowOverlapResult>;
   computeClusters(
     ctx: PreparedContext,
     strategyName: Tours.ClusteringStrategyName,
@@ -82,6 +89,21 @@ export class PiscinaComputePool implements ComputePool, OnModuleDestroy {
       kind: "tsp",
       distances,
       startIndex,
+      options,
+    });
+  }
+
+  solveLowOverlapLoop(
+    distances: Tsp.DistanceMatrix,
+    startIndex: number,
+    coords: readonly (readonly [number, number])[],
+    options: Tsp.SolveLowOverlapOptions,
+  ): Promise<Tsp.LowOverlapResult> {
+    return this.run<Tsp.LowOverlapResult>({
+      kind: "tsp-low-overlap",
+      distances,
+      startIndex,
+      coords: coords.map(([lng, lat]) => [lng, lat]),
       options,
     });
   }

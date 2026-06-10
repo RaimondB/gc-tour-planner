@@ -24,6 +24,20 @@ export interface TspTask {
   options?: Tsp.SolveTwoOptOptions;
 }
 
+/**
+ * Solve the low-overlap loop (ADR-0024) — the opt-in objective that minimises
+ * `Σ dist + β · retrace`. Runs side by side with the `tsp` task; the proxy cell
+ * map is built inside the worker from `coords` so only coordinates (not the
+ * larger cell map) cross the boundary.
+ */
+export interface LowOverlapTask {
+  kind: "tsp-low-overlap";
+  distances: Tsp.DistanceMatrix;
+  startIndex: number;
+  coords: [number, number][];
+  options: Tsp.SolveLowOverlapOptions;
+}
+
 /** Run the full pure cluster-discovery pipeline. */
 export interface ClusterTask {
   kind: "cluster";
@@ -32,13 +46,23 @@ export interface ClusterTask {
   preferredLanduseKinds: string[];
 }
 
-export type PlannerTask = TspTask | ClusterTask;
-export type PlannerResult = Tsp.TwoOptResult | Tours.DiscoverClustersResult;
+export type PlannerTask = TspTask | LowOverlapTask | ClusterTask;
+export type PlannerResult =
+  | Tsp.TwoOptResult
+  | Tsp.LowOverlapResult
+  | Tours.DiscoverClustersResult;
 
 export default function plannerTask(task: PlannerTask): PlannerResult {
   switch (task.kind) {
     case "tsp":
       return Tsp.solveTwoOpt(task.distances, task.startIndex, task.options);
+    case "tsp-low-overlap":
+      return Tsp.solveLowOverlapLoop(
+        task.distances,
+        task.startIndex,
+        task.coords,
+        task.options,
+      );
     case "cluster":
       return computeClusters(
         task.ctx,

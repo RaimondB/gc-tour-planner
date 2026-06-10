@@ -41,6 +41,30 @@ Everything below tunes one of those steps.
 | ------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OSRM_VERSION_FILE` | `/osrm-meta/osrm-version.txt` | Path the api reads to determine the live OSRM extract's identity. Written by `infra/osrm/bootstrap.sh` after every `osrm-customize`. Rows in `route_legs` whose `osrm_version` column doesn't match are filtered out on read — a one-time re-fetch into the live namespace happens automatically. Falls back to `'unknown'` when the file is missing. |
 
+## Pass 2 — loop objective (ADR-0024)
+
+Selects **which loop solver** orders the caches. Two run side by side:
+
+- `shortest` (default) — `solveTwoOpt`, minimise total walking distance.
+- `low-overlap` — `solveLowOverlapLoop`, minimise `Σ distance + β · retrace`,
+  shaping the **cache order** to avoid walking the same street twice.
+
+Picked per plan via the `loopObjective` request field (the "Loop objective" radio
+in the planner panel); `PLANNER_LOOP_OBJECTIVE` sets the default when the request
+omits it. The `β`/grid knobs below apply **only** to `low-overlap`.
+
+Source: [packages/shared/src/tsp/low-overlap-loop.ts](../packages/shared/src/tsp/low-overlap-loop.ts), [resolve-loop-objective.ts](../apps/api/src/tours/strategies/greedy/resolve-loop-objective.ts)
+
+| Env                       | Default    | What it does                                                                                                                                                                              |
+| ------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLANNER_LOOP_OBJECTIVE`  | `shortest` | Default loop solver: `shortest` or `low-overlap`. Per-plan `loopObjective` overrides it; an unknown value falls back to `shortest`.                                                       |
+| `PLANNER_LOOP_ORDER_BETA` | `0.8`      | Weight on retrace in `distance + β · retrace`. Raise to push the order harder toward non-overlapping loops (at the cost of some distance); `0` makes `low-overlap` behave like `shortest`. |
+| `PLANNER_LOOP_ORDER_GRID_M` | `25`     | Cell size (m) for the **straight-line overlap proxy** used during ordering. Independent of `PLANNER_LOOP_GRID_M` (which is the post-order picker's grid).                                  |
+
+This shapes the **order**; the loop-aware leg picker below independently refines the
+**realised geometry**. The proxy never feeds the picker's score, so the two never
+double-penalise — order-shaping vs geometry-refinement are separate stages.
+
 ## Pass 2 — loop-aware leg picker
 
 Stops the tour from walking the same main street twice. Each leg's
@@ -173,6 +197,7 @@ request crunches; only serializable pure functions cross the boundary (all OSRM
 | Symptom                                                                      | Probable cause                                                                    | Adjust                                                                                                                        |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Route walks the same street twice through a dense village                    | Loop-aware picker found no useful OSRM alts; nudge didn't land on a parallel road | Raise `PLANNER_LOOP_NUDGE_FRACTIONS` to `0.33,0.5,0.67`; add more offsets like `60,120,200`                                   |
+| Order itself doubles back (picker can only patch geometry, not re-order)      | Shortest-distance objective ignores shared streets                                | Select the `low-overlap` loop objective (radio / `PLANNER_LOOP_OBJECTIVE`); raise `PLANNER_LOOP_ORDER_BETA` to push harder    |
 | Loop is "fine" but the planner keeps the primary on heavily-overlapping legs | Alpha too low, or detour cap too tight                                            | Raise `PLANNER_LOOP_ALPHA` to `2.0`; or raise `PLANNER_LOOP_MAX_DETOUR` to `0.75`                                             |
 | One outlier cache forces a 2 km+ detour                                      | Marginal trim didn't fire                                                         | Lower `PLANNER_MARGINAL_DROP_RATIO` to `1.5`; or lower `PLANNER_MARGINAL_DROP_ABS_M` to `300`                                 |
 | Multiple caches behind the same barrier all stayed                           | Trim threshold inflated by the cluster's own median                               | `PLANNER_MARGINAL_DROP_HARD_MAX_M` is already at 3 km — for an extreme case (river archipelago) lower it further, e.g. `2000` |

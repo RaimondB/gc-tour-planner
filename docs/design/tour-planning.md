@@ -35,7 +35,10 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
    - **running TSP lower bound** (MST length × 2) ≤ `distanceBudgetMeters`,
    - estimated time ≤ `timeBudgetMinutes` (if set), using `routing.getMatrix` averages.
 2. Build the OD distance matrix via `routing.getMatrix(admittedIds)` — **walking distance**, symmetric, memoized per cache pair.
-3. **TSP loop solver**: Nearest-Neighbor seed, then **2-opt** until no improving swap. Deterministic tie-breaks (lowest cache id wins). Lives in `packages/shared/src/tsp/two-opt.ts`. The seed is anchored on the cache nearest the **cluster centroid** — a parking-independent choice — so the cache cycle is built _before_ parking is selected and can be scored against it (steps 5–6). The pinned start only chooses which 2-opt local optimum we land in; the actual parking attach point comes from step 6.
+3. **TSP loop solver**: Nearest-Neighbor seed, then **2-opt + Or-opt** (VND) until no improving move. Deterministic tie-breaks (lowest cache id wins). The seed is anchored on the cache nearest the **cluster centroid** — a parking-independent choice — so the cache cycle is built _before_ parking is selected and can be scored against it (steps 5–6). The pinned start only chooses which local optimum we land in; the actual parking attach point comes from step 6.
+   - **Two side-by-side solvers (ADR-0024), picked per plan by `loopObjective` (default from `PLANNER_LOOP_OBJECTIVE`, ultimately `shortest`):**
+     - `shortest` — `solveTwoOpt` (`packages/shared/src/tsp/two-opt.ts`), minimise Σ leg distance. The default; unchanged.
+     - `low-overlap` — `solveLowOverlapLoop` (`packages/shared/src/tsp/low-overlap-loop.ts`), minimise `Σ distance + β · retrace`, where `retrace` is a **straight-line overlap proxy** (`leg-overlap.ts`): each leg is approximated by the straight segment between its caches, rasterised onto a `PLANNER_LOOP_ORDER_GRID_M` grid, and a cell covered by ≥2 legs is penalised. This shapes the _cache order_ to avoid retracing, where the picker (step 7) can only patch realised geometry. `β` = `PLANNER_LOOP_ORDER_BETA` (default 0.8). Same VND, the same strict-improvement / tie-break / `MAX_VND_ROUNDS` guards, so it stays deterministic (NFR-4). The proxy never feeds the step-7 picker, so order-shaping and geometry-refinement never double-penalise.
 4. **Pre-trim** — drop caches whose OSRM-primary marginal `(leg_in + leg_out − skip)` exceeds `input.maxLinkMeters`. Cheap; runs before any leg picking. Threshold migrated from the env-derived `resolveMarginalTrimThreshold` formula to the per-plan `maxLinkMeters` knob so both Pass-1 and Pass-2 trim respect the same user tolerance.
 5. **Parking selection** by `startPreference` (`selectParking` in `greedy-tsp-planner.ts`). Each source is a small private helper (`tryPqParking` / `tryOsmParking` / `tryCarRoadParking`) that enumerates candidates and returns the loop-aware pick, or `null` when nothing is reachable. Single-candidate modes resolve directly; multi-candidate modes are **loop-aware** — every candidate is scored by its cheapest insertion edge into the step-3 cycle (`bestParkingInsertion` — the same metric step 6 uses) and the **minimum-detour** candidate wins, i.e. the lot that adds the least walking to the _whole tour_, not merely the one closest to a single cache. Distances come from one batched OSRM `/table` (candidates × caches, both directions); candidates whose shortest walk to any cache exceeds `maxLinkMeters` are dropped as bogus cross-barrier routes. When a mode finds nothing, `selectParking` returns `centroidFallback(...)` — the cluster centroid with `ParkingChoice.fallback = true` so the UI can flag "no parking found".
    - `auto` (default): `tryPqParking ?? tryOsmParking ?? tryCarRoadParking ?? centroidFallback` — the first source that yields a feasible (reachable within `maxLinkMeters`) start wins. `enumerateOsmParking` / `pickOsmParking` admit `startPreference === "auto"` alongside `"osm-parking"`, reusing the access/fee filter defaults.
@@ -59,12 +62,15 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 
 The CPU-heavy, **synchronous** parts of both passes run off the API event loop in
 a piscina worker pool (`ComputePool`, `tours/compute/`), so one user's plan can't
-block everyone else (the prerequisite for multi-user). Two task kinds cross the
-boundary, both pure + serializable:
+block everyone else (the prerequisite for multi-user). Three task kinds cross the
+boundary, all pure + serializable:
 
-- **`tsp`** — `solveTwoOpt` (Pass 2's initial solve, the marginal-trim re-order,
-  and each fringe-trim re-solve). The greedy planner `await`s the pool instead of
-  calling the solver inline.
+- **`tsp`** — `solveTwoOpt` (the `shortest` objective: Pass 2's initial solve, the
+  marginal-trim re-order, and each fringe-trim re-solve). The greedy planner
+  `await`s the pool instead of calling the solver inline.
+- **`tsp-low-overlap`** — `solveLowOverlapLoop` (the `low-overlap` objective; ADR-0024).
+  Only the cache coordinates cross the boundary — the overlap proxy cell map is built
+  inside the worker. Used for the initial solve and fringe re-solve when selected.
 - **`cluster`** — the entire post-context Pass 1 pipeline (`computeClusters` in
   `discover-compute.ts`: strategy → refine → score → diagnostics).
 
