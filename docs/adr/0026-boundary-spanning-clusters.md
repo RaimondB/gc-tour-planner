@@ -1,4 +1,4 @@
-# ADR-0024 — Boundary-spanning clusters
+# ADR-0026 — Boundary-spanning clusters
 
 - **Status:** Accepted
 - **Date:** 2026-06-11

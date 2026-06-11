@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// A/B impact measurement for boundary-spanning clusters (ADR-0024). For each
+// A/B impact measurement for boundary-spanning clusters (ADR-0026). For each
 // seed it runs Pass-1 discovery twice — current (PLANNER_CLUSTER_GROW off) and
 // boundary-spanning (on) — and compares the RETURNED candidates: how many, how
 // many caches they cover, and how similar (Jaccard). Confirms the foreign-id

@@ -14,7 +14,7 @@ import { buildWalkingGraph, type WalkingEdge } from "../walking-graph.js";
 import { selectGrowthPool } from "./growth-pool.js";
 import type { ClusteringContext } from "./strategy.js";
 
-/** Boundary-spanning clusters (ADR-0024). Default-off. */
+/** Boundary-spanning clusters (ADR-0026). Default-off. */
 function readClusterGrow(): boolean {
   const v = process.env.PLANNER_CLUSTER_GROW;
   return v === "1" || v === "true";
@@ -48,7 +48,7 @@ export async function prepareClusteringContext(
     logger: Logger;
   },
 ): Promise<PreparedContext | null> {
-  // Boundary-spanning clusters (ADR-0024): when enabled, fetch caches out to
+  // Boundary-spanning clusters (ADR-0026): when enabled, fetch caches out to
   // `radiusM + distanceBudgetMeters/2` — the farthest a cache can sit and still
   // join a budget-valid loop anchored on an in-radius seed — so a cluster that
   // straddles the search circle is fully detected instead of truncated at the

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Boundary-spanning clusters (ADR-0024). When discovery fetches caches out to
+// Boundary-spanning clusters (ADR-0026). When discovery fetches caches out to
 // `radiusM + budget/2`, this partitions the result: the caches within the
 // original search radius are the SEED set (clusters originate in the search
 // area), and the whole fetched set — capped by proximity to the centre — is the

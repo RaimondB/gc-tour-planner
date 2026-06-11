@@ -80,7 +80,7 @@ export interface BuildWalkingGraphInput {
    * not one of the input `caches`. `nearestNeighbors` finds neighbours within
    * `radiusM` of each ORIGIN, which reaches caches beyond the pool; keeping the
    * graph inside the pool makes the refine→pool invariant hold by construction
-   * (ADR-0024). Default false (legacy behaviour).
+   * (ADR-0026). Default false (legacy behaviour).
    */
   poolOnly?: boolean;
 }
@@ -143,7 +143,7 @@ export async function buildWalkingGraph(
     kCandidates,
     radiusM,
   );
-  // Optionally keep the graph inside the candidate pool (ADR-0024).
+  // Optionally keep the graph inside the candidate pool (ADR-0026).
   // `nearestNeighbors` finds neighbours within `radiusM` of each ORIGIN, which
   // reaches owner caches beyond the pool boundary; those out-of-pool ids would
   // otherwise leak into the seed-subgraphs and clusters and get dropped at
