@@ -17,10 +17,12 @@ const CENTER_LAYER = "gctp-search-center-dot";
  * at any reasonable search radius and cheap enough to regenerate on every
  * params change.
  *
- * `interactive` (the "Find caches" step) makes the circle prominent and the
- * center dot a draggable handle for repositioning the search center. Outside
- * that step the circle is dimmed, non-interactive context — so a stray map
- * click never shifts an area the user has already clustered.
+ * `interactive` (the "Find caches" step) pins the circle to the viewport
+ * centre — a reticle. Panning the map repositions the search area: the circle
+ * is redrawn at the live map centre every frame and the new centre is
+ * committed on settle. Outside that step the circle is dimmed, non-interactive
+ * context, frozen at the last committed centre — so a stray map gesture never
+ * shifts an area the user has already clustered.
  */
 export function RadiusLayer({
   params,
@@ -29,7 +31,7 @@ export function RadiusLayer({
 }: {
   params: SearchParams;
   interactive?: boolean;
-  /** Called when the user drags the center handle to a new position. */
+  /** Called (on map settle, in the Find step) with the new viewport centre. */
   onCenterChange?: (center: [number, number]) => void;
 }): null {
   const { map, ready } = useMap();
@@ -114,15 +116,16 @@ export function RadiusLayer({
     }
   }, [map, ready, interactive]);
 
-  // Draggable center handle — active only in the interactive (step 1) state.
+  // Reticle follow — active only in the interactive (Find) step. The circle is
+  // pinned to the viewport centre: redraw it at the live map centre on every
+  // `move` frame, then commit the new centre on `moveend`. Panning the map is
+  // how the user repositions the search area (no draggable handle, no
+  // tap-to-set — both invited accidental moves / cache popups).
   useEffect(() => {
     if (!ready || !interactive || !onCenterChange) return;
     if (!map.getLayer(CENTER_LAYER)) return;
 
-    let dragging = false;
-
-    const moveTo = (lngLat: maplibregl.LngLat) => {
-      const center: [number, number] = [lngLat.lng, lngLat.lat];
+    const drawAt = (center: [number, number]) => {
       const centerSrc = map.getSource(CENTER_SOURCE);
       const ringSrc = map.getSource(SOURCE_ID);
       if (centerSrc && "setData" in centerSrc) {
@@ -151,46 +154,29 @@ export function RadiusLayer({
       }
     };
 
-    const onDown = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
-      e.preventDefault(); // stop the map from panning under the drag
-      dragging = true;
-      map.getCanvas().style.cursor = "grabbing";
+    // Redraw the reticle at the screen centre each frame so it stays pinned
+    // while the basemap + cache markers slide underneath. Runs for programmatic
+    // camera moves too (e.g. framing the circle), keeping it centred throughout.
+    const onMove = () => {
+      const c = map.getCenter();
+      drawAt([c.lng, c.lat]);
     };
-    const onMove = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
-      if (!dragging) return;
-      moveTo(e.lngLat);
-    };
-    const onUp = (e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) => {
-      if (!dragging) return;
-      dragging = false;
-      map.getCanvas().style.cursor = "";
-      onCenterChange([e.lngLat.lng, e.lngLat.lat]);
-    };
-    const onEnter = () => {
-      if (!dragging) map.getCanvas().style.cursor = "grab";
-    };
-    const onLeave = () => {
-      if (!dragging) map.getCanvas().style.cursor = "";
+    // Commit the chosen centre once the camera settles (debounced refetch
+    // downstream via setParams). Only for USER-initiated moves — `originalEvent`
+    // is undefined for programmatic frames (fitBounds/flyTo), so framing the
+    // circle never overwrites the centre with the padded screen point. Pure
+    // state update — must not move the camera.
+    const onMoveEnd = (e: maplibregl.MapLibreEvent) => {
+      if (!e.originalEvent) return;
+      const c = map.getCenter();
+      onCenterChange([c.lng, c.lat]);
     };
 
-    map.on("mousedown", CENTER_LAYER, onDown);
-    map.on("touchstart", CENTER_LAYER, onDown);
-    map.on("mousemove", onMove);
-    map.on("touchmove", onMove);
-    map.on("mouseup", onUp);
-    map.on("touchend", onUp);
-    map.on("mouseenter", CENTER_LAYER, onEnter);
-    map.on("mouseleave", CENTER_LAYER, onLeave);
+    map.on("move", onMove);
+    map.on("moveend", onMoveEnd);
     return () => {
-      map.off("mousedown", CENTER_LAYER, onDown);
-      map.off("touchstart", CENTER_LAYER, onDown);
-      map.off("mousemove", onMove);
-      map.off("touchmove", onMove);
-      map.off("mouseup", onUp);
-      map.off("touchend", onUp);
-      map.off("mouseenter", CENTER_LAYER, onEnter);
-      map.off("mouseleave", CENTER_LAYER, onLeave);
-      map.getCanvas().style.cursor = "";
+      map.off("move", onMove);
+      map.off("moveend", onMoveEnd);
     };
   }, [map, ready, interactive, onCenterChange, params.radiusM]);
 

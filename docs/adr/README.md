@@ -33,4 +33,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0021](0021-auth-and-session-strategy.md)                     | Authentication & session strategy (argon2 + Valkey sessions)  | Accepted                                      |
 | [0022](0022-tour-sharing-link-security.md)                    | Read-only tour sharing & link security                        | Proposed                                      |
 | [0023](0023-staged-cloudflare-access-tunnel-removal.md)       | Staged removal of the Cloudflare Access gate (and Tunnel)     | Proposed                                      |
+| [0024](0024-reticle-map-interaction.md)                       | Reticle map interaction for the Find step                     | Accepted                                      |
 | [0025](0025-single-projection-planar-distance.md)             | One equirectangular projection per request for planning dist. | Accepted                                      |

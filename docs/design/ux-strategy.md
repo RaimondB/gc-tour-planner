@@ -45,15 +45,15 @@ Non-admins see no cog and none of these affordances (they all call `/admin/*` or
 
 ## Map interaction model (journey-aligned)
 
-The camera and the search circle behave predictably, and what a background map click does depends on the active step. Two rules above all:
+The camera and the search circle behave predictably, and what a background map gesture does depends on the active step. Two rules above all:
 
-1. **The app moves the camera only on explicit user intent** — picking/framing a cluster (tap), planning a tour, or pressing the on-map **⊕ Frame** control. Never on hover, never as a side effect of focus, never while/after the user pans. Pan/zoom is always preserved.
+1. **The app moves the camera only on explicit user intent** — picking/framing a cluster (tap), planning a tour, or pressing the on-map **⊕ Frame** control. Never on hover, never as a side effect of focus, never while/after the user pans. Pan/zoom is always preserved. (In step ① the user's *own* pan is intent: it repositions the search area — see below.)
 2. **The search-radius circle is a step-① tool, not an always-live click target.**
 
 Per step:
 
-- **Start-point pick (any step)** — when `startPreference === "Pick a point on the map"` (`user-supplied-point`), a background map click sets the **tour start point** (amber "P" preview) instead of the per-step click behaviour below. The Plan button is disabled until a point is set. This takes precedence in every step because the user explicitly chose the mode.
-- **① Find caches** — a background map click sets the search center (scoped to this step only); the radius circle is prominent and its center is a **draggable handle**. The camera does not jump on a center change.
+- **Start-point pick (any step)** — when `startPreference === "Pick a point on the map"` (`user-supplied-point`), a background map **tap** sets the **tour start point** (amber "P" preview). The Plan button is disabled until a point is set. This is the one background-tap action that survives the reticle model; in the Find step it coexists with pan-to-aim — panning still repositions the search area, a stationary tap drops the start point.
+- **① Find caches — reticle model** ([ADR-0024](../adr/0024-reticle-map-interaction.md)). The radius circle is **pinned to the viewport centre**; the user **pans the map to aim** the search area, and the new centre is committed when the camera settles (`moveend`). There is **no tap-to-set-center** and **no draggable handle** — both invited accidental moves and accidental cache popups while repositioning. A cache popup opens only on a near-stationary **tap**; a "click" that is really the tail of a pan (pointer moved beyond ~6 px between down and up) is ignored, so panning over markers never pops a cache. The camera does not jump on a centre commit (the pan already placed the view). Desktop and touch share this one model.
 - **② Pick a cluster** — a background click is a no-op (it never moves the search center). **Tapping a cluster centroid or its list row frames + picks it** (the one explicit camera move; replaces the old hover-fit and dbl-click-to-select). Desktop hover only brightens the cluster (`focusedClusterId`) — no camera. The radius circle is dimmed, non-interactive context.
 - **③ Plan & export** — a background click is a no-op (edit-mode leg clicks keep their own handlers). The camera frames the tour once when planning completes and via the ⊕ Frame control.
 
