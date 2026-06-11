@@ -11,7 +11,14 @@ import type { OsrmVersionService } from "../../../../routing/osrm-version.servic
 import type { RoutingRepository } from "../../../../routing/routing.repository.js";
 import { extractSeedSubgraphs, selectSeeds } from "../seeds.js";
 import { buildWalkingGraph, type WalkingEdge } from "../walking-graph.js";
+import { selectGrowthPool } from "./growth-pool.js";
 import type { ClusteringContext } from "./strategy.js";
+
+/** Boundary-spanning clusters (ADR-0026). Default-off. */
+function readClusterGrow(): boolean {
+  const v = process.env.PLANNER_CLUSTER_GROW;
+  return v === "1" || v === "true";
+}
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const MAX_DISCOVERY_POOL = 2_000;
@@ -41,9 +48,19 @@ export async function prepareClusteringContext(
     logger: Logger;
   },
 ): Promise<PreparedContext | null> {
+  // Boundary-spanning clusters (ADR-0026): when enabled, fetch caches out to
+  // `radiusM + distanceBudgetMeters/2` — the farthest a cache can sit and still
+  // join a budget-valid loop anchored on an in-radius seed — so a cluster that
+  // straddles the search circle is fully detected instead of truncated at the
+  // boundary. Seeds stay in-radius (clusters originate in the search area) and
+  // the walking graph is constrained to the pool, so the refine→pool invariant
+  // holds by construction. `grow=false` reproduces the legacy radius exactly.
+  const grow = readClusterGrow();
+  const growthMarginM = grow ? Math.floor(input.distanceBudgetMeters / 2) : 0;
+
   const { caches } = await deps.caches.list(ownerId, {
     center: input.center,
-    radiusM: input.radiusM,
+    radiusM: input.radiusM + growthMarginM,
     types: input.hardFilters.types,
     attributes: input.hardFilters.attributes,
     // Forward the map's filters so the clustered pool == the visible set.
@@ -58,10 +75,18 @@ export async function prepareClusteringContext(
   });
   if (caches.length < 2) return null;
 
-  const pool = caches.slice(0, MAX_DISCOVERY_POOL);
-  if (caches.length > MAX_DISCOVERY_POOL) {
+  // Cap by proximity to the centre so the in-radius seed set + the nearest halo
+  // survive the cap; `inRadiusIds` is the seed-eligible subset.
+  const { pool, inRadiusIds } = selectGrowthPool(
+    caches,
+    input.center,
+    input.radiusM,
+    MAX_DISCOVERY_POOL,
+  );
+  if (pool.length < 2) return null;
+  if (caches.length > pool.length) {
     deps.logger.warn(
-      `prepareClusteringContext: ${caches.length} candidates exceeds MAX_DISCOVERY_POOL=${MAX_DISCOVERY_POOL}; trimming.`,
+      `prepareClusteringContext: ${caches.length} candidates exceeds MAX_DISCOVERY_POOL=${MAX_DISCOVERY_POOL}; trimming to nearest ${pool.length}.`,
     );
   }
   const coordinated = pool.map((c) => ({
@@ -91,11 +116,18 @@ export async function prepareClusteringContext(
       maxEdgeMeters: input.maxLinkMeters,
       profile: PROFILE,
       osrmVersion: deps.osrmVersion.getVersion(),
+      poolOnly: grow,
     },
     { caches: deps.cachesRepo, routing: deps.routingRepo, osrm: deps.osrm },
   );
 
-  const seedIds = selectSeeds(coordinated, edges);
+  // Seeds come from the in-radius subset only, so clusters originate inside the
+  // search circle even when the pool extends past it. With grow off the pool is
+  // entirely in-radius, so this is a no-op.
+  const seedIds = selectSeeds(
+    coordinated.filter((c) => inRadiusIds.has(c.id)),
+    edges,
+  );
   const subgraphs = extractSeedSubgraphs(
     seedIds,
     edges,
