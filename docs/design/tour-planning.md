@@ -5,6 +5,7 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 ## Pass 1 — cluster discovery
 
 1. Spatial query: caches in `(center, radiusM)` satisfying `hardFilters` (PostGIS).
+   - **Boundary-spanning (ADR-0024, `PLANNER_CLUSTER_GROW`, default-off):** fetch out to `radiusM + distanceBudgetMeters/2` instead, seed clusters only from the in-radius subset, and constrain the walking graph to the pool. A cluster that straddles the search circle is then fully detected rather than truncated at the boundary; growth stays bounded by the `maxCaches`/budget caps. Off ⇒ legacy hard cutoff at `radiusM`.
 2. Project each cache to **local equirectangular meters** around `center` (cheap; accurate over our radius).
 3. **DBSCAN** (`density-clustering` npm pkg) with adaptive ε:
    ```
