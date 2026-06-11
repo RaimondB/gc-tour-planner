@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { Geo } from "@gctp/shared";
 import { dbscanFromDistances } from "../dbscan.js";
-import { haversineMeters } from "../equirectangular.js";
 import type { WalkingEdge } from "../walking-graph.js";
 import type {
   ClusteringContext,
@@ -12,7 +12,8 @@ import type {
 
 /**
  * Classical DBSCAN using walking distance where the graph has an edge, falling
- * back to haversine otherwise. ε = `maxLinkMeters`. minPts is derived from
+ * back to the request's straight-line projection otherwise. ε = `maxLinkMeters`.
+ * minPts is derived from
  * `minClusterSize` so the two knobs the user already exposes drive both
  * strategies consistently.
  */
@@ -23,7 +24,7 @@ export const dbscanStrategy: ClusteringStrategy = {
     if (ctx.pool.length < 2) return [];
     const epsilon = ctx.input.maxLinkMeters;
     const minPts = effectiveMinPts(ctx.input.minClusterSize);
-    const distance = buildDistanceFn(ctx.pool, ctx.edges);
+    const distance = buildDistanceFn(ctx.pool, ctx.edges, ctx.projection);
 
     const { clusters } = dbscanFromDistances(
       ctx.pool.length,
@@ -62,6 +63,7 @@ function effectiveMinPts(minClusterSize: number): number {
 function buildDistanceFn(
   pool: ReadonlyArray<{ id: number; location: { coordinates: number[] } }>,
   edges: readonly WalkingEdge[],
+  projection: Geo.Projection,
 ): (i: number, j: number) => number {
   // Edge lookup by id pair (symmetric).
   const byPair = new Map<string, number>();
@@ -84,9 +86,10 @@ function buildDistanceFn(
     const walking = byPair.get(pairKey(a, b));
     if (walking !== undefined) return walking;
     // Pair not in the sparse walking graph (either >maxLinkMeters away or not
-    // a k-NN). Fall back to haversine — DBSCAN's ε check will reject anything
-    // beyond it anyway, so reachability stays bounded by maxLinkMeters.
-    return haversineMeters(coords[i]!, coords[j]!);
+    // a k-NN). Fall back to the straight-line projection — DBSCAN's ε check
+    // rejects anything beyond it anyway, so reachability stays bounded by
+    // maxLinkMeters.
+    return projection.distanceMeters(coords[i]!, coords[j]!);
   };
 }
 

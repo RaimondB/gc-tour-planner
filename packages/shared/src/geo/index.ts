@@ -3,6 +3,8 @@
 
 import { z } from "zod";
 
+export * from "./projection.js";
+
 /** [lng, lat] tuple in WGS84 / EPSG:4326. */
 export const LngLat = z.tuple([
   z.number().gte(-180).lte(180),

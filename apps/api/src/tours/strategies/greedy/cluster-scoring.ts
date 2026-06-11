@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Caches, Tours } from "@gctp/shared";
-import { haversineMeters } from "./equirectangular.js";
+import type { Caches, Geo, Tours } from "@gctp/shared";
 
 /** Radius around a cache for "parking present" — same as the legacy planner. */
 const PARKING_PRESENCE_RADIUS_M = 500;
@@ -29,6 +28,8 @@ export interface ScoreClusterInput {
   preferredLanduseKinds: readonly string[];
   /** Weight applied to `landuseMatch`. Defaults to 1 when a profile is selected. */
   landuseWeight: number;
+  /** Request-scoped projection for the parking-presence proximity check. */
+  projection: Geo.Projection;
 }
 
 export interface ClusterScore {
@@ -63,6 +64,7 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     landuseKindsByCacheId,
     preferredLanduseKinds,
     landuseWeight,
+    projection,
   } = input;
 
   const breakdown: Record<string, number> = {};
@@ -81,10 +83,8 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
   const parkingPresence = caches.some((c) =>
     c.parkingPoints.some(
       (p) =>
-        haversineMeters(
-          [c.location.coordinates[0]!, c.location.coordinates[1]!],
-          p,
-        ) <= PARKING_PRESENCE_RADIUS_M,
+        projection.distanceMeters(c.location.coordinates, p) <=
+        PARKING_PRESENCE_RADIUS_M,
     ),
   )
     ? 1
@@ -97,7 +97,7 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
   // (you can short-cut between neighbours), close to 2.0 for a string
   // of points along a line (you must traverse every MST edge twice on
   // a closed loop). Our `estimatedTourMeters` carries a 1.4×
-  // haversine→walking inflation while MST is raw haversine, so the
+  // straight-line→walking inflation while MST is raw straight-line, so the
   // natural thresholds shift: ratio = 1.4 ≈ compact ideal, ratio = 2.8
   // ≈ pure linear chain. Score is a linear ramp between those.
   if (input.estimatedTourMeters > 0 && mstLengthMeters > 0) {

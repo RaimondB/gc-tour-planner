@@ -1,8 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Caches, Tours } from "@gctp/shared";
-import { haversineMeters } from "../equirectangular.js";
+import type { Caches, Geo, Tours } from "@gctp/shared";
 import { splitByMstCut } from "../louvain-clusters.js";
 import type { WalkingEdge } from "../walking-graph.js";
 import type {
@@ -31,9 +30,9 @@ export function refineClusters(
     const ca = poolById.get(a);
     const cb = poolById.get(b);
     if (!ca || !cb) return Number.POSITIVE_INFINITY;
-    return haversineMeters(
-      [ca.location.coordinates[0]!, ca.location.coordinates[1]!],
-      [cb.location.coordinates[0]!, cb.location.coordinates[1]!],
+    return ctx.projection.distanceMeters(
+      ca.location.coordinates,
+      cb.location.coordinates,
     );
   };
 
@@ -64,6 +63,7 @@ export function refineClusters(
           poolById,
           ctx.input.minClusterSize,
           absoluteCapMeters,
+          ctx.projection,
         );
       }
       if (ids.length < ctx.input.minClusterSize) continue;
@@ -114,6 +114,7 @@ export function projectTrims(
     poolById,
     1, // for explain we don't enforce a min — show ALL drops the trim would make
     absoluteCapMeters,
+    ctx.projection,
   );
   const geographicOutliersDropped = afterWalking.filter(
     (id) => !afterGeo.includes(id),
@@ -135,7 +136,9 @@ export function projectTrims(
     coords.length === 0
       ? [0, 0]
       : [meanOf(coords.map((c) => c[0])), meanOf(coords.map((c) => c[1]))];
-  const distances = coords.map((c) => haversineMeters(c, centroid));
+  const distances = coords.map((c) =>
+    ctx.projection.distanceMeters(c, centroid),
+  );
   const sortedDistances = distances.slice().sort((a, b) => a - b);
   const median =
     sortedDistances.length === 0
@@ -166,9 +169,9 @@ export function projectMstSplit(
     const ca = poolById.get(a);
     const cb = poolById.get(b);
     if (!ca || !cb) return Number.POSITIVE_INFINITY;
-    return haversineMeters(
-      [ca.location.coordinates[0]!, ca.location.coordinates[1]!],
-      [cb.location.coordinates[0]!, cb.location.coordinates[1]!],
+    return ctx.projection.distanceMeters(
+      ca.location.coordinates,
+      cb.location.coordinates,
     );
   };
   // Explain runs the cut with a permissive min of 2 so single splits show up
@@ -255,6 +258,7 @@ function trimGeographicOutliers(
   poolById: ReadonlyMap<number, Caches.CacheDTO>,
   minSize: number,
   absoluteCapMeters: number,
+  projection: Geo.Projection,
 ): number[] {
   let ids = cacheIds.slice();
   let changed = true;
@@ -275,7 +279,7 @@ function trimGeographicOutliers(
       meanOf(coords.map((c) => c[0])),
       meanOf(coords.map((c) => c[1])),
     ];
-    const distances = coords.map((c) => haversineMeters(c, centroid));
+    const distances = coords.map((c) => projection.distanceMeters(c, centroid));
     const sorted = distances.slice().sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
     const threshold = Math.min(median * 2, absoluteCapMeters);
