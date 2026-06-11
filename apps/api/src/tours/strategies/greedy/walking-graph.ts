@@ -36,9 +36,8 @@ function haversineLngLat(
  *
  * Edges are directional — OSRM does not guarantee `w(a,b) === w(b,a)` for
  * walking (think one-way stairs / footpath direction restrictions). The
- * builder symmetrises by emitting both directions when either side ranks the
- * other in its k-nearest; downstream community detection treats the graph as
- * undirected by taking max(w_ab, w_ba) per pair.
+ * builder symmetrises per the `symmetry` rule (OR / mutual) and takes
+ * `MIN(w_ab, w_ba)` as the walking-honest undirected distance.
  */
 export interface WalkingEdge {
   fromCacheId: number;
@@ -83,6 +82,16 @@ export interface BuildWalkingGraphInput {
    * (ADR-0026). Default false (legacy behaviour).
    */
   poolOnly?: boolean;
+  /**
+   * Symmetrisation rule for k-NN edges.
+   *  - `"or"` (default, legacy): admit an edge if EITHER endpoint ranks the
+   *    other in its top-k.
+   *  - `"mutual"` ("dual-link"): admit only if BOTH rank each other, then apply
+   *    a min-degree floor so a node that mutual-filtering would orphan keeps its
+   *    single nearest edge. Sharper cluster separation (no one-way hub links) at
+   *    a recall cost in sparse areas.
+   */
+  symmetry?: "or" | "mutual";
 }
 
 /**
@@ -97,8 +106,10 @@ export interface BuildWalkingGraphInput {
  *     neighbours.
  *  3. **Persist** the newly fetched cells to `route_legs` with
  *     `source = 'table'` so subsequent plans hit the cache.
- *  4. **Symmetrise**: an edge `(a,b)` survives if either `b ∈ kNN(a)` OR
- *     `a ∈ kNN(b)`. Avoids one-sided dropouts at cluster boundaries.
+ *  4. **Symmetrise** (`input.symmetry`, default `or`): `or` keeps `(a,b)` if
+ *     `b ∈ kNN(a)` OR `a ∈ kNN(b)` (avoids one-sided boundary dropouts);
+ *     `mutual` keeps it only if both rank each other, then a min-degree floor
+ *     re-adds an orphaned node's nearest edge. Distance is `MIN(w_ab, w_ba)`.
  *
  * Returns the symmetric edge list. Callers feed it to community detection.
  *
@@ -412,25 +423,79 @@ export async function buildWalkingGraph(
 
   const edges = new Map<string, WalkingEdge>();
   let asymmetricMinSelected = 0;
-  for (const [originId, kn] of kNN) {
-    for (const { to, meters, seconds } of kn) {
-      const reverse = cachedMap.get(cachedKey(to, originId));
-      const minMeters = reverse ? Math.min(meters, reverse.meters) : meters;
-      const minSeconds = reverse ? Math.min(seconds, reverse.seconds) : seconds;
-      // Track how often MIN picked the meaningfully-cheaper direction —
-      // pure diagnostic, doesn't change behaviour.
-      if (reverse && Math.abs(meters - reverse.meters) / minMeters > 0.5) {
-        asymmetricMinSelected += 1;
+  // Admit edge (originId, to) into the symmetric graph, taking MIN of the two
+  // directions as the walking-honest distance. Idempotent per unordered pair.
+  const admit = (
+    originId: number,
+    to: number,
+    meters: number,
+    seconds: number,
+  ) => {
+    const reverse = cachedMap.get(cachedKey(to, originId));
+    const minMeters = reverse ? Math.min(meters, reverse.meters) : meters;
+    const minSeconds = reverse ? Math.min(seconds, reverse.seconds) : seconds;
+    // Track how often MIN picked the meaningfully-cheaper direction —
+    // pure diagnostic, doesn't change behaviour.
+    if (reverse && Math.abs(meters - reverse.meters) / minMeters > 0.5) {
+      asymmetricMinSelected += 1;
+    }
+    const key = orderedKey(originId, to);
+    if (edges.has(key)) return; // already inserted from the other direction
+    const [from, dest] = originId < to ? [originId, to] : [to, originId];
+    edges.set(key, {
+      fromCacheId: from,
+      toCacheId: dest,
+      meters: minMeters,
+      seconds: minSeconds,
+    });
+  };
+
+  if (input.symmetry === "mutual") {
+    // Dual-link: admit an edge only when BOTH endpoints rank each other in
+    // their top-k. Kills one-way "hub" links that the OR rule lets fuse pods.
+    const ranks = new Map<number, Set<number>>();
+    for (const [originId, kn] of kNN) {
+      ranks.set(originId, new Set(kn.map((e) => e.to)));
+    }
+    let mutualEdges = 0;
+    for (const [originId, kn] of kNN) {
+      for (const { to, meters, seconds } of kn) {
+        if (!ranks.get(to)?.has(originId)) continue; // not reciprocal
+        const before = edges.size;
+        admit(originId, to, meters, seconds);
+        if (edges.size > before) mutualEdges += 1;
       }
-      const key = orderedKey(originId, to);
-      if (edges.has(key)) continue; // already inserted from the other direction
-      const [from, dest] = originId < to ? [originId, to] : [to, originId];
-      edges.set(key, {
-        fromCacheId: from,
-        toCacheId: dest,
-        meters: minMeters,
-        seconds: minSeconds,
-      });
+    }
+
+    // Min-degree floor: a node that mutual-filtering left with no edge keeps
+    // its single nearest neighbour, so sparse/rural caches aren't orphaned.
+    const degree = new Map<number, number>();
+    for (const e of edges.values()) {
+      degree.set(e.fromCacheId, (degree.get(e.fromCacheId) ?? 0) + 1);
+      degree.set(e.toCacheId, (degree.get(e.toCacheId) ?? 0) + 1);
+    }
+    let floorEdges = 0;
+    for (const [originId, kn] of kNN) {
+      if ((degree.get(originId) ?? 0) > 0 || kn.length === 0) continue;
+      const best = kn[0]!; // kNN is sorted by walking distance ascending
+      const before = edges.size;
+      admit(originId, best.to, best.meters, best.seconds);
+      if (edges.size > before) {
+        floorEdges += 1;
+        degree.set(originId, 1);
+        degree.set(best.to, (degree.get(best.to) ?? 0) + 1);
+      }
+    }
+    logger.debug(
+      `walking-graph: mutual symmetry — ${mutualEdges} reciprocal edges + ${floorEdges} min-degree-floor edges`,
+    );
+  } else {
+    // OR (legacy): an edge enters if its forward direction is in some origin's
+    // top-k. The reverse is consulted only to take MIN.
+    for (const [originId, kn] of kNN) {
+      for (const { to, meters, seconds } of kn) {
+        admit(originId, to, meters, seconds);
+      }
     }
   }
 
