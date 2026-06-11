@@ -9,6 +9,7 @@
 import type { Tours } from "@gctp/shared";
 import { componentsStrategy } from "./components.js";
 import { dbscanStrategy } from "./dbscan.js";
+import { hdbscanStarStrategy } from "./hdbscan-star.js";
 import { hdbscanStrategy } from "./hdbscan.js";
 import { louvainStrategy } from "./louvain.js";
 import type { ClusteringStrategy } from "./strategy.js";
@@ -20,6 +21,7 @@ export const CLUSTERING_STRATEGIES: Readonly<
   louvain: louvainStrategy,
   dbscan: dbscanStrategy,
   hdbscan: hdbscanStrategy,
+  "hdbscan-star": hdbscanStarStrategy,
   components: componentsStrategy,
 };
 

@@ -5,13 +5,14 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 ## Pass 1 — cluster discovery
 
 1. Spatial query: caches in `(center, radiusM)` satisfying `hardFilters` (PostGIS).
-   - **Boundary-spanning (ADR-0026, `PLANNER_CLUSTER_GROW`, default-off):** fetch out to `radiusM + distanceBudgetMeters/2` instead, seed clusters only from the in-radius subset, and constrain the walking graph to the pool. A cluster that straddles the search circle is then fully detected rather than truncated at the boundary; growth stays bounded by the `maxCaches`/budget caps. Off ⇒ legacy hard cutoff at `radiusM`.
+   - **Boundary-spanning (ADR-0026, `PLANNER_CLUSTER_GROW`, default-off):** fetch out to `radiusM + distanceBudgetMeters/2` instead, seed clusters only from the in-radius subset, and constrain the walking graph to the pool. A cluster that straddles the search circle is then fully detected rather than truncated at the boundary; growth stays bounded by the distance budget and `MAX_DISCOVERY_POOL`. Off ⇒ legacy hard cutoff at `radiusM`.
 2. Project each cache to **local equirectangular meters** around `center` (cheap; accurate over our radius).
-3. **DBSCAN** (`density-clustering` npm pkg) with adaptive ε:
-   ```
-   ε = clamp(distanceBudgetMeters / maxCaches / 2, 50m, 800m)
-   minPts = max(3, floor(maxCaches / 4))
-   ```
+3. **Cluster discovery** via a pluggable strategy (`ClusteringStrategy`, selected by `PlanInput.clusteringStrategy` / `PLANNER_CLUSTERING`, default `louvain`). All strategies consume the same sparse OSRM walking graph and feed the same refinement pipeline (mst-cut, walking/geographic outlier trim, Jaccard dedup); they differ only in how they propose raw clusters. Registered strategies:
+   - `louvain` (default) — community detection on the exp-weighted graph across a resolution sweep.
+   - `dbscan` — density clustering with `ε = maxLinkMeters`.
+   - `hdbscan` — robust-single-linkage core + recursive MST bisection (NOT full HDBSCAN; over-splits loose pods).
+   - `hdbscan-star` — **true HDBSCAN\***: core distance + mutual reachability → single-linkage dendrogram → condense by `minClusterSize` → per-cluster stability (`λ = 1/mreach-distance`) → flat selection by Excess of Mass (`PLANNER_HDBSCAN_SELECTION`, default `eom`). Keeps a loosely-spaced-but-real pod whole when it is more stable than its sub-splits. Operates over the sparse-graph *forest*: each connected component is a selectable cluster (so a uniform pod surfaces as one cluster instead of dissolving to noise), and caches with too few neighbours fall out as noise. Pure module in `clustering/hdbscan-tree.ts`. Skips `walking-outlier-trim` (its noise handling subsumes it); keeps `mst-cut` (the only stage enforcing the distance budget).
+   - `components` — connected components on the capped graph (baseline).
 4. For each cluster, score:
    ```
    score = clusterDensity * w_density
@@ -32,7 +33,7 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 ## Pass 2 — refined loop
 
 1. Greedy admission: take the top-scoring cluster, sort its caches by `softScore` desc, admit one by one as long as:
-   - `count <= maxCaches`,
+   - `count <= MAX_LOOP_CACHES` (50 — a fixed TSP/matrix safety cap, not a user budget; the planner packs **as many caches as fit the distance budget**, capped here only to bound 2-opt/OSRM cost),
    - **running TSP lower bound** (MST length × 2) ≤ `distanceBudgetMeters`,
    - estimated time ≤ `timeBudgetMinutes` (if set), using `routing.getMatrix` averages.
 2. Build the OD distance matrix via `routing.getMatrix(admittedIds)` — **walking distance**, symmetric, memoized per cache pair.

@@ -100,7 +100,6 @@ export async function buildCorpus(
   const topN = Math.floor(num("BENCH_TOPN", 2));
   const maxClusters = Math.floor(num("BENCH_MAX_CLUSTERS", 50));
   const radiusM = Math.floor(num("BENCH_RADIUS_M", 5000));
-  const maxCaches = Math.floor(num("BENCH_MAX_CACHES", 20));
   const budgetM = Math.floor(num("BENCH_BUDGET_M", 12000));
 
   const seeds = await pickSeeds(db, ownerId, spacing, maxSeeds);
@@ -113,7 +112,6 @@ export async function buildCorpus(
       const planInput = Tours.PlanInput.parse({
         center: [lng, lat],
         radiusM,
-        maxCaches,
         distanceBudgetMeters: budgetM,
         hardFilters: {},
         softPreferences: {},

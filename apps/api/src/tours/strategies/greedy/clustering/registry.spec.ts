@@ -11,11 +11,12 @@ import {
 // the worker resolves a strategy by NAME (no shared object instance), so the
 // name→strategy map and the fallback logic must be correct and import-pure.
 describe("clustering registry", () => {
-  it("registers all four strategies, each reporting its own name", () => {
+  it("registers all five strategies, each reporting its own name", () => {
     expect(Object.keys(CLUSTERING_STRATEGIES).sort()).toEqual([
       "components",
       "dbscan",
       "hdbscan",
+      "hdbscan-star",
       "louvain",
     ]);
     for (const [name, strat] of Object.entries(CLUSTERING_STRATEGIES)) {

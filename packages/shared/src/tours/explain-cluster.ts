@@ -114,6 +114,7 @@ export const ExplainClusterResponse = z.object({
     louvain: StrategyOutcome,
     dbscan: StrategyOutcome,
     hdbscan: StrategyOutcome,
+    "hdbscan-star": StrategyOutcome,
     components: StrategyOutcome,
   }),
   /**

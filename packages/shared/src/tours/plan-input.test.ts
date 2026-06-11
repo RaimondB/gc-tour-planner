@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PlanInput } from "./plan-input.js";
 
 describe("PlanInput", () => {
-  it("applies defaults for maxCaches, distanceBudgetMeters, startPreference", () => {
+  it("applies defaults for distanceBudgetMeters, startPreference", () => {
     const parsed = PlanInput.parse({
       center: [5.12, 52.09],
       radiusM: 5000,
@@ -13,7 +13,6 @@ describe("PlanInput", () => {
       softPreferences: {},
     });
 
-    expect(parsed.maxCaches).toBe(15);
     expect(parsed.distanceBudgetMeters).toBe(8_000);
     expect(parsed.startPreference).toBe("auto");
     expect(parsed.softPreferences.clusterDensityWeight).toBe(1);

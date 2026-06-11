@@ -80,7 +80,7 @@ interface MstNode {
   splitEdge?: { weight: number; left: MstNode; right: MstNode };
 }
 
-function effectiveMinSamples(minClusterSize: number): number {
+export function effectiveMinSamples(minClusterSize: number): number {
   // HDBSCAN's `min_samples` ≈ smoothing of density. Lower than min_cluster_size
   // gives a noisier core-distance signal; equal yields the most aggressive
   // noise rejection. Halve it as a sensible default — same shape as our DBSCAN
@@ -88,7 +88,7 @@ function effectiveMinSamples(minClusterSize: number): number {
   return Math.max(2, Math.floor(minClusterSize / 2));
 }
 
-function computeCoreDistances(
+export function computeCoreDistances(
   ids: readonly number[],
   edges: readonly WalkingEdge[],
   k: number,
@@ -113,14 +113,14 @@ function computeCoreDistances(
   return core;
 }
 
-interface MreachEdge {
+export interface MreachEdge {
   from: number;
   to: number;
   /** Mutual reachability distance, = max(core[from], core[to], walking). */
   weight: number;
 }
 
-function buildMreachEdges(
+export function buildMreachEdges(
   edges: readonly WalkingEdge[],
   coreDist: ReadonlyMap<number, number>,
 ): MreachEdge[] {

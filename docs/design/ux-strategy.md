@@ -22,7 +22,7 @@ The flow is three mandatory steps. Each owns the settings whose output it influe
 | Step                 | Owns                             | Examples                                                                                                                          |
 | -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **① Find caches**    | What's on the map                | Upload, search center + radius, cache types, "exclude my finds", availability, equipment, landuse context                        |
-| **② Pick a cluster** | What clusters get discovered     | Distance budget, max caches, min cluster size, candidates-to-return, max link distance, clustering algorithm, landuse profile + weight |
+| **② Pick a cluster** | What clusters get discovered     | Distance budget, min cluster size, candidates-to-return, max link distance, clustering algorithm, landuse profile + weight |
 | **③ Plan & export**  | What the planned tour looks like | Fringe trim, visit time per cache, tool-cache bonus, walking speed, start preference + OSM parking filters, planned-loop summary, leg edits, GPX export |
 
 A setting that _could_ influence both stages goes in the upstream step. `distanceBudgetMeters` is a step-② setting because it constrains which clusters are even considered. Re-planning a cluster after changing step-③ settings is cheap (one API call); re-discovering is expensive — that asymmetry is why the split exists.
@@ -88,7 +88,7 @@ Navigating to a phase — by the rail, a peek CTA, or the auto-jump to Tour on p
 - **Step auto-switch on plan-success** — a fresh plan flips the active step to _Plan & export_.
 - **Tap-to-frame** — picking a cluster (map or carousel) frames it once; this is the only focus→camera path.
 
-**Staleness / Re-discover.** `discoverInputKey(params, planSettings)` hashes *every* input to `discoverClusters` — the search pool **and** the discovery settings (max caches, min cluster size, link distance, distance budget, clustering algorithm, top-N, landuse weight/profile, start preference, OSM-parking filters). It's captured on each discover; when the live key drifts, the clusters are flagged stale: the **"Pick a cluster" rail chip shows an attention dot**, the peek shows a **Re-discover** banner, and the Find-step button relabels to **"Re-discover →"**. The "Find clusters →" button **navigates without recomputing** when clusters are present and fresh; it only re-runs discovery when there are none or they're stale. A planned tour is **left untouched** when the cluster set goes stale.
+**Staleness / Re-discover.** `discoverInputKey(params, planSettings)` hashes *every* input to `discoverClusters` — the search pool **and** the discovery settings (min cluster size, link distance, distance budget, clustering algorithm, top-N, landuse weight/profile, start preference, OSM-parking filters). It's captured on each discover; when the live key drifts, the clusters are flagged stale: the **"Pick a cluster" rail chip shows an attention dot**, the peek shows a **Re-discover** banner, and the Find-step button relabels to **"Re-discover →"**. The "Find clusters →" button **navigates without recomputing** when clusters are present and fresh; it only re-runs discovery when there are none or they're stale. A planned tour is **left untouched** when the cluster set goes stale.
 
 The app does **not**:
 
