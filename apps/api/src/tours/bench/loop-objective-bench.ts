@@ -37,11 +37,13 @@ import { writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { AppModule } from "../../app.module.js";
 import { KYSELY } from "../../database/database.tokens.js";
-
-const num = (key: string, fallback: number): number => {
-  const v = Number.parseFloat(process.env[key] ?? "");
-  return Number.isFinite(v) ? v : fallback;
-};
+import {
+  arrEq,
+  mean,
+  median,
+  num,
+  realisedRetraceMeters,
+} from "./bench-metrics.js";
 
 const OBJECTIVES = ["shortest", "low-overlap"] as const;
 type Objective = (typeof OBJECTIVES)[number];
@@ -65,48 +67,6 @@ interface ClusterRow {
   lowOverlap: PlanMetrics;
   orderChanged: boolean;
 }
-
-/**
- * Realised retrace of a route polyline: collapse the coordinate stream into the
- * sequence of grid cells it enters, count how many times each cell is entered,
- * and sum the excess (entries − 1) × cell size. A clean loop enters each cell
- * once (retrace ≈ 0); walking a street twice enters its cells twice.
- */
-function realisedRetraceMeters(
-  geometry: { coordinates: readonly (readonly number[])[] },
-  gridMeters: number,
-): number {
-  const coords = geometry.coordinates;
-  if (coords.length < 2) return 0;
-  const originLng = coords[0]![0]!;
-  const originLat = coords[0]![1]!;
-  const cosLat = Math.cos((originLat * Math.PI) / 180);
-  const visits = new Map<string, number>();
-  let lastKey = "";
-  for (const c of coords) {
-    const mLng = (c[0]! - originLng) * 111_320 * cosLat;
-    const mLat = (c[1]! - originLat) * 111_320;
-    const key = `${Math.round(mLng / gridMeters)}:${Math.round(mLat / gridMeters)}`;
-    if (key === lastKey) continue; // same cell, still one visit
-    visits.set(key, (visits.get(key) ?? 0) + 1);
-    lastKey = key;
-  }
-  let excess = 0;
-  for (const n of visits.values()) excess += Math.max(0, n - 1);
-  return excess * gridMeters;
-}
-
-const arrEq = (a: readonly number[], b: readonly number[]): boolean =>
-  a.length === b.length && a.every((v, i) => v === b[i]);
-
-const median = (xs: number[]): number => {
-  if (xs.length === 0) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
-};
-const mean = (xs: number[]): number =>
-  xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
 
 async function main(): Promise<void> {
   if (process.env.BENCH_BETA) process.env.PLANNER_LOOP_ORDER_BETA = process.env.BENCH_BETA;
