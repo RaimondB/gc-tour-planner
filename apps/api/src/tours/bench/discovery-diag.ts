@@ -77,7 +77,14 @@ async function main(): Promise<void> {
     const stat = (k: string): StrategyStat => {
       let s = byStrategy.get(k);
       if (!s) {
-        s = { discoveries: 0, components: 0, componentsWithForeign: 0, foreignIdTotal: 0, candidates: 0, candidatesWithForeign: 0 };
+        s = {
+          discoveries: 0,
+          components: 0,
+          componentsWithForeign: 0,
+          foreignIdTotal: 0,
+          candidates: 0,
+          candidatesWithForeign: 0,
+        };
         byStrategy.set(k, s);
       }
       return s;
@@ -95,25 +102,34 @@ async function main(): Promise<void> {
           softPreferences: {},
           topNClusters: topN,
         });
-        const { candidates, diagnostics } = await planner.discoverClusters(ownerId, planInput);
+        const { candidates, diagnostics } = await planner.discoverClusters(
+          ownerId,
+          planInput,
+        );
         const s = stat(diagnostics.strategyUsed);
         s.discoveries += 1;
-        const poolIds = new Set(diagnostics.cacheConnectivity.map((c) => c.cacheId));
+        const poolIds = new Set(
+          diagnostics.cacheConnectivity.map((c) => c.cacheId),
+        );
         for (const comp of diagnostics.components) {
           s.components += 1;
           const foreign = comp.cacheIds.filter((id) => !poolIds.has(id));
           if (foreign.length > 0) {
             s.componentsWithForeign += 1;
             s.foreignIdTotal += foreign.length;
-            for (const id of foreign) if (foreignSample.size < 500) foreignSample.add(id);
+            for (const id of foreign)
+              if (foreignSample.size < 500) foreignSample.add(id);
           }
         }
         for (const cand of candidates) {
           s.candidates += 1;
-          if (cand.cacheIds.some((id) => !poolIds.has(id))) s.candidatesWithForeign += 1;
+          if (cand.cacheIds.some((id) => !poolIds.has(id)))
+            s.candidatesWithForeign += 1;
         }
       } catch (e) {
-        log.warn(`seed ${lng},${lat}: discovery failed (${(e as Error).message})`);
+        log.warn(
+          `seed ${lng},${lat}: discovery failed (${(e as Error).message})`,
+        );
       }
     }
 
@@ -131,7 +147,14 @@ async function main(): Promise<void> {
     }
 
     process.stderr.write = origWrite as typeof process.stderr.write;
-    report(byStrategy, foreignSample.size, existInDb, ownedBySameOwner, invariantBrokenLines, droppedSubMinLines);
+    report(
+      byStrategy,
+      foreignSample.size,
+      existInDb,
+      ownedBySameOwner,
+      invariantBrokenLines,
+      droppedSubMinLines,
+    );
   } finally {
     process.stderr.write = origWrite as typeof process.stderr.write;
     await app.close();
@@ -146,21 +169,29 @@ function report(
   invariantBrokenLines: number,
   droppedSubMinLines: number,
 ): void {
-  console.warn("\n════════════════ discovery invariant diagnostics ════════════════");
+  console.warn(
+    "\n════════════════ discovery invariant diagnostics ════════════════",
+  );
   for (const [strategy, s] of byStrategy) {
     console.warn(`strategy: ${strategy}`);
     console.warn(`  discoveries                 : ${s.discoveries}`);
     console.warn(`  components (clusters)        : ${s.components}`);
-    console.warn(`  components with foreign ids  : ${s.componentsWithForeign} (${pct(s.componentsWithForeign, s.components)})`);
+    console.warn(
+      `  components with foreign ids  : ${s.componentsWithForeign} (${pct(s.componentsWithForeign, s.components)})`,
+    );
     console.warn(`  foreign ids total            : ${s.foreignIdTotal}`);
     console.warn(`  returned candidates          : ${s.candidates}`);
     console.warn(`  candidates with foreign ids  : ${s.candidatesWithForeign}`);
   }
   console.warn("\nForeign-id classification (sampled):");
   console.warn(`  sampled foreign ids          : ${sampledForeign}`);
-  console.warn(`  exist as caches in DB        : ${existInDb} (${pct(existInDb, sampledForeign)})`);
+  console.warn(
+    `  exist as caches in DB        : ${existInDb} (${pct(existInDb, sampledForeign)})`,
+  );
   console.warn(`  …owned by the SAME owner     : ${ownedBySameOwner}`);
-  console.warn(`  …NOT in DB (phantom/index?)  : ${sampledForeign - existInDb}`);
+  console.warn(
+    `  …NOT in DB (phantom/index?)  : ${sampledForeign - existInDb}`,
+  );
   console.warn("\nWorker warning lines seen (cross-check):");
   console.warn(`  'invariant broken'           : ${invariantBrokenLines}`);
   console.warn(`  'sub-minimum dropped'        : ${droppedSubMinLines}`);

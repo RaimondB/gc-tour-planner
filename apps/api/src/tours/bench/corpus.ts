@@ -80,7 +80,10 @@ export async function pickSeeds(
   const seeds = [...tile.values()];
   if (seeds.length <= maxSeeds) return seeds;
   const step = seeds.length / maxSeeds;
-  return Array.from({ length: maxSeeds }, (_, i) => seeds[Math.floor(i * step)]!);
+  return Array.from(
+    { length: maxSeeds },
+    (_, i) => seeds[Math.floor(i * step)]!,
+  );
 }
 
 /**
@@ -119,12 +122,19 @@ export async function buildCorpus(
       const discovered = await planner.discoverClusters(ownerId, planInput);
       for (const cand of discovered.candidates) {
         if (cand.cacheIds.length < 2) continue;
-        if (clusters.some((c) => jaccard(c.cacheIds, cand.cacheIds) > 0.5)) continue;
-        clusters.push({ cacheIds: cand.cacheIds, size: cand.cacheIds.length, center: [lng, lat] });
+        if (clusters.some((c) => jaccard(c.cacheIds, cand.cacheIds) > 0.5))
+          continue;
+        clusters.push({
+          cacheIds: cand.cacheIds,
+          size: cand.cacheIds.length,
+          center: [lng, lat],
+        });
         if (clusters.length >= maxClusters) break;
       }
     } catch (e) {
-      log.warn(`seed ${lng},${lat}: discovery failed (${(e as Error).message})`);
+      log.warn(
+        `seed ${lng},${lat}: discovery failed (${(e as Error).message})`,
+      );
     }
   }
   log.log(`corpus: ${clusters.length} distinct clusters`);

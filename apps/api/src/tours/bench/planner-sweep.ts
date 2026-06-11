@@ -95,7 +95,9 @@ async function main(): Promise<void> {
     let corpus: Corpus;
     if (corpusFile && existsSync(corpusFile)) {
       corpus = JSON.parse(readFileSync(corpusFile, "utf8")) as Corpus;
-      log.log(`loaded corpus: ${corpus.clusters.length} clusters from ${corpusFile}`);
+      log.log(
+        `loaded corpus: ${corpus.clusters.length} clusters from ${corpusFile}`,
+      );
     } else {
       const ownerId = await resolveOwner(db);
       corpus = await buildCorpus(db, planner, ownerId);
@@ -152,11 +154,15 @@ async function main(): Promise<void> {
             wallMs,
           });
         } catch (e) {
-          log.warn(`${cfg.label}: plan failed on a cluster (${(e as Error).message})`);
+          log.warn(
+            `${cfg.label}: plan failed on a cluster (${(e as Error).message})`,
+          );
         }
       }
       results.push(r);
-      log.log(`${cfg.label}: planned ${r.nPlanned} — mean retrace ${mean(r.retrace).toFixed(0)}m`);
+      log.log(
+        `${cfg.label}: planned ${r.nPlanned} — mean retrace ${mean(r.retrace).toFixed(0)}m`,
+      );
     }
 
     leaderboard(results);
@@ -176,7 +182,9 @@ function leaderboard(results: ConfigResult[]): void {
 
   const pad = (s: string, w: number): string => s.padEnd(w);
   const padL = (s: string, w: number): string => s.padStart(w);
-  console.warn("\n══════════════════ planner sweep leaderboard ══════════════════");
+  console.warn(
+    "\n══════════════════ planner sweep leaderboard ══════════════════",
+  );
   console.warn(
     `${pad("config", 12)} ${padL("n", 4)} ${padL("retrace", 9)} ${padL("med", 7)} ${padL("vs base", 9)} ${padL("dist", 8)} ${padL("time", 7)} ${padL("drop", 5)} ${padL("wall", 7)}`,
   );
@@ -191,7 +199,9 @@ function leaderboard(results: ConfigResult[]): void {
       `${pad(r.label, 12)} ${padL(String(r.nPlanned), 4)} ${padL(`${mr.toFixed(0)}m`, 9)} ${padL(`${median(r.retrace).toFixed(0)}m`, 7)} ${padL(vsBase, 9)} ${padL(`${(mean(r.meters) / 1000).toFixed(1)}km`, 8)} ${padL(`${(mean(r.seconds) / 60).toFixed(0)}min`, 7)} ${padL(mean(r.dropped).toFixed(1), 5)} ${padL(`${mean(r.wallMs).toFixed(0)}ms`, 7)}`,
     );
   }
-  console.warn("(lower retrace = better; vs base = mean realised retrace vs the first config)");
+  console.warn(
+    "(lower retrace = better; vs base = mean realised retrace vs the first config)",
+  );
 }
 
 void main().catch((e) => {
