@@ -3,6 +3,7 @@
 Cluster discovery, routed loop, parking selection. Algorithm in [design/tour-planning.md](../design/tour-planning.md); strategy interface in [ADR-0002](../adr/0002-planner-strategy-interface.md).
 
 - **FR-T1.** Given (center, radius, hard filters, soft preferences, budgets), return a ranked list of **candidate clusters** suitable for a closed loop.
+  - **FR-T1.1 (Boundary-spanning clusters, ADR-0026).** When `PLANNER_CLUSTER_GROW` is enabled, a cluster that straddles the search radius is detected in full rather than truncated at the circle: discovery considers caches out to `radius + distanceBudgetMeters/2` but only **seeds** clusters from inside the radius, so clusters originate in the search area yet may extend past it. Growth is bounded by the existing `maxCaches`/`distanceBudgetMeters` caps. Default-off (legacy hard cutoff at the radius).
 - **FR-T2.** For a chosen cluster, return a **planned loop**: ordered cache list, polyline along walking roads (OSRM), totals (meters, seconds, in-cache-visit time), and parking point.
 - **FR-T3.** Budgets the user can set: `maxCaches` (default 15, cap 50), `distanceBudgetMeters` (default 8 000, cap 25 000), optional `timeBudgetMinutes` (using OSRM seconds + per-cache visit time, default 5 min/cache).
 - **FR-T4.** Parking is selected by a per-plan `startPreference`. The default is `"auto"`, an _explicit ordered chain_; the single-source modes still do **not** chain among themselves (each only falls back to the cluster centroid, flagged — see below):

@@ -75,6 +75,14 @@ export interface BuildWalkingGraphInput {
    * Forwarded from `OsrmVersionService.getVersion()`.
    */
   osrmVersion: string;
+  /**
+   * Constrain the graph to the candidate pool: drop edges whose neighbour is
+   * not one of the input `caches`. `nearestNeighbors` finds neighbours within
+   * `radiusM` of each ORIGIN, which reaches caches beyond the pool; keeping the
+   * graph inside the pool makes the refine→pool invariant hold by construction
+   * (ADR-0026). Default false (legacy behaviour).
+   */
+  poolOnly?: boolean;
 }
 
 /**
@@ -135,11 +143,21 @@ export async function buildWalkingGraph(
     kCandidates,
     radiusM,
   );
-  if (candidatePairs.length === 0) return [];
+  // Optionally keep the graph inside the candidate pool (ADR-0026).
+  // `nearestNeighbors` finds neighbours within `radiusM` of each ORIGIN, which
+  // reaches owner caches beyond the pool boundary; those out-of-pool ids would
+  // otherwise leak into the seed-subgraphs and clusters and get dropped at
+  // hydration (the `refine→pool invariant broken` warning). When the caller has
+  // already grown the pool to cover the budget-reachable halo, constraining the
+  // graph here makes the invariant hold by construction.
+  const pairs = input.poolOnly
+    ? candidatePairs.filter((p) => coordsById.has(p.toCacheId))
+    : candidatePairs;
+  if (pairs.length === 0) return [];
 
   // Group candidates per origin for the OSRM phase.
   const candidatesByOrigin = new Map<number, number[]>();
-  for (const p of candidatePairs) {
+  for (const p of pairs) {
     const list = candidatesByOrigin.get(p.fromCacheId);
     if (list) list.push(p.toCacheId);
     else candidatesByOrigin.set(p.fromCacheId, [p.toCacheId]);
@@ -149,7 +167,7 @@ export async function buildWalkingGraph(
   //     the live OSRM extract; cells from a previous extract are filtered
   //     out at the SQL level so we re-fetch them into the live namespace.
   const cached = await deps.routing.findMatrixCells(
-    candidatePairs,
+    pairs,
     profile,
     osrmVersion,
   );
