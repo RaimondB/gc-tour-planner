@@ -154,6 +154,12 @@ export default function App(): JSX.Element {
     center: [number, number];
     zoom: number;
   } | null>("viewport", null);
+  // One-time teaching hint for the reticle: shown in the Find step until the
+  // user pans for the first time, then never again.
+  const [reticleHintSeen, setReticleHintSeen] = useLocalStorageState<boolean>(
+    "reticle-hint-seen",
+    false,
+  );
   const [clusters, setClusters] = useState<ClusterCandidate[] | null>(null);
   const [diagnostics, setDiagnostics] = useState<ClusterDiagnostics | null>(
     null,
@@ -425,8 +431,10 @@ export default function App(): JSX.Element {
   const handlePickCenter = useCallback(
     (lngLat: [number, number]) => {
       setParams((prev) => ({ ...prev, center: lngLat }));
+      // The user just panned the reticle — they've learned the model.
+      setReticleHintSeen(true);
     },
-    [setParams],
+    [setParams, setReticleHintSeen],
   );
 
   // ── Map auto-fit helper ──────────────────────────────────────────────
@@ -560,6 +568,19 @@ export default function App(): JSX.Element {
     [cacheCount, tourStepEnabled, setActiveStep],
   );
 
+  // Frame the whole search circle (center ± radius). Used on entering the Find
+  // step, when the radius changes there, and as the caches-phase fallback.
+  const frameCircle = useCallback(() => {
+    const [lng, lat] = params.center;
+    const r = params.radiusM;
+    const dLat = r / 111_320;
+    const dLng = r / (111_320 * Math.cos((lat * Math.PI) / 180));
+    fitToCoordinates([
+      [lng - dLng, lat - dLat],
+      [lng + dLng, lat + dLat],
+    ]);
+  }, [params.center, params.radiusM, fitToCoordinates]);
+
   // Frame the map context for a given phase — the consistent "where am I"
   // re-centre used on every phase change AND by the ⊕ Frame control:
   //   caches   → the whole search circle (center ± radius)
@@ -576,16 +597,6 @@ export default function App(): JSX.Element {
           if (c) out.push(c.location.coordinates as [number, number]);
         }
         return out;
-      };
-      const frameCircle = () => {
-        const [lng, lat] = params.center;
-        const r = params.radiusM;
-        const dLat = r / 111_320;
-        const dLng = r / (111_320 * Math.cos((lat * Math.PI) / 180));
-        fitToCoordinates([
-          [lng - dLng, lat - dLat],
-          [lng + dLng, lat + dLat],
-        ]);
       };
 
       if (step === "tour" && planResult) {
@@ -616,9 +627,7 @@ export default function App(): JSX.Element {
       chosenClusterId,
       focusedClusterId,
       caches,
-      params.center,
-      params.radiusM,
-      fitToCoordinates,
+      frameCircle,
     ],
   );
   const frameContext = useCallback(
@@ -641,6 +650,27 @@ export default function App(): JSX.Element {
     }
     frameStepRef.current(activeStep);
   }, [activeStep]);
+
+  // Fit the camera to the search circle when its radius changes in the Find
+  // step, so growing/shrinking the circle zooms to keep it framed. Debounced so
+  // dragging the radius slider doesn't fly on every tick; the first run is
+  // skipped so it never fires on mount / reload. Reads `activeStep` + the framer
+  // through refs so the dep list is `[debouncedRadiusM]` alone — otherwise a
+  // pan (which changes `frameCircle`'s identity) would re-fit and fight the pan.
+  const debouncedRadiusM = useDebouncedValue(params.radiusM, 250);
+  const frameCircleRef = useRef(frameCircle);
+  frameCircleRef.current = frameCircle;
+  const activeStepRef = useRef(activeStep);
+  activeStepRef.current = activeStep;
+  const didRadiusFitMountRef = useRef(false);
+  useEffect(() => {
+    if (!didRadiusFitMountRef.current) {
+      didRadiusFitMountRef.current = true;
+      return;
+    }
+    if (activeStepRef.current !== "caches") return;
+    frameCircleRef.current();
+  }, [debouncedRadiusM]);
 
   // Esc closes the admin tools drawer; lock body scroll while it's open.
   useEffect(() => {
@@ -979,12 +1009,14 @@ export default function App(): JSX.Element {
           <MapView
             initialCenter={viewport?.center ?? params.center}
             initialZoom={viewport?.zoom ?? zoomForRadius(params.radiusM)}
+            // A background tap is used ONLY to drop the user-supplied tour
+            // start point. Tap-to-set-*center* is gone: in the Find step the
+            // search circle is a viewport-centred reticle and panning the map
+            // repositions it (see RadiusLayer).
             onPickCenter={
               planSettings.startPreference === "user-supplied-point"
                 ? setPickedStart
-                : activeStep === "caches"
-                  ? handlePickCenter
-                  : undefined
+                : undefined
             }
             onReady={(m) => {
               mapRef.current = m;
@@ -1092,6 +1124,12 @@ export default function App(): JSX.Element {
             attention={{ clusters: clustersStale }}
             onSelect={selectStep}
           />
+
+          {activeStep === "caches" && !reticleHintSeen && (
+            <p className="map-reticle-hint" aria-hidden="true">
+              Pan to aim
+            </p>
+          )}
 
           <button
             type="button"
