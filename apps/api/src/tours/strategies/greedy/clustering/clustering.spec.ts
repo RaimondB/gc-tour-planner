@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Caches, Tours } from "@gctp/shared";
+import { Geo, type Caches, type Tours } from "@gctp/shared";
 import { describe, expect, it } from "vitest";
 import type { SeedSubgraph } from "../seeds.js";
 import type { CoordinatedCache, WalkingEdge } from "../walking-graph.js";
@@ -55,6 +55,8 @@ function buildFixture(): ClusteringContext {
     edges,
     subgraphs,
     input: planInput({ maxLinkMeters: 600, minClusterSize: 2, maxCaches: 10 }),
+    // Fixture caches sit around (0, 0); anchor the projection there.
+    projection: Geo.makeProjection(0, 0),
   };
 }
 

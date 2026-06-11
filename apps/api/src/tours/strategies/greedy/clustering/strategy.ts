@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Caches, Tours } from "@gctp/shared";
+import type { Caches, Geo, Tours } from "@gctp/shared";
 import type { SeedSubgraph } from "../seeds.js";
 import type { CoordinatedCache, WalkingEdge } from "../walking-graph.js";
 
@@ -32,6 +32,14 @@ export interface ClusteringContext {
   subgraphs: readonly SeedSubgraph[];
   /** Original `PlanInput` so strategies can read user knobs themselves. */
   input: Tours.PlanInput;
+  /**
+   * Single equirectangular projection anchored at `input.center`, built once
+   * per request. Every cache is ≤ `radiusM` (≤ 50 km) from it, so straight-line
+   * distances come from `projection.distanceMeters(a, b)` — a plain Euclidean
+   * `hypot`, no per-pair trig. Replaces the spherical `haversineMeters` in the
+   * clustering / scoring hot paths.
+   */
+  projection: Geo.Projection;
 }
 
 /** Refinement stages a strategy can opt out of (default: run all). */

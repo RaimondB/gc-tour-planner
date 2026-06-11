@@ -10,7 +10,7 @@
 // builds the (I/O-bound) `PreparedContext` and resolves `preferredLanduseKinds`
 // (a DB read), then hands both to this function. Imports are restricted to pure
 // modules: `clustering/refine`, `clustering/registry`, `cluster-scoring`,
-// `equirectangular`, and `@gctp/shared`. `PreparedContext` is a TYPE-only import
+// and `@gctp/shared`. `PreparedContext` is a TYPE-only import
 // (erased at runtime) so `clustering/context.ts` — the I/O importer — never
 // loads here.
 
@@ -20,7 +20,6 @@ import type { PreparedContext } from "./clustering/context.js";
 import { refineClusters } from "./clustering/refine.js";
 import { resolveClusteringStrategy } from "./clustering/registry.js";
 import { scoreCluster } from "./cluster-scoring.js";
-import { haversineMeters } from "./equirectangular.js";
 
 /** Default cut-off when PlanInput omits `topNClusters` (the zod schema already
  *  supplies 5; defensive). Mirrors the constant in greedy-tsp-planner.ts. */
@@ -46,9 +45,9 @@ export function computeClusters(
     const ca = poolById.get(a);
     const cb = poolById.get(b);
     if (!ca || !cb) return Number.POSITIVE_INFINITY;
-    return haversineMeters(
-      [ca.location.coordinates[0]!, ca.location.coordinates[1]!],
-      [cb.location.coordinates[0]!, cb.location.coordinates[1]!],
+    return ctx.projection.distanceMeters(
+      ca.location.coordinates,
+      cb.location.coordinates,
     );
   };
 
@@ -73,7 +72,7 @@ export function computeClusters(
       clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
     );
     // NN+2-opt closed-loop estimate; MST undershoots thin/chained clusters
-    // (no closing leg). ×1.4 haversine→walking so it's comparable to the
+    // (no closing leg). ×1.4 straight-line→walking so it's comparable to the
     // OSRM-routed length Pass 2 produces.
     const estimatedTourMeters = estimateTourLength(cluster.length, (i, j) =>
       clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
@@ -87,6 +86,7 @@ export function computeClusters(
       landuseKindsByCacheId: ctx.landuseKindsByCacheId,
       preferredLanduseKinds,
       landuseWeight: input.softPreferences.landuseWeight ?? 1,
+      projection: ctx.projection,
     });
     const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
     const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
@@ -256,10 +256,10 @@ function mstLengthByDistance(
 
 /**
  * Pass-1 closed-loop tour length estimate: NN seed + 2-opt over the cluster's
- * haversine distances, ×1.4 to approximate OSRM walking. Runs synchronously
+ * straight-line distances, ×1.4 to approximate OSRM walking. Runs synchronously
  * here — it's already inside the worker. Falls back to 0 on degenerate input.
  */
-const HAVERSINE_TO_WALKING_FACTOR = 1.4;
+const STRAIGHT_LINE_TO_WALKING_FACTOR = 1.4;
 function estimateTourLength(
   n: number,
   dist: (i: number, j: number) => number,
@@ -267,7 +267,7 @@ function estimateTourLength(
   if (n <= 1) return 0;
   if (n === 2) {
     const d = dist(0, 1);
-    return Number.isFinite(d) ? d * 2 * HAVERSINE_TO_WALKING_FACTOR : 0;
+    return Number.isFinite(d) ? d * 2 * STRAIGHT_LINE_TO_WALKING_FACTOR : 0;
   }
   const matrix: (number | null)[][] = [];
   for (let i = 0; i < n; i += 1) {
@@ -284,7 +284,7 @@ function estimateTourLength(
   }
   const { totalDistance } = Tsp.solveTwoOpt(matrix, 0);
   if (!Number.isFinite(totalDistance)) return 0;
-  return totalDistance * HAVERSINE_TO_WALKING_FACTOR;
+  return totalDistance * STRAIGHT_LINE_TO_WALKING_FACTOR;
 }
 
 function stableClusterId(cacheIds: readonly number[]): string {

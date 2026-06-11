@@ -243,6 +243,7 @@ function describeSelection(
     landuseKindsByCacheId: new Map(),
     preferredLanduseKinds: [],
     landuseWeight: 0,
+    projection: ctx.projection,
   });
 
   return {
@@ -395,6 +396,8 @@ function selectionContext(
     // Relax minClusterSize so strategies don't drop sub-clusters that are
     // legitimately small for an arbitrary user pick.
     input: { ...ctx.input, minClusterSize: 2 },
+    // Same search centre, so the request's projection still applies.
+    projection: ctx.projection,
   };
 }
 
@@ -479,6 +482,7 @@ function computeAttribution(
       landuseKindsByCacheId: new Map(),
       preferredLanduseKinds: [],
       landuseWeight: 0,
+      projection: ctx.projection,
     });
     const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
     const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
