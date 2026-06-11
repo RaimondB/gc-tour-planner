@@ -24,6 +24,16 @@ const PROFILE: Routing.RoutingProfile = "foot";
 const MAX_DISCOVERY_POOL = 2_000;
 const KNN_TARGET = Number.parseInt(process.env.PLANNER_KNN_K ?? "12", 10);
 
+/**
+ * Walking-graph symmetry rule. `or` (default, legacy): an edge survives if
+ * EITHER endpoint ranks the other in its k-NN. `mutual` ("dual-link"): the edge
+ * survives only if BOTH rank each other, with a min-degree floor so a node is
+ * never orphaned. Mutual sharpens cluster separation (kills one-way hub links)
+ * at some recall cost in sparse areas. Read once; A/B via the explain endpoint.
+ */
+const KNN_SYMMETRY: "or" | "mutual" =
+  process.env.PLANNER_KNN_SYMMETRY === "mutual" ? "mutual" : "or";
+
 export interface PreparedContext extends ClusteringContext {
   /** Bytes returned alongside diagnostics — not used by strategies. */
   landuseKindsByCacheId: ReadonlyMap<number, readonly string[]>;
@@ -117,6 +127,7 @@ export async function prepareClusteringContext(
       profile: PROFILE,
       osrmVersion: deps.osrmVersion.getVersion(),
       poolOnly: grow,
+      symmetry: KNN_SYMMETRY,
     },
     { caches: deps.cachesRepo, routing: deps.routingRepo, osrm: deps.osrm },
   );
