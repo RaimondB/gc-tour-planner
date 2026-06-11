@@ -39,7 +39,6 @@ import { AdvancedSection } from "../shell/AdvancedSection.js";
 
 export interface PlanSettings {
   distanceBudgetMeters: number;
-  maxCaches: number;
   /** Floor on cluster size; raising it produces fewer, larger clusters. */
   minClusterSize: number;
   /** Max walking distance (m) for two caches to link into the same cluster. */
@@ -104,7 +103,6 @@ export interface PlanSettings {
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   distanceBudgetMeters: 8_000,
-  maxCaches: 15,
   minClusterSize: 8,
   maxLinkMeters: 1_500,
   startPreference: "auto",
@@ -128,6 +126,7 @@ const STRATEGY_OPTIONS: ReadonlyArray<
   ["louvain", "Louvain (default)"],
   ["dbscan", "DBSCAN"],
   ["hdbscan", "HDBSCAN (density)"],
+  ["hdbscan-star", "HDBSCAN* (stability)"],
   ["components", "Components (baseline)"],
 ];
 
@@ -349,22 +348,6 @@ export function PlannerSidebar({
             Roughly how far you want to walk in one loop.
           </small>
         </label>
-        <label>
-          Max caches in a loop: {settings.maxCaches}
-          <input
-            type="range"
-            min={2}
-            max={50}
-            step={1}
-            value={settings.maxCaches}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                maxCaches: Number(e.target.value),
-              })
-            }
-          />
-        </label>
       </div>
 
       <fieldset className="field">
@@ -426,7 +409,7 @@ export function PlannerSidebar({
             <input
               type="range"
               min={2}
-              max={Math.max(2, settings.maxCaches)}
+              max={50}
               step={1}
               value={settings.minClusterSize}
               onChange={(e) =>

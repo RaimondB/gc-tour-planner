@@ -45,7 +45,6 @@ export async function explainSelection(
   const planInput: Tours.PlanInput = {
     center: input.center,
     radiusM: input.radiusM,
-    maxCaches: Math.max(input.minClusterSize, input.cacheIds.length),
     minClusterSize: input.minClusterSize,
     maxLinkMeters: input.maxLinkMeters,
     distanceBudgetMeters: input.distanceBudgetMeters,
@@ -174,6 +173,7 @@ function emptyResponse(
       louvain: emptyOutcome(),
       dbscan: emptyOutcome(),
       hdbscan: emptyOutcome(),
+      "hdbscan-star": emptyOutcome(),
       components: emptyOutcome(),
     },
     algorithmAttribution: [],
@@ -411,6 +411,7 @@ function runStrategiesOnSelection(
     louvain: emptyOutcome(),
     dbscan: emptyOutcome(),
     hdbscan: emptyOutcome(),
+    "hdbscan-star": emptyOutcome(),
     components: emptyOutcome(),
   };
   for (const [name, strategy] of Object.entries(CLUSTERING_STRATEGIES)) {

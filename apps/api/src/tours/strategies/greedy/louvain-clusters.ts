@@ -121,10 +121,15 @@ export function discoverClustersInSubgraphs(
 }
 
 /**
- * Safety net: if a community still exceeds the user's distance budget
- * (`MST × 2 > budget`) or maxCaches, recursively cut the longest MST edge
- * until each sub-cluster fits. Returns the resulting sub-clusters. A cluster
- * that already fits both constraints is returned unchanged.
+ * Safety net: if a community still exceeds the user's **distance budget**
+ * (`MST × 2 > budget`), recursively cut the longest MST edge until each
+ * sub-cluster fits the budget. Returns the resulting sub-clusters. A cluster
+ * that already fits the budget is returned unchanged.
+ *
+ * Splitting is driven purely by distance, NOT by cache count: the more caches
+ * that fit inside the budget, the richer the loop, so we never break up a
+ * within-budget cluster just because it has many caches. (Pass-2 applies its
+ * own `MAX_LOOP_CACHES` safety cap when it actually builds the tour.)
  *
  * Reused from the old greedy planner — community-detected clusters are
  * already shaped by modularity, so this safety net rarely fires in practice.
@@ -134,7 +139,6 @@ export function splitByMstCut(
   walkingDist: (a: number, b: number) => number,
   budgetMeters: number,
   minSize: number,
-  maxSize: number,
   depth = 0,
 ): number[][] {
   if (members.length < minSize) return [];
@@ -144,9 +148,8 @@ export function splitByMstCut(
   const { edges } = buildMstEdges(members.length, localDist);
   const mst = edges.reduce((s, e) => s + e.weight, 0);
 
-  const fitsSize = members.length <= maxSize;
   const fitsBudget = mst * 2 <= budgetMeters;
-  if (fitsSize && fitsBudget) return [members.slice()];
+  if (fitsBudget) return [members.slice()];
 
   if (depth >= 64 || edges.length === 0) return [];
 
@@ -203,7 +206,6 @@ export function splitByMstCut(
       walkingDist,
       budgetMeters,
       minSize,
-      maxSize,
       depth + 1,
     ),
     ...splitByMstCut(
@@ -211,7 +213,6 @@ export function splitByMstCut(
       walkingDist,
       budgetMeters,
       minSize,
-      maxSize,
       depth + 1,
     ),
   ];

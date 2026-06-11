@@ -49,7 +49,6 @@ export async function buildWalkingGraphResponse(
   const planInput: Tours.PlanInput = {
     center: input.center,
     radiusM: input.radiusM,
-    maxCaches: 50,
     minClusterSize: 2,
     maxLinkMeters: input.maxLinkMeters,
     distanceBudgetMeters: input.distanceBudgetMeters,

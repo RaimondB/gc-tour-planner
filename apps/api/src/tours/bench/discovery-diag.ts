@@ -66,7 +66,6 @@ async function main(): Promise<void> {
     const spacing = num("BENCH_SEED_SPACING_M", 4000);
     const maxSeeds = Math.floor(num("BENCH_MAX_SEEDS", 30));
     const radiusM = Math.floor(num("BENCH_RADIUS_M", 5000));
-    const maxCaches = Math.floor(num("BENCH_MAX_CACHES", 20));
     const budgetM = Math.floor(num("BENCH_BUDGET_M", 12000));
     const topN = Math.floor(num("BENCH_TOPN", 5));
 
@@ -96,7 +95,6 @@ async function main(): Promise<void> {
         const planInput = Tours.PlanInput.parse({
           center: [lng, lat],
           radiusM,
-          maxCaches,
           distanceBudgetMeters: budgetM,
           hardFilters: {},
           softPreferences: {},

@@ -153,7 +153,6 @@ Tour planning is split into two passes (see [ADR-0002](../adr/0002-planner-strat
 const PlanInput = z.object({
   center: z.tuple([z.number(), z.number()]),
   radiusM: z.number().int().positive().max(50_000),
-  maxCaches: z.number().int().min(2).max(50).default(15),
   distanceBudgetMeters: z.number().int().positive().max(25_000).default(8_000),
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
   hardFilters: z.object({

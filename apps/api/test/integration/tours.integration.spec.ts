@@ -230,7 +230,6 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
     return {
       center,
       radiusM: 10_000,
-      maxCaches: 15,
       // Test fixture plants 6 caches; lower the floor so the cluster forms.
       // Production default is 8.
       minClusterSize: 3,

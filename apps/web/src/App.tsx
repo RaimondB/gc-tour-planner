@@ -118,7 +118,6 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     multiSubtype: p.multiSubtype,
     hideToolCaches: p.hideToolCaches,
     // Discovery settings (all feed discoverClusters)
-    maxCaches: s.maxCaches,
     minClusterSize: s.minClusterSize,
     maxLinkMeters: s.maxLinkMeters,
     distanceBudgetMeters: s.distanceBudgetMeters,
@@ -321,7 +320,6 @@ export default function App(): JSX.Element {
       return discoverClusters({
         center: params.center,
         radiusM: params.radiusM,
-        maxCaches: planSettings.maxCaches,
         minClusterSize: planSettings.minClusterSize,
         maxLinkMeters: planSettings.maxLinkMeters,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,

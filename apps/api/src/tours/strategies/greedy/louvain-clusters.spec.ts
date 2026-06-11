@@ -97,7 +97,7 @@ describe("splitByMstCut (safety net)", () => {
       if (a === b) return 0;
       return 500;
     };
-    const out = splitByMstCut([1, 2, 3], dist, 10_000, 2, 50);
+    const out = splitByMstCut([1, 2, 3], dist, 10_000, 2);
     expect(out).toEqual([[1, 2, 3]]);
   });
 
@@ -114,7 +114,7 @@ describe("splitByMstCut (safety net)", () => {
       const key = a < b ? `${a}:${b}` : `${b}:${a}`;
       return weights[key] ?? 50_000;
     };
-    const out = splitByMstCut([1, 2, 3, 4], dist, 3_000, 2, 50);
+    const out = splitByMstCut([1, 2, 3, 4], dist, 3_000, 2);
     expect(out.length).toBeGreaterThan(0);
     // The bridge edge between 2 and 3 should have been cut.
     for (const part of out) {

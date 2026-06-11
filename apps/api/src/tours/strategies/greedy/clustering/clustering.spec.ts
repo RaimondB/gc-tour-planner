@@ -7,6 +7,7 @@ import type { SeedSubgraph } from "../seeds.js";
 import type { CoordinatedCache, WalkingEdge } from "../walking-graph.js";
 import { componentsStrategy } from "./components.js";
 import { dbscanStrategy } from "./dbscan.js";
+import { hdbscanStarStrategy } from "./hdbscan-star.js";
 import { hdbscanStrategy } from "./hdbscan.js";
 import { louvainStrategy } from "./louvain.js";
 import { CLUSTERING_STRATEGIES, resolveClusteringStrategy } from "./index.js";
@@ -54,7 +55,7 @@ function buildFixture(): ClusteringContext {
     coordinated,
     edges,
     subgraphs,
-    input: planInput({ maxLinkMeters: 600, minClusterSize: 2, maxCaches: 10 }),
+    input: planInput({ maxLinkMeters: 600, minClusterSize: 2 }),
     // Fixture caches sit around (0, 0); anchor the projection there.
     projection: Geo.makeProjection(0, 0),
   };
@@ -187,6 +188,175 @@ describe("dbscan vs louvain — bridge edge handling", () => {
   });
 });
 
+describe("hdbscan-star — true stability extraction", () => {
+  // Build a minimal context from explicit caches + edges. Coordinates only
+  // matter for the refinement pipeline; the strategy itself reads ids + edges.
+  function ctxFrom(
+    ids: readonly number[],
+    edges: readonly WalkingEdge[],
+    over: Partial<Tours.PlanInput> = {},
+    coords?: ReadonlyMap<number, readonly [number, number]>,
+  ): ClusteringContext {
+    const caches: Caches.CacheDTO[] = ids.map((id) => {
+      const xy = coords?.get(id) ?? ([id * 0.001, 0] as const);
+      return cache(id, xy[0], xy[1]);
+    });
+    const coordinated: CoordinatedCache[] = caches.map((c) => ({
+      id: c.id,
+      lng: c.location.coordinates[0]!,
+      lat: c.location.coordinates[1]!,
+    }));
+    return {
+      pool: caches,
+      coordinated,
+      edges: edges.slice(),
+      subgraphs: [
+        { seedId: ids[0]!, cacheIds: ids.slice(), edges: edges.slice() },
+      ],
+      input: planInput(over),
+      projection: Geo.makeProjection(0, 0),
+    };
+  }
+
+  // All unordered pairs of `ids` at a fixed walking distance.
+  function clique(ids: readonly number[], meters: number): WalkingEdge[] {
+    const out: WalkingEdge[] = [];
+    for (let i = 0; i < ids.length; i += 1) {
+      for (let j = i + 1; j < ids.length; j += 1) {
+        out.push(edge(ids[i]!, ids[j]!, meters));
+      }
+    }
+    return out;
+  }
+
+  const ids = (c: { cacheIds: number[] }) => c.cacheIds;
+
+  it("keeps a loose-but-real pod whole where the legacy bisection over-splits", () => {
+    // Tight pod {1..5} (~80 m) — its own component.
+    // Loose pod: two clumps {10,11,12,13} + {14,15,16} (~380 m intra) joined by
+    // a slightly longer 420 m edge — a *valid* split point, but the clumps are
+    // barely denser than the join, so EoM keeps the whole pod together.
+    // Noise {20,21}: one weak mutual edge → too few neighbours, dropped.
+    const loose = [10, 11, 12, 13, 14, 15, 16];
+    const edges: WalkingEdge[] = [
+      ...clique([1, 2, 3, 4, 5], 80),
+      ...clique([10, 11, 12, 13], 380),
+      ...clique([14, 15, 16], 380),
+      edge(13, 14, 420),
+      edge(20, 21, 900),
+    ];
+    const ctx = ctxFrom(
+      [1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16, 20, 21],
+      edges,
+      { minClusterSize: 3 },
+    );
+
+    const star = hdbscanStarStrategy.cluster(ctx).map(ids);
+    // Loose pod survives as ONE cluster.
+    expect(star.some((c) => loose.every((id) => c.includes(id)))).toBe(true);
+    // Tight pod is its own cluster.
+    expect(
+      star.some((c) => c.length === 5 && c.includes(1) && c.includes(5)),
+    ).toBe(true);
+    // Noise excluded.
+    const assigned = new Set(star.flat());
+    expect(assigned.has(20)).toBe(false);
+    expect(assigned.has(21)).toBe(false);
+
+    // Contrast: the legacy recursive-bisection strategy splits the loose pod.
+    const legacy = hdbscanStrategy.cluster(ctx).map(ids);
+    expect(legacy.some((c) => loose.every((id) => c.includes(id)))).toBe(false);
+  });
+
+  it("splits a component into its sub-pods when they are genuinely denser (EoM picks descendants)", () => {
+    // Two tight 4-cliques (~50 m) joined by a long 1400 m bridge: the sub-pods
+    // persist far longer than the bridge, so EoM prefers the two children.
+    const edges: WalkingEdge[] = [
+      ...clique([1, 2, 3, 4], 50),
+      ...clique([5, 6, 7, 8], 50),
+      edge(4, 5, 1400),
+    ];
+    const ctx = ctxFrom([1, 2, 3, 4, 5, 6, 7, 8], edges, {
+      minClusterSize: 3,
+    });
+
+    const star = hdbscanStarStrategy.cluster(ctx).map(ids);
+    expect(star).toHaveLength(2);
+    expect(star.some((c) => c.join(",") === "1,2,3,4")).toBe(true);
+    expect(star.some((c) => c.join(",") === "5,6,7,8")).toBe(true);
+    // Never the merged blob.
+    expect(star.some((c) => c.length === 8)).toBe(false);
+  });
+
+  it("does not gratuitously cut a uniform-density blob", () => {
+    const blob = [1, 2, 3, 4, 5, 6];
+    const ctx = ctxFrom(blob, clique(blob, 200), { minClusterSize: 3 });
+    const star = hdbscanStarStrategy.cluster(ctx).map(ids);
+    expect(star).toHaveLength(1);
+    expect(blob.every((id) => star[0]!.includes(id))).toBe(true);
+  });
+
+  it("classifies sparse-neighbourhood caches as noise", () => {
+    // Node 99 has a single edge → fewer than minSamples neighbours → +Inf core
+    // distance → never enters the hierarchy.
+    const edges: WalkingEdge[] = [
+      ...clique([1, 2, 3, 4], 100),
+      edge(4, 99, 120),
+    ];
+    const ctx = ctxFrom([1, 2, 3, 4, 99], edges, { minClusterSize: 3 });
+    const star = hdbscanStarStrategy.cluster(ctx).map(ids);
+    expect(new Set(star.flat()).has(99)).toBe(false);
+  });
+
+  it("is deterministic on the harder varying-density fixture", () => {
+    const edges: WalkingEdge[] = [
+      ...clique([10, 11, 12, 13], 380),
+      ...clique([14, 15, 16], 380),
+      edge(13, 14, 420),
+    ];
+    const ctx = ctxFrom([10, 11, 12, 13, 14, 15, 16], edges, {
+      minClusterSize: 3,
+    });
+    const a = hdbscanStarStrategy.cluster(ctx).map(ids);
+    const b = hdbscanStarStrategy.cluster(ctx).map(ids);
+    expect(b).toEqual(a);
+  });
+
+  it("flows through the shared refinement with walking-trim skipped", () => {
+    // A compact, within-budget blob with real coords (~150 m spacing). The
+    // strategy emits one cluster; refinement (walking-trim skipped per the
+    // strategy's opt-out) must complete and preserve it.
+    const blob = [1, 2, 3, 4, 5, 6];
+    const coords = new Map<number, readonly [number, number]>([
+      [1, [0, 0]],
+      [2, [0.0015, 0]],
+      [3, [0, 0.0015]],
+      [4, [0.0015, 0.0015]],
+      [5, [0.0008, 0.0008]],
+      [6, [0.0022, 0.0008]],
+    ]);
+    const ctx = ctxFrom(
+      blob,
+      clique(blob, 150),
+      { minClusterSize: 3, distanceBudgetMeters: 8000 },
+      coords,
+    );
+
+    const raw = hdbscanStarStrategy.cluster(ctx);
+    expect(raw.length).toBeGreaterThanOrEqual(1);
+    const refined = refineClusters(
+      raw,
+      ctx,
+      hdbscanStarStrategy.skipRefinement,
+    );
+    // The whole pod survives refinement as a cluster — nobody is walking-trimmed
+    // (the strategy opts out) and the blob is well within budget.
+    expect(refined.length).toBeGreaterThanOrEqual(1);
+    const assigned = new Set(refined.flat());
+    expect(blob.every((id) => assigned.has(id))).toBe(true);
+  });
+});
+
 /* --- fixture helpers ---------------------------------------------------- */
 
 function cache(id: number, lng: number, lat: number): Caches.CacheDTO {
@@ -217,7 +387,6 @@ function planInput(over: Partial<Tours.PlanInput> = {}): Tours.PlanInput {
   return {
     center: [0, 0],
     radiusM: 10_000,
-    maxCaches: 50,
     minClusterSize: 3,
     maxLinkMeters: 1_500,
     distanceBudgetMeters: 8_000,

@@ -48,7 +48,6 @@ export function refineClusters(
           clusterDistanceMeters,
           ctx.input.distanceBudgetMeters,
           ctx.input.minClusterSize,
-          ctx.input.maxCaches,
         );
 
     for (const part of parts) {
@@ -181,7 +180,6 @@ export function projectMstSplit(
     clusterDistanceMeters,
     ctx.input.distanceBudgetMeters,
     2,
-    ctx.input.maxCaches,
   );
 }
 

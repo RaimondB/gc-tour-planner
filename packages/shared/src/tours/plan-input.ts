@@ -77,15 +77,19 @@ export type StartPreference = z.infer<typeof StartPreference>;
  * A/B compare the same `PlanInput` across strategies; defaults from the
  * `PLANNER_CLUSTERING` env var (and falls back to `louvain`).
  *
- *  - `louvain`     — community detection on a sparse walking graph (default).
- *  - `dbscan`      — density-based clustering using `maxLinkMeters` as ε.
- *  - `hdbscan`     — density-reachable, mutual-NN; produces stability scores.
- *  - `components`  — connected components on the capped walking graph (baseline).
+ *  - `louvain`      — community detection on a sparse walking graph (default).
+ *  - `dbscan`       — density-based clustering using `maxLinkMeters` as ε.
+ *  - `hdbscan`      — robust-single-linkage core + recursive MST bisection
+ *                     (NOT full HDBSCAN; kept for A/B against `hdbscan-star`).
+ *  - `hdbscan-star` — true HDBSCAN*: condensed-tree stability extraction
+ *                     (Excess of Mass) over the mutual-reachability MST.
+ *  - `components`   — connected components on the capped walking graph (baseline).
  */
 export const ClusteringStrategyName = z.enum([
   "louvain",
   "dbscan",
   "hdbscan",
+  "hdbscan-star",
   "components",
 ]);
 export type ClusteringStrategyName = z.infer<typeof ClusteringStrategyName>;
@@ -93,7 +97,6 @@ export type ClusteringStrategyName = z.infer<typeof ClusteringStrategyName>;
 export const PlanInput = z.object({
   center: LngLat,
   radiusM: z.number().int().positive().max(50_000),
-  maxCaches: z.number().int().min(2).max(50).default(15),
   /**
    * Lower bound on cluster size. After single-linkage clustering on the
    * ε-graph, any component smaller than this is dropped. The trim step
