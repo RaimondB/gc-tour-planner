@@ -331,6 +331,9 @@ services:
       # ─── Cluster discovery (Pass 1) ─────────────────────────────────────
       PLANNER_CLUSTERING: ${PLANNER_CLUSTERING:-louvain}
       PLANNER_KNN_K: ${PLANNER_KNN_K:-12}
+      # Boundary-spanning clusters (ADR-0026): grow a cluster past the search
+      # radius. Default-off; set PLANNER_CLUSTER_GROW=1 in infra/.env to enable.
+      PLANNER_CLUSTER_GROW: ${PLANNER_CLUSTER_GROW:-}
 
       # ─── Loop-aware leg picker (Pass 2 polyline assembly) ───────────────
       # See apps/api/src/tours/strategies/greedy/loop-aware-legs.ts.
