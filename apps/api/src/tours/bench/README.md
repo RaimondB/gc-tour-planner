@@ -47,6 +47,39 @@ running discovery across many seeds and detecting clusters whose ids aren't in
 the candidate pool (from the returned `diagnostics`), then classifying those
 foreign ids against the DB. Uses the same corpus seeding env knobs.
 
+## `discovery-timing.ts` — Pass-1 latency attribution
+
+Answers **where the seconds go** in cluster discovery (`POST /tours/clusters`).
+The other benches time clustering *quality* (`clustering-sweep`) or end-to-end
+*packing* (`cluster-tuning`); this one splits the wall-clock by phase, because
+the clustering algorithm is the *fastest* part (~3 ms) — the cost is the OSRM
+`/table` walking-graph build.
+
+Per seed it runs the real discovery path twice and reports the breakdown:
+
+1. **`prepareClusteringContext`** (I/O): `list` (DB pull) / `landuse` /
+   `walking-graph` — further split into PostGIS over-fetch, `route_legs`
+   cache-read, **OSRM `/table` fetch**, persist, rank+symmetrise — / `seeds`.
+2. **Worker round-trip** (`computePool.computeClusters`, ADR-0014): isolated by
+   also running the same compute **inline**; the delta is the structured-clone +
+   dispatch overhead.
+
+**Cold vs warm:** pass A populates `route_legs` (OSRM misses), pass B re-runs the
+identical context fully warm. The A→B `osrm.fetch` delta is the prize the
+precompute / cache-hit-rate levers attack. **Non-destructive** — it only fills
+the cache, never clears it (so an already-precomputed area shows the two passes
+converging; clear `route_legs` manually for a true cold measurement).
+
+```bash
+docker compose exec -e BENCH_MAX_SEEDS=40 api node dist/tours/bench/discovery-timing.js
+```
+
+Env: corpus seeding knobs (`BENCH_OWNER_ID`, `BENCH_CENTER`,
+`BENCH_SEED_SPACING_M`, `BENCH_MAX_SEEDS`, `BENCH_RADIUS_M`), plus
+`BENCH_BUDGET_M`, `BENCH_MAX_LINK_M`, `BENCH_MIN_CLUSTER_SIZE`,
+`BENCH_STRATEGY` (def: resolved planner strategy), `BENCH_WARM_PASS` (def on),
+`BENCH_WORKER_COMPARE` (def on), `BENCH_OUT` (raw JSON samples).
+
 ## Shared modules
 
 - `bench-metrics.ts` — realised retrace, Jaccard, mean/median, env parsing.

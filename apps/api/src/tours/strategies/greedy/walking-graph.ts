@@ -52,6 +52,39 @@ export interface CoordinatedCache {
   lat: number;
 }
 
+/**
+ * Optional phase-timing + cache-hit breakdown for the walking-graph build.
+ * Pass an empty object as `buildWalkingGraph`'s 4th arg and it is mutated in
+ * place with per-phase wall-clock (ms) and the cell counts that explain it.
+ * The dominant cost on a cold/dense pool is `osrmFetchMs`; the #1 lever is the
+ * cache-hit rate `cellsCacheHit / candidatePairs` (see the discovery-timing
+ * bench + the perf handoff). Zero-overhead when omitted.
+ */
+export interface WalkingGraphStats {
+  /** Origins fanned out to OSRM `/table` (one call per origin with misses). */
+  origins: number;
+  /** Over-fetched candidate pairs after the optional pool-only filter. */
+  candidatePairs: number;
+  /** Cells served from `route_legs` (the warm path). */
+  cellsCacheHit: number;
+  /** Cells freshly fetched from OSRM (the cold cost). */
+  cellsOsrmFetched: number;
+  /** Cells already recorded as unreachable (negative cache). */
+  cellsNoroute: number;
+  /** Edges in the returned symmetric graph. */
+  edges: number;
+  /** PostGIS `nearestNeighbors` over-fetch. */
+  overFetchMs: number;
+  /** `findMatrixCells` read of the warm cells. */
+  cacheReadMs: number;
+  /** The OSRM `/table` fan-out loop (the hot path on a cold pool). */
+  osrmFetchMs: number;
+  /** Persisting freshly fetched cells + noroute markers back to `route_legs`. */
+  persistMs: number;
+  /** Re-rank by walking distance + symmetrise into the edge list. */
+  rankSymmetriseMs: number;
+}
+
 export interface BuildWalkingGraphInput {
   ownerId: string;
   caches: readonly CoordinatedCache[];
@@ -136,8 +169,12 @@ export async function buildWalkingGraph(
   // Concurrency cap for OSRM /table calls. OSRM single-instance fronted by
   // nginx tolerates ~20-50 inflight without notable QoS degradation.
   concurrency = 8,
+  // Optional phase-timing sink; mutated in place when provided (zero-overhead
+  // otherwise). See WalkingGraphStats / the discovery-timing bench.
+  stats?: Partial<WalkingGraphStats>,
 ): Promise<WalkingEdge[]> {
   const logger = new Logger(buildWalkingGraph.name);
+  const clock = () => performance.now();
   const {
     caches,
     kTarget,
@@ -155,12 +192,14 @@ export async function buildWalkingGraph(
   );
 
   // 1. PostGIS over-fetch.
+  const tOverFetch = clock();
   const candidatePairs = await deps.caches.nearestNeighbors(
     ownerId,
     caches.map((c) => c.id),
     kCandidates,
     radiusM,
   );
+  if (stats) stats.overFetchMs = clock() - tOverFetch;
   // Optionally keep the graph inside the candidate pool (ADR-0026).
   // `nearestNeighbors` finds neighbours within `radiusM` of each ORIGIN, which
   // reaches owner caches beyond the pool boundary; those out-of-pool ids would
@@ -184,11 +223,13 @@ export async function buildWalkingGraph(
   // 2a. Pull cached cells first — anything missing goes to OSRM. Scoped to
   //     the live OSRM extract; cells from a previous extract are filtered
   //     out at the SQL level so we re-fetch them into the live namespace.
+  const tCacheRead = clock();
   const cached = await deps.routing.findMatrixCells(
     pairs,
     profile,
     osrmVersion,
   );
+  if (stats) stats.cacheReadMs = clock() - tCacheRead;
   const cachedKey = (from: number, to: number) => `${from}:${to}`;
   const cachedMap = new Map<string, { meters: number; seconds: number }>();
   // Negative cache: pairs we've already asked OSRM about and got a
@@ -210,6 +251,9 @@ export async function buildWalkingGraph(
       });
     }
   }
+  // Snapshot the warm-path hit count before the OSRM phase adds fresh cells to
+  // the same map — the cache-hit rate is the headline perf lever.
+  const cellsCacheHit = cachedMap.size;
 
   // 2b. Fetch missing cells from OSRM, one /table per origin.
   // `[origin, ...candidates]` — we only read row 0 of the returned matrix.
@@ -226,6 +270,7 @@ export async function buildWalkingGraph(
     profile: Routing.RoutingProfile;
   }> = [];
 
+  const tOsrm = clock();
   const origins = Array.from(candidatesByOrigin.keys());
   for (let i = 0; i < origins.length; i += concurrency) {
     const batch = origins.slice(i, i + concurrency);
@@ -311,6 +356,9 @@ export async function buildWalkingGraph(
     );
   }
 
+  if (stats) stats.osrmFetchMs = clock() - tOsrm;
+
+  const tPersist = clock();
   if (toPersist.length > 0) {
     logger.debug(
       `walking-graph: persisting ${toPersist.length} new matrix cells to route_legs`,
@@ -323,6 +371,7 @@ export async function buildWalkingGraph(
     );
     await deps.routing.upsertNorouteCells(toPersistNoRoute, osrmVersion);
   }
+  if (stats) stats.persistMs = clock() - tPersist;
 
   // 3. Re-rank each origin's candidates by walking distance, drop anything
   //    over the hard maxEdgeMeters cap, keep top kTarget. Dropping detours
@@ -335,6 +384,7 @@ export async function buildWalkingGraph(
   //    DO NOTHING means it never gets corrected). These cells artificially
   //    inflate node degree inside dense pockets and starve the long-range
   //    connections that would normally bridge to neighbouring pockets.
+  const tRank = clock();
   const kNN = new Map<
     number,
     Array<{ to: number; meters: number; seconds: number }>
@@ -518,6 +568,16 @@ export async function buildWalkingGraph(
     logger.debug(
       `walking-graph: ${asymmetricMinSelected} edges where MIN(forward, reverse) was > 50 % smaller than MAX — taking MIN as the walking-honest distance`,
     );
+  }
+
+  if (stats) {
+    stats.rankSymmetriseMs = clock() - tRank;
+    stats.origins = origins.length;
+    stats.candidatePairs = pairs.length;
+    stats.cellsCacheHit = cellsCacheHit;
+    stats.cellsOsrmFetched = toPersist.length;
+    stats.cellsNoroute = cachedNoRoute.size;
+    stats.edges = edges.size;
   }
 
   return Array.from(edges.values());

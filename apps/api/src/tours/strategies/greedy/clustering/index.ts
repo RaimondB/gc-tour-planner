@@ -4,7 +4,7 @@
 export * from "./strategy.js";
 export { refineClusters, projectTrims, projectMstSplit } from "./refine.js";
 export { prepareClusteringContext } from "./context.js";
-export type { PreparedContext } from "./context.js";
+export type { ContextStats, PreparedContext } from "./context.js";
 // The strategy registry lives in a pure module (no I/O) so the worker-thread
 // planner pipeline can import it without pulling in context.ts (ADR-0014).
 export {
