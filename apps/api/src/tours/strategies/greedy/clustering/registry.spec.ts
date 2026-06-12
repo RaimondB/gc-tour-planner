@@ -35,12 +35,12 @@ describe("clustering registry", () => {
     );
   });
 
-  it("falls back to louvain on an unknown/empty env default", () => {
+  it("falls back to hdbscan-star on an unknown/empty env default", () => {
     expect(resolveClusteringStrategy(undefined, "nonsense").name).toBe(
-      "louvain",
+      "hdbscan-star",
     );
     expect(resolveClusteringStrategy(undefined, undefined).name).toBe(
-      "louvain",
+      "hdbscan-star",
     );
   });
 });

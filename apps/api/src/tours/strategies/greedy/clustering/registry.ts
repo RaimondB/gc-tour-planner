@@ -29,15 +29,16 @@ export const CLUSTERING_STRATEGIES: Readonly<
 
 /**
  * Pick the strategy for a request. Request-supplied wins; falls back to the
- * env default (`PLANNER_CLUSTERING`), then `louvain`. Unknown values fall back
- * rather than throwing — keeps the planner forgiving when a mistyped env var
- * lands in production.
+ * env default (`PLANNER_CLUSTERING`), then `hdbscan-star` (best end-to-end on
+ * real data: most caches per routed loop, least fringe — see the cluster-tuning
+ * bench). Unknown values fall back rather than throwing — keeps the planner
+ * forgiving when a mistyped env var lands in production.
  */
 export function resolveClusteringStrategy(
   requestStrategy: Tours.ClusteringStrategyName | undefined,
   envDefault: string | undefined,
 ): ClusteringStrategy {
-  const name = requestStrategy ?? coerceName(envDefault) ?? "louvain";
+  const name = requestStrategy ?? coerceName(envDefault) ?? "hdbscan-star";
   return CLUSTERING_STRATEGIES[name];
 }
 

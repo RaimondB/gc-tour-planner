@@ -109,7 +109,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   timePerCacheMinutes: 5,
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
-  clusteringStrategy: "louvain",
+  clusteringStrategy: "hdbscan-star",
   topNClusters: 5,
   fringeTrimMeters: 500,
   landuseProfileId: undefined,
@@ -123,11 +123,11 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
 const STRATEGY_OPTIONS: ReadonlyArray<
   readonly [ClusteringStrategyName, string]
 > = [
-  ["louvain", "Louvain (default)"],
+  ["hdbscan-star", "HDBSCAN* (default)"],
+  ["louvain", "Louvain (community)"],
   ["leiden", "Leiden (connected)"],
   ["dbscan", "DBSCAN"],
   ["hdbscan", "HDBSCAN (density)"],
-  ["hdbscan-star", "HDBSCAN* (stability)"],
   ["components", "Components (baseline)"],
 ];
 
