@@ -91,9 +91,13 @@ export class PiscinaComputePool implements ComputePool, OnModuleDestroy {
     strategyName: Tours.ClusteringStrategyName,
     preferredLanduseKinds: readonly string[],
   ): Promise<Tours.DiscoverClustersResult> {
+    // Drop the request-scoped projection before crossing the worker boundary:
+    // its methods aren't structure-cloneable (DataCloneError). The worker
+    // rebuilds it from `ctx.input.center`. See planner.worker.ts ClusterTask.
+    const { projection: _projection, ...serializableCtx } = ctx;
     return this.run<Tours.DiscoverClustersResult>({
       kind: "cluster",
-      ctx,
+      ctx: serializableCtx,
       strategyName,
       preferredLanduseKinds: [...preferredLanduseKinds],
     });

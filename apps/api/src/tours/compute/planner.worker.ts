@@ -11,7 +11,7 @@
 // (same dir) resolves it via `new URL('./planner.worker.js', import.meta.url)`,
 // which works in dev (tsc-watch) and in the Docker image (pnpm deploy).
 
-import { Tsp } from "@gctp/shared";
+import { Geo, Tsp } from "@gctp/shared";
 import type { Tours } from "@gctp/shared";
 import type { PreparedContext } from "../strategies/greedy/clustering/context.js";
 import { computeClusters } from "../strategies/greedy/discover-compute.js";
@@ -27,7 +27,13 @@ export interface TspTask {
 /** Run the full pure cluster-discovery pipeline. */
 export interface ClusterTask {
   kind: "cluster";
-  ctx: PreparedContext;
+  /**
+   * The context minus its request-scoped `projection`: that object's methods
+   * can't survive the structured-clone worker boundary (DataCloneError). The
+   * sender strips it; we rebuild it below from `ctx.input.center` — a pure
+   * function of the search centre, so the result is identical.
+   */
+  ctx: Omit<PreparedContext, "projection">;
   strategyName: Tours.ClusteringStrategyName;
   preferredLanduseKinds: string[];
 }
@@ -39,12 +45,21 @@ export default function plannerTask(task: PlannerTask): PlannerResult {
   switch (task.kind) {
     case "tsp":
       return Tsp.solveTwoOpt(task.distances, task.startIndex, task.options);
-    case "cluster":
+    case "cluster": {
+      // Rehydrate the projection the sender stripped (see ClusterTask.ctx).
+      const ctx: PreparedContext = {
+        ...task.ctx,
+        projection: Geo.makeProjection(
+          task.ctx.input.center[0],
+          task.ctx.input.center[1],
+        ),
+      };
       return computeClusters(
-        task.ctx,
+        ctx,
         task.strategyName,
         task.preferredLanduseKinds,
       );
+    }
     default: {
       const exhaustive: never = task;
       throw new Error(`unknown planner task: ${JSON.stringify(exhaustive)}`);
