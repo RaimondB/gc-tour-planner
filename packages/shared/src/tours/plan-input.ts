@@ -75,15 +75,16 @@ export type StartPreference = z.infer<typeof StartPreference>;
 /**
  * Pass-1 cluster-finding algorithm. Selectable per request so the UI can
  * A/B compare the same `PlanInput` across strategies; defaults from the
- * `PLANNER_CLUSTERING` env var (and falls back to `louvain`).
+ * `PLANNER_CLUSTERING` env var (and falls back to `hdbscan-star`).
  *
- *  - `louvain`      — community detection on a sparse walking graph (default).
+ *  - `louvain`      — community detection on a sparse walking graph.
  *  - `leiden`       — Louvain + refinement; guarantees connected communities.
  *  - `dbscan`       — density-based clustering using `maxLinkMeters` as ε.
  *  - `hdbscan`      — robust-single-linkage core + recursive MST bisection
  *                     (NOT full HDBSCAN; kept for A/B against `hdbscan-star`).
- *  - `hdbscan-star` — true HDBSCAN*: condensed-tree stability extraction
- *                     (Excess of Mass) over the mutual-reachability MST.
+ *  - `hdbscan-star` — true HDBSCAN* (Excess-of-Mass stability extraction over
+ *                     the mutual-reachability MST). **Default** — best
+ *                     end-to-end (most caches per routed loop, least fringe).
  *  - `components`   — connected components on the capped walking graph (baseline).
  */
 export const ClusteringStrategyName = z.enum([

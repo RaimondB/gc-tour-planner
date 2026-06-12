@@ -79,7 +79,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
   //
   // See docs/adr/0002. Pipeline:
   //   1. prepareClusteringContext: pool + landuse + sparse walking graph + seeds.
-  //   2. Run the selected ClusteringStrategy (default louvain; configurable
+  //   2. Run the selected ClusteringStrategy (default hdbscan-star; configurable
   //      per-request via PlanInput.clusteringStrategy or globally via
   //      `PLANNER_CLUSTERING` env).
   //   3. refineClusters: shared MST-cut → walking-trim → geo-trim → Jaccard dedup.

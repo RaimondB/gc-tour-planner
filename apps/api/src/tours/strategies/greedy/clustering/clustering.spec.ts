@@ -111,14 +111,14 @@ describe("resolveClusteringStrategy", () => {
       "hdbscan",
     );
   });
-  it("falls back to louvain on unknown env value", () => {
+  it("falls back to hdbscan-star on unknown env value", () => {
     expect(resolveClusteringStrategy(undefined, "garbage").name).toBe(
-      "louvain",
+      "hdbscan-star",
     );
   });
-  it("falls back to louvain when both are undefined", () => {
+  it("falls back to hdbscan-star when both are undefined", () => {
     expect(resolveClusteringStrategy(undefined, undefined).name).toBe(
-      "louvain",
+      "hdbscan-star",
     );
   });
 });
