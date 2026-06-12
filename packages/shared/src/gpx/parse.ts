@@ -298,16 +298,21 @@ function extractDescriptionText(gs: GroundspeakCache): string {
  * Exported for unit testing of the entity-decode ordering invariant.
  */
 export function stripHtml(s: string): string {
-  return s
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    s
+      // `[^<>]` (not `[^>]`) keeps this linear: an unclosed `<<<<…` can't make
+      // one match scan across later `<`s, avoiding O(n²) backtracking (ReDoS) on
+      // untrusted GPX input. Well-formed tags never contain `<`, so it's equivalent.
+      .replace(/<[^<>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&amp;/gi, "&")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**
