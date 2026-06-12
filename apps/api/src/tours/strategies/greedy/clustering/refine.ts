@@ -11,6 +11,22 @@ import type {
 } from "./strategy.js";
 
 /**
+ * Geographic-outlier-trim tuning. The trim drops caches beyond
+ * `min(median × FACTOR, budget × CAP_FRAC)` from the cluster centroid. The
+ * `median × FACTOR` term is what keeps clusters compact (~2× their median
+ * radius) — raising FACTOR lets a cluster extend toward the distance budget and
+ * pack more caches, at the cost of more spread/fringe. Defaults reproduce the
+ * original `min(median × 2, budget / 4)`. A very large FACTOR effectively
+ * disables the relative term, leaving only the absolute budget cap.
+ */
+const GEO_TRIM_FACTOR = Number.parseFloat(
+  process.env.PLANNER_GEO_TRIM_FACTOR ?? "2",
+);
+const GEO_TRIM_CAP_FRAC = Number.parseFloat(
+  process.env.PLANNER_GEO_TRIM_CAP_FRAC ?? "0.25",
+);
+
+/**
  * Shared post-clustering refinement. Order is fixed
  * (walking-trim → geo-trim → mst-cut → jaccard-dedup) — `skip` only
  * short-circuits stages, never reorders. Keeps cross-strategy comparisons fair.
@@ -22,7 +38,10 @@ export function refineClusters(
   raw: readonly RawCluster[],
   ctx: ClusteringContext,
   skip: ReadonlySet<RefinementStage> = new Set(),
+  opts: { geoTrimFactor?: number; geoTrimCapFrac?: number } = {},
 ): number[][] {
+  const geoTrimFactor = opts.geoTrimFactor ?? GEO_TRIM_FACTOR;
+  const geoTrimCapFrac = opts.geoTrimCapFrac ?? GEO_TRIM_CAP_FRAC;
   const poolById = new Map(ctx.pool.map((c) => [c.id, c]));
   const adj = buildAdjacency(ctx.edges);
   const clusterDistanceMeters = (a: number, b: number): number => {
@@ -36,7 +55,7 @@ export function refineClusters(
     );
   };
 
-  const absoluteCapMeters = ctx.input.distanceBudgetMeters / 4;
+  const absoluteCapMeters = ctx.input.distanceBudgetMeters * geoTrimCapFrac;
 
   const keptSets: Set<number>[] = [];
   const output: number[][] = [];
@@ -63,6 +82,7 @@ export function refineClusters(
           ctx.input.minClusterSize,
           absoluteCapMeters,
           ctx.projection,
+          geoTrimFactor,
         );
       }
       if (ids.length < ctx.input.minClusterSize) continue;
@@ -100,7 +120,7 @@ export function projectTrims(
 } {
   const adj = buildAdjacency(ctx.edges);
   const poolById = new Map(ctx.pool.map((c) => [c.id, c]));
-  const absoluteCapMeters = ctx.input.distanceBudgetMeters / 4;
+  const absoluteCapMeters = ctx.input.distanceBudgetMeters * GEO_TRIM_CAP_FRAC;
   const sorted = cacheIds.slice().sort((a, b) => a - b);
 
   const afterWalking = trimWalkingOutliers(sorted, adj);
@@ -114,6 +134,7 @@ export function projectTrims(
     1, // for explain we don't enforce a min — show ALL drops the trim would make
     absoluteCapMeters,
     ctx.projection,
+    GEO_TRIM_FACTOR,
   );
   const geographicOutliersDropped = afterWalking.filter(
     (id) => !afterGeo.includes(id),
@@ -257,6 +278,7 @@ function trimGeographicOutliers(
   minSize: number,
   absoluteCapMeters: number,
   projection: Geo.Projection,
+  factor: number,
 ): number[] {
   let ids = cacheIds.slice();
   let changed = true;
@@ -280,7 +302,7 @@ function trimGeographicOutliers(
     const distances = coords.map((c) => projection.distanceMeters(c, centroid));
     const sorted = distances.slice().sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-    const threshold = Math.min(median * 2, absoluteCapMeters);
+    const threshold = Math.min(median * factor, absoluteCapMeters);
     const kept: number[] = [];
     for (let i = 0; i < ids.length; i += 1) {
       if (distances[i]! <= threshold) kept.push(ids[i]!);

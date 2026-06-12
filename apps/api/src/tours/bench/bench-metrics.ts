@@ -54,6 +54,40 @@ export const median = (xs: readonly number[]): number => {
   return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 };
 
+/** Population standard deviation. */
+export const stdev = (xs: readonly number[]): number => {
+  if (xs.length === 0) return 0;
+  const m = mean(xs);
+  return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
+};
+
+export const minOf = (xs: readonly number[]): number =>
+  xs.length ? Math.min(...xs) : 0;
+
+export const maxOf = (xs: readonly number[]): number =>
+  xs.length ? Math.max(...xs) : 0;
+
+/** Fraction of values satisfying the predicate, as a percentage. */
+export const pctWhere = (
+  xs: readonly number[],
+  pred: (x: number) => boolean,
+): number => (xs.length ? (xs.filter(pred).length / xs.length) * 100 : 0);
+
+/**
+ * Count occurrences of each integer value → `{ value: count }`, ascending by
+ * value. Feeds a histogram / Pareto chart of "how many clusters have N caches".
+ */
+export const histogram = (xs: readonly number[]): Record<number, number> => {
+  const h: Record<number, number> = {};
+  for (const x of xs) {
+    const k = Math.round(x);
+    h[k] = (h[k] ?? 0) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries(h).sort((a, b) => Number(a[0]) - Number(b[0])),
+  );
+};
+
 /** Jaccard similarity of two id sets — used to dedup overlapping clusters. */
 export function jaccard(a: readonly number[], b: readonly number[]): number {
   const sa = new Set(a);
