@@ -17,7 +17,7 @@ import {
   readLoopOptionsFromEnv,
 } from "../greedy/loop-aware-legs.js";
 import {
-  resolveMarginalTrimThreshold,
+  resolveMarginalTrimConfig,
   trimMarginalCaches,
 } from "../greedy/marginal-trim.js";
 import {
@@ -195,8 +195,10 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       row.map((cell) => (cell ? cell.meters : null)),
     );
     // Threshold = user-supplied maxLinkMeters (see greedy-tsp-planner.ts
-    // for the rationale).
+    // for the rationale). In budget-aware mode this is the legacy floor; the
+    // distance budget + outlier factor drive the drops instead.
     const trimThreshold = input.maxLinkMeters;
+    const trimCfg = resolveMarginalTrimConfig();
     // trimMarginalCaches is async (ADR-0014); the solver path uses its
     // synchronous fallback solve (its heavy work is the Timefold sidecar).
     const trim = await trimMarginalCaches({
@@ -210,6 +212,14 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       cacheToParkingM: cacheToParkingMeters,
       thresholdMeters: trimThreshold,
       minRemaining: 2,
+      // Budget-aware: route the full cluster, keep caches while the loop fits
+      // the distance budget, trim only outliers / to fit budget.
+      ...(trimCfg.budgetAware
+        ? {
+            budgetMeters: input.distanceBudgetMeters,
+            outlierThresholdMeters: trimCfg.outlierFactor * trimThreshold,
+          }
+        : {}),
     });
     const orderedIds = trim.orderedIds;
     const droppedCacheIds = trim.droppedIds;

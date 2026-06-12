@@ -14,15 +14,33 @@ import { Tsp } from "@gctp/shared";
  * that detour twice (out + back). Removing such a cache cuts the tour
  * length by a lot while losing only one cache from the visit list.
  *
- * Algorithm:
+ * Two modes:
+ *
+ *   • **Fixed-threshold** (legacy; `budgetMeters` unset). Drop any cache
+ *     whose marginal exceeds `thresholdMeters`, re-2-opt, repeat. Route-blind
+ *     — it cuts a perfectly fine cache the moment its detour crosses the
+ *     threshold even when the loop is nowhere near the distance budget.
+ *
+ *   • **Budget-aware** (`budgetMeters` set). Route the *full* cluster and
+ *     trim only when it earns its keep:
+ *       – loop ≤ budget: drop only genuine outliers — caches whose marginal
+ *         exceeds the high `outlierThresholdMeters` floor (a cache stuck
+ *         behind a single-bridge barrier). Normal caches stay, so the loop
+ *         fills the unused budget instead of being cut to a fixed metre cap.
+ *       – loop > budget: iteratively drop the worst-marginal cache (the one
+ *         whose removal shortens the loop most) and re-2-opt until the loop
+ *         fits the budget.
+ *     The Timefold solver already maximises caches-within-budget upstream;
+ *     this mode keeps the trim from undoing that before the budget is full.
+ *
+ * Common machinery (both modes):
  *   1. Compute the "marginal cost" of every interior cache k:
  *        marginal(k) = d(prev, k) + d(k, next) − d(prev, next)
  *      i.e. how much extra walking it adds vs. the straight prev→next leg.
- *   2. If max marginal > thresholdMeters, drop that cache, run 2-opt on the
- *      reduced set, and repeat.
- *   3. Stop when no interior cache exceeds the threshold OR when only
- *      `minRemaining` caches are left (safety floor — never strip the tour
- *      to nothing).
+ *   2. Pick the worst-marginal cache; if the mode's drop rule fires, remove
+ *      it, run 2-opt on the reduced set, and repeat.
+ *   3. Stop when the drop rule no longer fires OR when only `minRemaining`
+ *      caches are left (safety floor — never strip the tour to nothing).
  *
  * Endpoints (cache 0 and cache N-1) are intentionally NOT considered in
  * the marginal calculation: their cost depends on parking distances which
@@ -58,6 +76,23 @@ export interface MarginalTrimInput {
   thresholdMeters: number;
   /** Never let the surviving tour fall below this many caches. */
   minRemaining: number;
+  /**
+   * Enables **budget-aware** mode (see the module doc). When set, the routed
+   * loop length is compared against this budget: caches are kept while the
+   * loop fits (subject to `outlierThresholdMeters`) and only trimmed to bring
+   * an over-budget loop back under it. The loop length includes the parking
+   * closure when `parkingToCacheM`/`cacheToParkingM` are supplied. Leave
+   * unset for the legacy fixed-threshold behaviour.
+   */
+  budgetMeters?: number;
+  /**
+   * Budget-aware mode only: the marginal-cost above which a cache counts as a
+   * genuine outlier (behind-barrier) and is dropped even when the loop is
+   * already within budget. Should sit well above a normal inter-cache leg —
+   * callers typically pass a multiple of `maxLinkMeters`. Defaults to
+   * `thresholdMeters` when omitted.
+   */
+  outlierThresholdMeters?: number;
   /**
    * Optional safety cap on iterations. Default = `orderedIds.length` — the
    * trim could in principle drop every cache, but we want bounded work.
@@ -111,9 +146,15 @@ export async function trimMarginalCaches(
     ((d, s): Promise<{ order: number[] }> =>
       Promise.resolve(Tsp.solveTwoOpt(d, s)));
 
-  // No-op fast path.
+  const budgetMode =
+    input.budgetMeters !== undefined && Number.isFinite(input.budgetMeters);
+  const outlierThreshold = input.outlierThresholdMeters ?? thresholdMeters;
+
+  // No-op fast path. In budget-aware mode the budget + outlier floor govern
+  // drops, so a `thresholdMeters <= 0` (legacy "disabled") sentinel doesn't
+  // short-circuit it.
   if (
-    thresholdMeters <= 0 ||
+    (!budgetMode && thresholdMeters <= 0) ||
     input.orderedIds.length <= Math.max(2, minRemaining) ||
     input.orderedIds.length < 3
   ) {
@@ -157,6 +198,22 @@ export async function trimMarginalCaches(
       : v;
   };
 
+  // Routed loop length over a cache order: the inter-cache legs plus the
+  // parking closure (parking → first, last → parking) when parking distances
+  // are available. An unroutable leg makes the loop "infinitely long", which
+  // budget mode reads as over-budget and tries to repair by trimming.
+  const loopLength = (order: readonly number[]): number => {
+    let total = 0;
+    for (let i = 0; i < order.length - 1; i += 1) {
+      total += distAt(order[i]!, order[i + 1]!);
+    }
+    if (endpointsEligible && order.length > 0) {
+      total += parkingToCache(order[0]!);
+      total += cacheToParking(order[order.length - 1]!);
+    }
+    return total;
+  };
+
   let surviving = input.orderedIds.slice();
   const droppedIds: number[] = [];
   let savedMeters = 0;
@@ -166,7 +223,11 @@ export async function trimMarginalCaches(
     if (surviving.length < 3) break;
 
     let worstIdx = -1;
-    let worstMarginal = thresholdMeters; // strict-greater wins
+    // Track the global worst (highest) marginal across endpoints + interior.
+    // The drop decision below applies the mode-specific rule; here we just
+    // find the best candidate. Starts at −∞ so the single worst cache always
+    // surfaces (budget mode needs it even below `thresholdMeters`).
+    let worstMarginal = Number.NEGATIVE_INFINITY;
 
     // Endpoint marginals when parking distances are available. The
     // user's pathological case — a cache stuck behind a single-bridge
@@ -231,7 +292,24 @@ export async function trimMarginalCaches(
       }
     }
 
-    if (worstIdx < 0) break; // nothing worth dropping
+    if (worstIdx < 0) break; // no droppable candidate (e.g. all legs unroutable)
+
+    // Mode-specific drop rule.
+    let shouldDrop: boolean;
+    if (budgetMode) {
+      if (loopLength(surviving) > input.budgetMeters!) {
+        // Over budget: drop the worst-marginal cache as long as removing it
+        // actually shortens the loop. If even the worst marginal is ~0 the
+        // loop is irreducibly long — stop rather than spin.
+        shouldDrop = worstMarginal > 0;
+      } else {
+        // Within budget: keep normal caches, only cut genuine outliers.
+        shouldDrop = worstMarginal > outlierThreshold;
+      }
+    } else {
+      shouldDrop = worstMarginal > thresholdMeters;
+    }
+    if (!shouldDrop) break;
 
     droppedIds.push(surviving[worstIdx]!);
     savedMeters += worstMarginal;
@@ -330,4 +408,37 @@ export function resolveMarginalTrimThreshold(
   const median = medianInterCacheDistance(distances);
   const scaled = Math.max(absM, ratio * median);
   return Math.min(hardMaxM, scaled);
+}
+
+export interface MarginalTrimConfig {
+  /**
+   * When `true` (default), callers run the trim in budget-aware mode: route
+   * the full cluster, keep caches while the loop fits the distance budget,
+   * trim only outliers/over-budget. When `false`, fall back to the legacy
+   * fixed-threshold trim (`thresholdMeters = maxLinkMeters`).
+   */
+  budgetAware: boolean;
+  /**
+   * Multiplier on `maxLinkMeters` that sets the genuine-outlier floor in
+   * budget-aware mode: `outlierThresholdMeters = outlierFactor × maxLinkMeters`.
+   * A cache only gets cut while the loop is within budget if its detour
+   * exceeds this — i.e. it's behind a barrier, not merely on the fringe.
+   */
+  outlierFactor: number;
+}
+
+/**
+ * Resolve the budget-aware marginal-trim config from env.
+ *
+ * Env knobs:
+ *   PLANNER_MARGINAL_BUDGET_AWARE    (default "true")
+ *   PLANNER_MARGINAL_OUTLIER_FACTOR  (default 2.0)
+ */
+export function resolveMarginalTrimConfig(): MarginalTrimConfig {
+  const budgetAware =
+    (process.env.PLANNER_MARGINAL_BUDGET_AWARE ?? "true") !== "false";
+  const raw = process.env.PLANNER_MARGINAL_OUTLIER_FACTOR;
+  const parsed = raw === undefined ? NaN : Number.parseFloat(raw);
+  const outlierFactor = Number.isFinite(parsed) && parsed > 0 ? parsed : 2.0;
+  return { budgetAware, outlierFactor };
 }

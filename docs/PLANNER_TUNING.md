@@ -85,23 +85,30 @@ parallel street, no harm done (snaps back).
 Drops caches whose inclusion adds more walking than they're worth.
 Computed as `d(prev, k) + d(k, next) − d(prev, next)` for every position
 in the tour (including the parking endpoints when parking distances are
-available). Anything above the threshold gets removed, the tour is
-re-TSP'd, and the loop repeats until stable.
+available). After each drop the tour is re-TSP'd and the loop repeats
+until stable.
 
 Source: [apps/api/src/tours/strategies/greedy/marginal-trim.ts](../apps/api/src/tours/strategies/greedy/marginal-trim.ts)
 
-The threshold is computed as:
+**Budget-aware mode is the default.** Rather than cutting every cache whose
+detour crosses a fixed metre threshold — which left routed loops ~2 km
+short of the distance budget — the trim now routes the _full_ cluster and
+only removes a cache when it earns its keep:
 
-```
-threshold = min(hardMaxM, max(absoluteFloorM, ratio × medianWalking))
-```
+- **loop ≤ `distanceBudgetMeters`:** keep normal caches (fill the budget);
+  drop only genuine outliers whose marginal exceeds the outlier floor
+  `outlierFactor × maxLinkMeters` — a cache stuck behind a single-bridge
+  barrier, not merely on the fringe.
+- **loop > budget:** iteratively drop the worst-marginal cache (the one
+  whose removal shortens the loop most) and re-2-opt until the loop fits.
 
-| Env                                | Default | What it does                                                                                                                                                                                                                                                                                                           |
-| ---------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLANNER_MARGINAL_DROP_ENABLED`    | `true`  | Set to `false` to skip the trim entirely.                                                                                                                                                                                                                                                                              |
-| `PLANNER_MARGINAL_DROP_RATIO`      | `2.0`   | Multiplier on the cluster's own median walking distance. Higher = more permissive (only catch wildly-bad caches); lower = aggressive.                                                                                                                                                                                  |
-| `PLANNER_MARGINAL_DROP_ABS_M`      | `500`   | Absolute floor on the threshold. Even on tiny dense clusters, a cache has to add at least this much extra walking to be considered marginal.                                                                                                                                                                           |
-| `PLANNER_MARGINAL_DROP_HARD_MAX_M` | `3000`  | **Hard ceiling on the threshold**. Without it, "poisoned" clusters where most pairs already cross a barrier (a river archipelago, say) end up with a 20 km+ median and the trim becomes a no-op. With the cap in place, any cache adding > 3 km is always trimmed regardless of how distorted the cluster's median is. |
+The legacy fixed-threshold cutter (`thresholdMeters = maxLinkMeters`) is
+kept behind `PLANNER_MARGINAL_BUDGET_AWARE=false`.
+
+| Env                              | Default | What it does                                                                                                                                                                                  |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLANNER_MARGINAL_BUDGET_AWARE`  | `true`  | Budget-aware trim (above). Set to `false` to fall back to the legacy fixed-threshold trim: drop any cache whose marginal exceeds `maxLinkMeters`, regardless of how far the loop is from full. |
+| `PLANNER_MARGINAL_OUTLIER_FACTOR` | `2.0`   | Outlier floor as a multiple of `maxLinkMeters` (default ⇒ 3 km at the 1.5 km link cap). In budget-aware mode, a within-budget loop only loses caches whose detour exceeds this. Raise to keep more borderline caches; lower to prune fringe more aggressively. |
 
 Dropped caches surface in the `PlanResult.droppedCacheIds` field and
 get a gray-x marker on the map so the user can see they were trimmed
@@ -180,9 +187,9 @@ request crunches; only serializable pure functions cross the boundary (all OSRM
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Route walks the same street twice through a dense village                    | Loop-aware picker found no useful OSRM alts; nudge didn't land on a parallel road | Raise `PLANNER_LOOP_NUDGE_FRACTIONS` to `0.33,0.5,0.67`; add more offsets like `60,120,200`                                   |
 | Loop is "fine" but the planner keeps the primary on heavily-overlapping legs | Alpha too low, or detour cap too tight                                            | Raise `PLANNER_LOOP_ALPHA` to `2.0`; or raise `PLANNER_LOOP_MAX_DETOUR` to `0.75`                                             |
-| One outlier cache forces a 2 km+ detour                                      | Marginal trim didn't fire                                                         | Lower `PLANNER_MARGINAL_DROP_RATIO` to `1.5`; or lower `PLANNER_MARGINAL_DROP_ABS_M` to `300`                                 |
-| Multiple caches behind the same barrier all stayed                           | Trim threshold inflated by the cluster's own median                               | `PLANNER_MARGINAL_DROP_HARD_MAX_M` is already at 3 km — for an extreme case (river archipelago) lower it further, e.g. `2000` |
-| Tour over `distanceBudgetMeters` after routing                               | Pass 2 didn't trim to fit budget (not yet implemented as auto policy)             | Either pick a smaller cluster, raise the budget, or lower the marginal-drop threshold so more caches get trimmed              |
+| One outlier cache forces a 2 km+ detour (loop within budget)                 | Outlier floor too high to catch it                                                | Lower `PLANNER_MARGINAL_OUTLIER_FACTOR` (e.g. `1.5`) so within-budget outliers get pruned sooner                             |
+| Loop ends ~2 km short of `distanceBudgetMeters` with caches left on the map  | Marginal trim cut caches before the budget filled                                 | Confirm `PLANNER_MARGINAL_BUDGET_AWARE=true` (default); raise `PLANNER_MARGINAL_OUTLIER_FACTOR` to keep more borderline caches |
+| Tour over `distanceBudgetMeters` after routing                               | Cluster's irreducible loop exceeds the budget                                     | The budget-aware trim already drops worst-marginal caches to fit; if it can't (all detours near zero), pick a smaller cluster or raise the budget |
 | Loops disabled / want pure shortest tour                                     | —                                                                                 | Set `PLANNER_LOOP_ALPHA=0` and `PLANNER_LOOP_NUDGE_THRESHOLD=1`                                                               |
 | Want to verify trim is firing                                                | —                                                                                 | Watch the api logs for `marginal trim: dropped N cache(s)`                                                                    |
 | Want to verify loop-aware picker is firing                                   | —                                                                                 | Watch for `leg N: got M alt(s); picked alt #...` lines                                                                        |
