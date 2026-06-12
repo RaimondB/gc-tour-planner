@@ -124,6 +124,20 @@ describe("buildWalkingGraph — k-NN symmetry", () => {
     );
   });
 
+  it("mutual with min-degree floor 2 tops node 4 back up to its two nearest", async () => {
+    const edges = await buildWalkingGraph(
+      { ...baseInput("mutual"), mutualFloor: 2 },
+      makeDeps(),
+    );
+    // Floor 2 restores node 4's second-nearest edge that floor 1 left out.
+    expect(has(edges, 3, 4)).toBe(true);
+    expect(has(edges, 2, 4)).toBe(true);
+    const node4Degree = edges.filter(
+      (e) => e.fromCacheId === 4 || e.toCacheId === 4,
+    ).length;
+    expect(node4Degree).toBe(2);
+  });
+
   it("mutual yields a strict subset of OR's edges (plus floor edges)", async () => {
     const orEdges = await buildWalkingGraph(baseInput("or"), makeDeps());
     const mutualEdges = await buildWalkingGraph(

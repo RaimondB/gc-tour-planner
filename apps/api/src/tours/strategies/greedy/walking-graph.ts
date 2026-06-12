@@ -92,6 +92,13 @@ export interface BuildWalkingGraphInput {
    *    a recall cost in sparse areas.
    */
   symmetry?: "or" | "mutual";
+  /**
+   * Min-degree floor for `"mutual"` symmetry (default 1). Each node is topped up
+   * to this many edges from its own nearest k-NN. 1 = never orphan; 2 recovers
+   * coverage (each node keeps its two nearest) at a small tightness cost.
+   * Ignored for `"or"`.
+   */
+  mutualFloor?: number;
 }
 
 /**
@@ -467,27 +474,35 @@ export async function buildWalkingGraph(
       }
     }
 
-    // Min-degree floor: a node that mutual-filtering left with no edge keeps
-    // its single nearest neighbour, so sparse/rural caches aren't orphaned.
+    // Min-degree floor: top each node up to `floor` edges from its own nearest
+    // k-NN, so mutual-filtering never orphans (floor≥1) a node or leaves it
+    // barely-connected (floor≥2 recovers coverage at a small tightness cost).
+    // Process nodes in id order with running degree for determinism.
+    const floor = Math.max(1, input.mutualFloor ?? 1);
     const degree = new Map<number, number>();
     for (const e of edges.values()) {
       degree.set(e.fromCacheId, (degree.get(e.fromCacheId) ?? 0) + 1);
       degree.set(e.toCacheId, (degree.get(e.toCacheId) ?? 0) + 1);
     }
     let floorEdges = 0;
-    for (const [originId, kn] of kNN) {
-      if ((degree.get(originId) ?? 0) > 0 || kn.length === 0) continue;
-      const best = kn[0]!; // kNN is sorted by walking distance ascending
-      const before = edges.size;
-      admit(originId, best.to, best.meters, best.seconds);
-      if (edges.size > before) {
+    const nodesInOrder = [...kNN.keys()].sort((a, b) => a - b);
+    for (const originId of nodesInOrder) {
+      const kn = kNN.get(originId)!; // sorted by walking distance ascending
+      for (
+        let i = 0;
+        i < kn.length && (degree.get(originId) ?? 0) < floor;
+        i++
+      ) {
+        const cand = kn[i]!;
+        if (edges.has(orderedKey(originId, cand.to))) continue; // already linked
+        admit(originId, cand.to, cand.meters, cand.seconds);
         floorEdges += 1;
-        degree.set(originId, 1);
-        degree.set(best.to, (degree.get(best.to) ?? 0) + 1);
+        degree.set(originId, (degree.get(originId) ?? 0) + 1);
+        degree.set(cand.to, (degree.get(cand.to) ?? 0) + 1);
       }
     }
     logger.debug(
-      `walking-graph: mutual symmetry — ${mutualEdges} reciprocal edges + ${floorEdges} min-degree-floor edges`,
+      `walking-graph: mutual symmetry (floor=${floor}) — ${mutualEdges} reciprocal edges + ${floorEdges} floor edges`,
     );
   } else {
     // OR (legacy): an edge enters if its forward direction is in some origin's
