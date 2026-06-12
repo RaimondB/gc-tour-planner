@@ -171,6 +171,7 @@ function emptyResponse(
     },
     perStrategy: {
       louvain: emptyOutcome(),
+      leiden: emptyOutcome(),
       dbscan: emptyOutcome(),
       hdbscan: emptyOutcome(),
       "hdbscan-star": emptyOutcome(),
@@ -409,6 +410,7 @@ function runStrategiesOnSelection(
   const selectionSet = new Set(selectionIds);
   const result: Tours.ExplainClusterResponse["perStrategy"] = {
     louvain: emptyOutcome(),
+    leiden: emptyOutcome(),
     dbscan: emptyOutcome(),
     hdbscan: emptyOutcome(),
     "hdbscan-star": emptyOutcome(),

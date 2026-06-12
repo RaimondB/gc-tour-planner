@@ -78,6 +78,7 @@ export type StartPreference = z.infer<typeof StartPreference>;
  * `PLANNER_CLUSTERING` env var (and falls back to `louvain`).
  *
  *  - `louvain`      — community detection on a sparse walking graph (default).
+ *  - `leiden`       — Louvain + refinement; guarantees connected communities.
  *  - `dbscan`       — density-based clustering using `maxLinkMeters` as ε.
  *  - `hdbscan`      — robust-single-linkage core + recursive MST bisection
  *                     (NOT full HDBSCAN; kept for A/B against `hdbscan-star`).
@@ -87,6 +88,7 @@ export type StartPreference = z.infer<typeof StartPreference>;
  */
 export const ClusteringStrategyName = z.enum([
   "louvain",
+  "leiden",
   "dbscan",
   "hdbscan",
   "hdbscan-star",

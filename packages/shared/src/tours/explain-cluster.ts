@@ -112,6 +112,7 @@ export const ExplainClusterResponse = z.object({
   }),
   perStrategy: z.object({
     louvain: StrategyOutcome,
+    leiden: StrategyOutcome,
     dbscan: StrategyOutcome,
     hdbscan: StrategyOutcome,
     "hdbscan-star": StrategyOutcome,

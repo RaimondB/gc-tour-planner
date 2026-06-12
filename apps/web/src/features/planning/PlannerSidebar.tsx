@@ -124,6 +124,7 @@ const STRATEGY_OPTIONS: ReadonlyArray<
   readonly [ClusteringStrategyName, string]
 > = [
   ["louvain", "Louvain (default)"],
+  ["leiden", "Leiden (connected)"],
   ["dbscan", "DBSCAN"],
   ["hdbscan", "HDBSCAN (density)"],
   ["hdbscan-star", "HDBSCAN* (stability)"],

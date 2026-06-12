@@ -11,6 +11,7 @@ import { componentsStrategy } from "./components.js";
 import { dbscanStrategy } from "./dbscan.js";
 import { hdbscanStarStrategy } from "./hdbscan-star.js";
 import { hdbscanStrategy } from "./hdbscan.js";
+import { leidenStrategy } from "./leiden.js";
 import { louvainStrategy } from "./louvain.js";
 import type { ClusteringStrategy } from "./strategy.js";
 
@@ -19,6 +20,7 @@ export const CLUSTERING_STRATEGIES: Readonly<
   Record<Tours.ClusteringStrategyName, ClusteringStrategy>
 > = {
   louvain: louvainStrategy,
+  leiden: leidenStrategy,
   dbscan: dbscanStrategy,
   hdbscan: hdbscanStrategy,
   "hdbscan-star": hdbscanStarStrategy,
