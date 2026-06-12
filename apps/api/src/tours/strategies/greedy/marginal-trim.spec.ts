@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   medianInterCacheDistance,
+  resolveMarginalTrimConfig,
   resolveMarginalTrimThreshold,
   trimMarginalCaches,
 } from "./marginal-trim.js";
@@ -150,6 +151,94 @@ describe("trimMarginalCaches", () => {
     expect(out.orderedIds.length).toBeGreaterThanOrEqual(3);
   });
 
+  describe("budget-aware mode", () => {
+    // Cache 12 is a sharp interior detour: marginal = 2000 + 2000 − 100 =
+    // 3900 m. The whole loop [10,11,12,13] is 100 + 2000 + 2000 = 4100 m.
+    const ids = [10, 11, 12, 13];
+    const d = [
+      [0, 100, 100, 100],
+      [100, 0, 2000, 100],
+      [100, 2000, 0, 2000],
+      [100, 100, 2000, 0],
+    ];
+
+    it("keeps a high-marginal cache while the loop fits the budget", async () => {
+      // Legacy mode would cut cache 12 (marginal 3900 > threshold 500). With
+      // a 10 km budget and a 4 km outlier floor, the loop (4.1 km) fits and
+      // 12's detour (3.9 km) is under the floor → keep it, fill the budget.
+      const out = await trimMarginalCaches({
+        orderedIds: ids,
+        originalIds: ids,
+        distances: d,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 10_000,
+        outlierThresholdMeters: 4000,
+      });
+      expect(out.droppedIds).toEqual([]);
+      expect(out.orderedIds).toEqual(ids);
+    });
+
+    it("trims the worst-marginal cache to bring an over-budget loop in", async () => {
+      // Same caches, but a 3 km budget < the 4.1 km loop → drop the worst
+      // detour (cache 12) until the loop fits, even though no outlier floor
+      // would have flagged it.
+      const out = await trimMarginalCaches({
+        orderedIds: ids,
+        originalIds: ids,
+        distances: d,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 3000,
+        outlierThresholdMeters: 4000,
+      });
+      expect(out.droppedIds).toContain(12);
+      expect(out.orderedIds).not.toContain(12);
+    });
+
+    it("drops a genuine outlier even when the loop is within budget", async () => {
+      // Loop fits the 10 km budget, but cache 12's 3.9 km detour exceeds the
+      // 1 km outlier floor → it's behind-a-barrier, drop it.
+      const out = await trimMarginalCaches({
+        orderedIds: ids,
+        originalIds: ids,
+        distances: d,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 10_000,
+        outlierThresholdMeters: 1000,
+      });
+      expect(out.droppedIds).toContain(12);
+    });
+
+    it("counts the parking closure in the loop length", async () => {
+      // Without parking the loop [10,11,13] path is only 200 m, but a 1.2 km
+      // walk out to / back from parking pushes the closed loop to 2.6 km.
+      // A 2 km budget then forces a trim that the open-path length wouldn't.
+      const linear = [10, 11, 13];
+      const dl = [
+        [0, 100, 100],
+        [100, 0, 100],
+        [100, 100, 0],
+      ];
+      const parking = [1200, 1200, 1200];
+      const out = await trimMarginalCaches({
+        orderedIds: linear,
+        originalIds: linear,
+        distances: dl,
+        parkingToCacheM: parking,
+        cacheToParkingM: parking,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 2000,
+        outlierThresholdMeters: 9999,
+      });
+      // Loop = 100 + 100 + parking(1200 in) + parking(1200 out) = 2600 > 2000,
+      // so at least one cache must be dropped to fit.
+      expect(out.droppedIds.length).toBeGreaterThan(0);
+    });
+  });
+
   it("returns input unchanged when thresholdMeters is 0 (disabled)", async () => {
     const ids = [10, 11, 12];
     const d = [
@@ -236,5 +325,40 @@ describe("resolveMarginalTrimThreshold", () => {
     ];
     // ratio (2.0) × median (10000) = 20000, well under the raised cap.
     expect(resolveMarginalTrimThreshold(d)).toBe(20000);
+  });
+});
+
+describe("resolveMarginalTrimConfig", () => {
+  const originalEnv = { ...process.env };
+  beforeEach(() => {
+    delete process.env.PLANNER_MARGINAL_BUDGET_AWARE;
+    delete process.env.PLANNER_MARGINAL_OUTLIER_FACTOR;
+  });
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("defaults to budget-aware with a 2.0 outlier factor", () => {
+    expect(resolveMarginalTrimConfig()).toEqual({
+      budgetAware: true,
+      outlierFactor: 2.0,
+    });
+  });
+
+  it("disables budget-aware mode when set to false", () => {
+    process.env.PLANNER_MARGINAL_BUDGET_AWARE = "false";
+    expect(resolveMarginalTrimConfig().budgetAware).toBe(false);
+  });
+
+  it("honours a custom outlier factor", () => {
+    process.env.PLANNER_MARGINAL_OUTLIER_FACTOR = "3.5";
+    expect(resolveMarginalTrimConfig().outlierFactor).toBe(3.5);
+  });
+
+  it("falls back to 2.0 for a non-positive or invalid factor", () => {
+    process.env.PLANNER_MARGINAL_OUTLIER_FACTOR = "0";
+    expect(resolveMarginalTrimConfig().outlierFactor).toBe(2.0);
+    process.env.PLANNER_MARGINAL_OUTLIER_FACTOR = "nope";
+    expect(resolveMarginalTrimConfig().outlierFactor).toBe(2.0);
   });
 });

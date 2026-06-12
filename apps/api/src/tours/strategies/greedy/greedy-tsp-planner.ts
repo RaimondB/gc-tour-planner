@@ -35,7 +35,7 @@ import {
   readLoopOptionsFromEnv,
 } from "./loop-aware-legs.js";
 import {
-  resolveMarginalTrimThreshold,
+  resolveMarginalTrimConfig,
   trimMarginalCaches,
 } from "./marginal-trim.js";
 
@@ -270,11 +270,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // Threshold is the user-supplied `maxLinkMeters` (the same knob that
     // bounds Pass 1 cluster linking): if visiting a cache adds more than
     // that much walking over the skip distance, it's effectively not
-    // "on" the route anymore. The legacy env-based threshold
-    // (resolveMarginalTrimThreshold) is still imported for backward
-    // compat but not used here; that formula was median-derived and
-    // ignored the user's per-plan tolerance.
+    // "on" the route anymore. In budget-aware mode (default) it's the legacy
+    // floor; the distance budget + outlier factor drive the actual drops.
     const trimThreshold = input.maxLinkMeters;
+    const trimCfg = resolveMarginalTrimConfig();
     const trim = await trimMarginalCaches({
       orderedIds: initialOrderedIds,
       originalIds: connectedIds,
@@ -283,6 +282,14 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       cacheToParkingM,
       thresholdMeters: trimThreshold,
       minRemaining: 2,
+      // Budget-aware: route the full cluster, keep caches while the loop fits
+      // the distance budget, trim only outliers / to fit budget.
+      ...(trimCfg.budgetAware
+        ? {
+            budgetMeters: input.distanceBudgetMeters,
+            outlierThresholdMeters: trimCfg.outlierFactor * trimThreshold,
+          }
+        : {}),
       // Re-order survivors on the worker pool, not the event loop.
       solve: (d, s) => this.computePool.solveTwoOpt(d, s),
     });
