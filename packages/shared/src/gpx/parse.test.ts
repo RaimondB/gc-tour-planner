@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseGpx } from "./parse.js";
+import { parseGpx, stripHtml } from "./parse.js";
 
 const fixturePath = fileURLToPath(
   new URL("../../test/fixtures/sample-pq.gpx", import.meta.url),
@@ -205,5 +205,22 @@ describe("parseGpx", () => {
         </wpt>
       </gpx>`;
     expect(parseGpx(named).isMyFinds).toBe(false);
+  });
+});
+
+describe("stripHtml", () => {
+  it("strips tags and decodes the common entities", () => {
+    expect(stripHtml("<p>Bring a <b>rod</b> &amp; net</p>")).toBe(
+      "Bring a rod & net",
+    );
+    expect(stripHtml("a&nbsp;b&quot;c&#39;d&apos;e")).toBe(`a b"c'd'e`);
+  });
+
+  it("decodes &amp; last so it does not double-unescape (regression)", () => {
+    // Literal text the author meant to show: `&lt;` and `&gt;`. A naive
+    // decoder that resolves &amp; first would re-read the result as `<`/`>`.
+    expect(stripHtml("&amp;lt;")).toBe("&lt;");
+    expect(stripHtml("&amp;gt;")).toBe("&gt;");
+    expect(stripHtml("Fish &amp; Chips")).toBe("Fish & Chips");
   });
 });
