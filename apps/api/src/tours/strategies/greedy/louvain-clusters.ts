@@ -13,6 +13,7 @@ const louvain = louvainModule as unknown as (
   g: UndirectedGraph,
   options: { resolution: number; rng: () => number },
 ) => Record<string, number>;
+import { leidenCommunities } from "./clustering/leiden-detect.js";
 import type { SeedSubgraph } from "./seeds.js";
 import type { WalkingEdge } from "./walking-graph.js";
 
@@ -45,19 +46,26 @@ export interface ClusterCandidate {
 }
 
 /**
- * Run Louvain on every seed subgraph across the resolution sweep, dedup the
- * resulting communities by Jaccard, and return a flat list of candidate
- * clusters. The orchestrator scores + sorts + applies the MST-cut safety net.
+ * Run the community-detection sweep on every seed subgraph, dedup the resulting
+ * communities by Jaccard, and return a flat list of candidate clusters. The
+ * orchestrator scores + sorts + applies the MST-cut safety net.
+ *
+ * `algorithm` selects the detector — `louvain` (default) or `leiden` (Leiden's
+ * refinement guarantees connected communities). Both run on the same weighted
+ * graph, resolution sweep, seed, and dedup, so they're directly comparable.
  */
 export function discoverClustersInSubgraphs(
   subgraphs: readonly SeedSubgraph[],
   options: {
     /** σ in `w(i,j) = exp(-d_ij / σ)`. Use `distanceBudgetMeters / 4`. */
     sigmaMeters: number;
+    algorithm?: "louvain" | "leiden";
   },
 ): ClusterCandidate[] {
   const logger = new Logger(discoverClustersInSubgraphs.name);
   const all: ClusterCandidate[] = [];
+  const algorithm = options.algorithm ?? "louvain";
+  const detect = algorithm === "leiden" ? leidenCommunities : louvain;
 
   for (const sub of subgraphs) {
     if (sub.cacheIds.length < 2 || sub.edges.length === 0) continue;
@@ -65,7 +73,7 @@ export function discoverClustersInSubgraphs(
 
     for (const resolution of RESOLUTION_SWEEP) {
       const rng = mulberry32(LOUVAIN_SEED ^ Math.floor(resolution * 1000));
-      const mapping = louvain(g, { resolution, rng });
+      const mapping = detect(g, { resolution, rng });
 
       // Bucket nodes into communities by their assigned community id.
       const communities = new Map<number, number[]>();
@@ -115,7 +123,7 @@ export function discoverClustersInSubgraphs(
   }
 
   logger.debug(
-    `louvain: ${subgraphs.length} subgraphs × ${RESOLUTION_SWEEP.length} resolutions → ${all.length} raw → ${deduped.length} after Jaccard dedup`,
+    `${algorithm}: ${subgraphs.length} subgraphs × ${RESOLUTION_SWEEP.length} resolutions → ${all.length} raw → ${deduped.length} after Jaccard dedup`,
   );
   return deduped;
 }
