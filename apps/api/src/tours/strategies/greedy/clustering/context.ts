@@ -34,6 +34,16 @@ const KNN_TARGET = Number.parseInt(process.env.PLANNER_KNN_K ?? "12", 10);
 const KNN_SYMMETRY: "or" | "mutual" =
   process.env.PLANNER_KNN_SYMMETRY === "mutual" ? "mutual" : "or";
 
+/**
+ * Min-degree floor for mutual symmetry (default 1 = never orphan). 2 tops each
+ * node up to its two nearest edges, trading a little tightness back for cluster
+ * coverage. Ignored when `KNN_SYMMETRY` is `or`.
+ */
+const KNN_MUTUAL_FLOOR = Number.parseInt(
+  process.env.PLANNER_KNN_MUTUAL_FLOOR ?? "1",
+  10,
+);
+
 export interface PreparedContext extends ClusteringContext {
   /** Bytes returned alongside diagnostics — not used by strategies. */
   landuseKindsByCacheId: ReadonlyMap<number, readonly string[]>;
@@ -128,6 +138,7 @@ export async function prepareClusteringContext(
       osrmVersion: deps.osrmVersion.getVersion(),
       poolOnly: grow,
       symmetry: KNN_SYMMETRY,
+      mutualFloor: KNN_MUTUAL_FLOOR,
     },
     { caches: deps.cachesRepo, routing: deps.routingRepo, osrm: deps.osrm },
   );
