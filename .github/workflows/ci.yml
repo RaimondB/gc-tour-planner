@@ -12,6 +12,11 @@ on:
   # branch — e.g. before cutting a UAT version from a feature branch.
   workflow_dispatch:
 
+# Least privilege: every job only checks out and runs checks — none write to the
+# repo, comment, or publish. Restrict the default GITHUB_TOKEN accordingly.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
