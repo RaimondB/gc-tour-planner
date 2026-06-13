@@ -32,6 +32,9 @@ import {
 } from "./strategies/solver/solver-client.js";
 import { ToursController } from "./tours.controller.js";
 import { ToursService } from "./tours.service.js";
+import { SavedToursController } from "./saved-tours.controller.js";
+import { SavedToursService } from "./saved-tours.service.js";
+import { SavedToursRepository } from "./saved-tours.repository.js";
 
 /**
  * Strategy factory.
@@ -111,9 +114,11 @@ const tourPlannerProvider: Provider = {
 
 @Module({
   imports: [CachesModule, RoutingModule, OsmModule, LanduseProfilesModule],
-  controllers: [ToursController],
+  controllers: [ToursController, SavedToursController],
   providers: [
     ToursService,
+    SavedToursService,
+    SavedToursRepository,
     { provide: SOLVER_CLIENT, useClass: HttpSolverClient },
     { provide: COMPUTE_POOL, useClass: PiscinaComputePool },
     tourPlannerProvider,

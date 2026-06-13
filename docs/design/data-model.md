@@ -160,9 +160,9 @@ CREATE TABLE route_legs (
   PRIMARY KEY (from_cache_id, to_cache_id, profile)
 );
 
--- DESIGNED but NOT YET MIGRATED. M6-γ ships this in a new migration
--- (~1779690000000_tours.sql) with the `plan JSONB` column added below, so a
--- saved tour re-renders without re-planning (FR-P1). See
+-- MIGRATED in M6-γ (packages/db/migrations/1779730000000_tours.sql) with the
+-- `plan JSONB` column added below holding StoredPlan (PlanResult + cache
+-- snapshot), so a saved tour re-renders without re-planning (FR-P1). See
 -- design/auth-and-sharing.md §8. The UNIQUE on share_slug provides the
 -- slug-lookup index; tours_owner_idx backs the per-user list.
 CREATE TABLE tours (

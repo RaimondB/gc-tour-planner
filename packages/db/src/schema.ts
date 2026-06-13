@@ -383,6 +383,35 @@ export interface LanduseProfilesTable {
   created_at: Date;
 }
 
+/**
+ * Saved tours (M6-γ, FR-P1/FR-P2). Typed columns back listing/sorting and
+ * spatial queries; `plan` JSONB holds the full PlanResult + a denormalised
+ * cache snapshot (StoredPlan in @gctp/shared) so a saved tour re-renders
+ * without re-planning. `share_slug` stays NULL until M6-δ mints one.
+ *
+ * Schema declared in packages/db/migrations/1779730000000_tours.sql.
+ */
+export interface ToursTable {
+  id: Generated<string>;
+  owner_id: string;
+  name: string;
+  start_point: Geography;
+  parking_point: Geography | null;
+  /** BIGINT[] — node-pg reads/writes bigint[] as string[]. */
+  cache_ids: string[];
+  /** NUMERIC — node-pg reads as string; accepts number | string on write. */
+  total_meters: ColumnType<string, string | number, string | number>;
+  total_seconds: ColumnType<string, string | number, string | number>;
+  geom: Geography;
+  /** PlanResult.scoreBreakdown (Record<string, number>). */
+  score_breakdown: JSONColumnType<Record<string, number>>;
+  /** Full StoredPlan (PlanResult + cache snapshot). Validated app-side. */
+  plan: JSONColumnType<Record<string, unknown>>;
+  /** NULL until shared (M6-δ). UNIQUE provides the slug-lookup index. */
+  share_slug: ColumnType<string | null, string | null, string | null>;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   users: UsersTable;
   caches: CachesTable;
@@ -396,6 +425,7 @@ export interface Database {
   landuse_import_meta: LanduseImportMetaTable;
   landuse_profiles: LanduseProfilesTable;
   route_legs: RouteLegsTable;
+  tours: ToursTable;
   cache_landuse: CacheLanduseTable;
   cache_precompute_state: CachePrecomputeStateTable;
   v_cache_precompute_state: CachePrecomputeStateView;
