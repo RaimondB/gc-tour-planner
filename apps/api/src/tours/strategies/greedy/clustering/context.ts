@@ -10,7 +10,11 @@ import type { OsrmClient } from "../../../../routing/osrm.client.js";
 import type { OsrmVersionService } from "../../../../routing/osrm-version.service.js";
 import type { RoutingRepository } from "../../../../routing/routing.repository.js";
 import { extractSeedSubgraphs, selectSeeds } from "../seeds.js";
-import { buildWalkingGraph, type WalkingEdge } from "../walking-graph.js";
+import {
+  buildWalkingGraph,
+  type WalkingEdge,
+  type WalkingGraphStats,
+} from "../walking-graph.js";
 import { selectGrowthPool } from "./growth-pool.js";
 import type { ClusteringContext } from "./strategy.js";
 
@@ -50,6 +54,32 @@ export interface PreparedContext extends ClusteringContext {
 }
 
 /**
+ * Optional phase-timing breakdown for the Pass-1 context build. Pass an empty
+ * object as `prepareClusteringContext`'s 4th arg and it is mutated in place with
+ * per-phase wall-clock (ms), the candidate/pool sizes, and the nested
+ * walking-graph stats. Lets a bench attribute discovery latency without timing
+ * logs in the production path. Zero-overhead when omitted. See the
+ * discovery-timing bench + the perf handoff: the OSRM `/table` fan-out inside
+ * `walking.osrmFetchMs` dominates a cold/dense pool.
+ */
+export interface ContextStats {
+  /** Candidates returned by `caches.list` before the MAX_DISCOVERY_POOL cap. */
+  candidateCount: number;
+  /** Pool size after the proximity cap (== number of walking-graph origins). */
+  poolSize: number;
+  /** `caches.list` DB pull of the candidate pool. */
+  listMs: number;
+  /** Landuse populate + kinds lookup over the pool bbox. */
+  landuseMs: number;
+  /** `buildWalkingGraph` total (sum of `walking.*` phase fields). */
+  walkingGraphMs: number;
+  /** Seed selection + subgraph extraction (cheap). */
+  seedsMs: number;
+  /** Nested walking-graph phase breakdown. */
+  walking: Partial<WalkingGraphStats>;
+}
+
+/**
  * Build the candidate-pool + walking-graph + seed-subgraph context that every
  * clustering strategy consumes. Pure Pass-1 prelude — no scoring, no trim.
  * Extracted from `GreedyTspPlanner.discoverClusters` so the explain endpoint
@@ -67,7 +97,11 @@ export async function prepareClusteringContext(
     osrmVersion: OsrmVersionService;
     logger: Logger;
   },
+  // Optional phase-timing sink; mutated in place when provided (zero-overhead
+  // otherwise). See ContextStats / the discovery-timing bench.
+  stats?: Partial<ContextStats>,
 ): Promise<PreparedContext | null> {
+  const clock = () => performance.now();
   // Boundary-spanning clusters (ADR-0026): when enabled, fetch caches out to
   // `radiusM + distanceBudgetMeters/2` — the farthest a cache can sit and still
   // join a budget-valid loop anchored on an in-radius seed — so a cluster that
@@ -78,6 +112,7 @@ export async function prepareClusteringContext(
   const grow = readClusterGrow();
   const growthMarginM = grow ? Math.floor(input.distanceBudgetMeters / 2) : 0;
 
+  const tList = clock();
   const { caches } = await deps.caches.list(ownerId, {
     center: input.center,
     radiusM: input.radiusM + growthMarginM,
@@ -93,6 +128,10 @@ export async function prepareClusteringContext(
     // pool-vs-map divergence.
     excludeFound: true,
   });
+  if (stats) {
+    stats.listMs = clock() - tList;
+    stats.candidateCount = caches.length;
+  }
   if (caches.length < 2) return null;
 
   // Cap by proximity to the centre so the in-radius seed set + the nearest halo
@@ -115,6 +154,9 @@ export async function prepareClusteringContext(
     lat: c.location.coordinates[1]!,
   }));
 
+  if (stats) stats.poolSize = pool.length;
+
+  const tLanduse = clock();
   const bbox = bboxOf(coordinated);
   await deps.cacheLanduse
     .populateForBbox(bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat)
@@ -126,7 +168,12 @@ export async function prepareClusteringContext(
   const landuseKindsByCacheId = await deps.cacheLanduse.kindsByCacheId(
     pool.map((c) => c.id),
   );
+  if (stats) stats.landuseMs = clock() - tLanduse;
 
+  const walkingStats: Partial<WalkingGraphStats> | undefined = stats
+    ? {}
+    : undefined;
+  const tGraph = clock();
   const edges: WalkingEdge[] = await buildWalkingGraph(
     {
       ownerId,
@@ -141,11 +188,18 @@ export async function prepareClusteringContext(
       mutualFloor: KNN_MUTUAL_FLOOR,
     },
     { caches: deps.cachesRepo, routing: deps.routingRepo, osrm: deps.osrm },
+    undefined,
+    walkingStats,
   );
+  if (stats) {
+    stats.walkingGraphMs = clock() - tGraph;
+    stats.walking = walkingStats;
+  }
 
   // Seeds come from the in-radius subset only, so clusters originate inside the
   // search circle even when the pool extends past it. With grow off the pool is
   // entirely in-radius, so this is a no-op.
+  const tSeeds = clock();
   const seedIds = selectSeeds(
     coordinated.filter((c) => inRadiusIds.has(c.id)),
     edges,
@@ -155,6 +209,7 @@ export async function prepareClusteringContext(
     edges,
     input.distanceBudgetMeters,
   );
+  if (stats) stats.seedsMs = clock() - tSeeds;
 
   return {
     pool,
