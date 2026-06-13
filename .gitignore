@@ -35,10 +35,13 @@ Thumbs.db
 # Local Claude Code scratch (debug exports, transcripts, etc.).
 # `.claude/settings.json` is per-developer local config (permissions, etc.) and
 # is NOT tracked — keep personal settings out of the repo. Agent definitions
-# under `.claude/agents/` ARE tracked (shared project tooling).
+# under `.claude/agents/` and skills under `.claude/skills/` ARE tracked
+# (shared project tooling).
 .claude/*
 !.claude/agents/
 !.claude/agents/**
+!.claude/skills/
+!.claude/skills/**
 
 # Env
 .env

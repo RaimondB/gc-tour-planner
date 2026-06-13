@@ -64,6 +64,10 @@ import {
   type PlanSettings,
 } from "./features/planning/PlannerSidebar.js";
 import { ClusterCarousel } from "./features/planning/ClusterCarousel.js";
+import {
+  haloRadiusMeters,
+  mergeCachesById,
+} from "./features/planning/halo-caches.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
@@ -412,6 +416,33 @@ export default function App(): JSX.Element {
     placeholderData: (prev) => prev,
   });
 
+  // Boundary-halo caches. Discovery (ADR-0026, PLANNER_CLUSTER_GROW) builds its
+  // pool out to `radiusM + distanceBudgetMeters/2` — see clustering/context.ts —
+  // so an edge-straddling cluster can include members beyond the search circle.
+  // The main `cachesQuery` is radius-bounded, so those members would have no
+  // marker (the count says 10, the map draws 1). Fetch the grown radius once
+  // clusters exist and union it in so the visible set is a superset of the
+  // clustered set. `excludeFound: true` mirrors the discovery pool (members are
+  // never found-by-me caches); when grow is off server-side the extra caches are
+  // simply never cluster members and the preview ignores them.
+  const haloCacheInput = useMemo<ListCachesParams>(
+    () => ({
+      ...debouncedCacheInput,
+      radiusM: haloRadiusMeters(
+        debouncedCacheInput.radiusM,
+        planSettings.distanceBudgetMeters,
+      ),
+      excludeFound: true,
+    }),
+    [debouncedCacheInput, planSettings.distanceBudgetMeters],
+  );
+  const haloCachesQuery = useQuery({
+    queryKey: ["caches", haloCacheInput],
+    queryFn: ({ signal }) => listCaches(haloCacheInput, signal),
+    enabled: clusters !== null,
+    placeholderData: (prev) => prev,
+  });
+
   const handleParamsChange = useCallback(
     (next: SearchParams, opts?: { fly?: boolean }) => {
       setParams(next);
@@ -471,7 +502,15 @@ export default function App(): JSX.Element {
     [mapBottomInset],
   );
 
-  const caches = cachesQuery.data?.caches;
+  // Union the radius-bounded set with the boundary halo so every cluster member
+  // resolves to a marker / coordinate (camera-fit, preview, carousel, export,
+  // GPX). Halo is only present once clusters are discovered; before that this is
+  // just the base set.
+  const caches = useMemo(
+    () =>
+      mergeCachesById(cachesQuery.data?.caches, haloCachesQuery.data?.caches),
+    [cachesQuery.data, haloCachesQuery.data],
+  );
 
   // Explicit "frame this cluster" — the ONLY place a cluster tap moves the
   // camera. Sets emphasis + picks it as the Tour context. Hover does NOT
@@ -1047,14 +1086,14 @@ export default function App(): JSX.Element {
             />
             <ClustersPreviewLayer
               candidates={clusters}
-              caches={cachesQuery.data?.caches}
+              caches={caches}
               focusedClusterId={focusedClusterId}
               onCentroidClick={frameClusterById}
               onCentroidHover={setFocusedClusterId}
             />
             <TourLayer
               result={planResult}
-              caches={cachesQuery.data?.caches}
+              caches={caches}
               editMode={editMode}
               legPicks={legPicks}
               selectedLegIndex={selectedLegIndex}
@@ -1100,7 +1139,7 @@ export default function App(): JSX.Element {
             />
             <ParkingOwnerLinkLayer
               selectedParking={selectedParking}
-              caches={cachesQuery.data?.caches}
+              caches={caches}
             />
             <WalkingGraphLayer
               enabled={showWalkingGraph}

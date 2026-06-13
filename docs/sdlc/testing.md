@@ -31,6 +31,59 @@ For the actual user flow: GPX upload → filter → plan → save.
 - Run locally: `pnpm test:e2e`. CI runs them on every PR that touches the API ↔ web boundary.
 - Slow: ~minutes. Don't write E2E tests for things a unit or integration test could cover instead.
 
+## Regression tests for bug fixes
+
+**Every bug fix ships with a test that fails before the fix and passes after.**
+No exceptions for "obvious" one-liners — the test is what stops the bug from
+silently coming back, and writing it is how you prove you understood the cause.
+
+- **Reproduce at the lowest level that captures the bug.** A logic bug → a unit
+  test on the (often newly-extracted) pure function. A SQL/spatial bug → an
+  integration test against PostGIS. A user-flow bug → an e2e. Don't reach for an
+  e2e when a unit test reproduces it: e2e is slow and flaky, and a unit test
+  pins the cause more precisely. (Worked example: the boundary-halo render bug —
+  ADR-0026 — was a radius-formula mismatch between the API pool and the web map
+  fetch. The durable fix single-sourced the formula in
+  `Tours.clusterPoolRadiusMeters`, and the regression test is two unit specs
+  pinning that formula + the cache-union helper — not an e2e that would have
+  needed grow-on, boundary-straddling fixture data.)
+- **When a bug came from two code paths drifting apart** (client vs. server, or
+  two callers of one rule), single-source the rule and test the shared unit —
+  that kills the whole class, not just this instance.
+- **If the only faithful reproduction is an e2e**, say so in the PR and write it;
+  but first try to extract the buggy logic into something unit-testable.
+- Pick the level deliberately — the **`test-levels`** skill (`.claude/skills/`)
+  is the decision tree.
+
+## E2E test helpers (`VITE_E2E`)
+
+Playwright drives the real UI but can't read React/MapLibre internals (the map
+paints to a WebGL canvas — there are no DOM markers to count). Instead of
+scattering ad-hoc `window.__x` hooks, the web app exposes one explicit,
+env-gated surface: `apps/web/src/lib/test-helpers.ts`. In a **dev-mode** build
+that sets `VITE_E2E`, helpers appear under `window.__gctp` (e.g.
+`window.__gctp.map`). Add new handles there as e2e needs them — keep the surface
+small and documented.
+
+Run e2e against a dev-mode, helper-enabled server:
+`VITE_E2E=1 pnpm --filter @gctp/web dev` (Playwright's default baseURL is
+:5173). The helpers exist **only** in dev mode by design — see the production
+guarantees below.
+
+**Production safety (two compile-time guarantees).** The gate is
+`import.meta.env.DEV && VITE_E2E`, both inlined at build time:
+
+1. *Not shipped.* Any `vite build` runs in production mode (`DEV === false`), so
+   the gate folds to the literal `false` and esbuild dead-code-eliminates the
+   whole helper body **and** the `window.__gctp` assignment. A prod `dist/`
+   contains no executable reference to it (verified: `grep __gctp dist/**/*.js`
+   → nothing; only the inert `.js.map` source map mentions the identifier).
+2. *Can't be re-enabled.* Even if `VITE_E2E=1` leaks into a production build, the
+   `DEV` conjunct is still `false`, so the helper stays stripped. There is no
+   runtime switch to flip — `import.meta.env` is compile-time only. The
+   deployment image (`infra/Dockerfile.web`) also never declares `VITE_E2E` as a
+   build arg, so it can't reach the build in the first place.
+
 ## Coverage expectations
 
 - Pure functions: high (90 %+). They're cheap; cover the edge cases.

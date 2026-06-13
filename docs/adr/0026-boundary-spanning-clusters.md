@@ -66,3 +66,12 @@ to before.
 - Supersedes the alternative "pool-only graph" fix, which produced a hard cutoff
   at the boundary (the opposite of the desired behaviour); the `poolOnly` graph
   flag survives as one ingredient of this feature.
+- **Web client must mirror the grown pool.** The map's cache query is bounded by
+  `radiusM`, but a grown cluster's members can sit in the `radiusM … radiusM +
+  budget/2` halo. Rendering only the in-radius set made an edge cluster's marker
+  count disagree with its `cacheIds.length` ("10 caches" but one dot). `apps/web`
+  fetches a second `listCaches` at the grown radius (`excludeFound: true`, gated
+  on clusters existing) and unions it in, so the visible set is a superset of the
+  clustered set — member markers, camera-fit, carousel, export, and GPX all
+  resolve. With grow off the extra caches are never cluster members, so the
+  preview ignores them.

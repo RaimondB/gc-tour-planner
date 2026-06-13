@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Logger } from "@nestjs/common";
-import { Geo, type Routing, type Tours } from "@gctp/shared";
+import { Geo, Tours, type Routing } from "@gctp/shared";
 import type { CacheLanduseRepository } from "../../../../caches/cache-landuse.repository.js";
 import type { CachesRepository } from "../../../../caches/caches.repository.js";
 import type { CachesService } from "../../../../caches/caches.service.js";
@@ -110,7 +110,10 @@ export async function prepareClusteringContext(
   // the walking graph is constrained to the pool, so the refine→pool invariant
   // holds by construction. `grow=false` reproduces the legacy radius exactly.
   const grow = readClusterGrow();
-  const growthMarginM = grow ? Math.floor(input.distanceBudgetMeters / 2) : 0;
+  // Shared contract with the web client — see Tours.clusterGrowthMarginMeters.
+  const growthMarginM = grow
+    ? Tours.clusterGrowthMarginMeters(input.distanceBudgetMeters)
+    : 0;
 
   const tList = clock();
   const { caches } = await deps.caches.list(ownerId, {

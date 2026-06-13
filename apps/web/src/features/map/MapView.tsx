@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapContext, type MapApi } from "./MapContext.js";
+import { exposeMapForE2E } from "../../lib/test-helpers.js";
 
 const DEFAULT_CENTER: [number, number] = [5.1214, 52.0907]; // Utrecht, NL — placeholder
 const DEFAULT_ZOOM = 11;
@@ -92,6 +93,8 @@ export function MapView({
       center: initialCenter,
       zoom: initialZoom,
     });
+    // E2E-only handle (no-op unless VITE_E2E) so Playwright can read map state.
+    exposeMapForE2E(map);
     const clickHandler = (e: maplibregl.MapMouseEvent) => {
       // Skip if the click hit a feature layer (those have their own
       // handlers). `map.getLayer` requires `map.style` to be loaded —
