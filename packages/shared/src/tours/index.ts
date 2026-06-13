@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export * from "./cluster-candidate.js";
+export * from "./cluster-growth.js";
 export * from "./explain-cluster.js";
 export * from "./parking-options.js";
 export * from "./plan-input.js";
