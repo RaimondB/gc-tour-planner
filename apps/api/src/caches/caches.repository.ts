@@ -353,6 +353,9 @@ export class CachesRepository {
           solved: false,
           solved_at: null,
           location: sql<string>`COALESCE(published_location, location)`,
+          // Location moved → its landuse membership is stale and deleted below;
+          // reset the scan stamp so the next populate re-scans it (1779720000000).
+          landuse_scanned_at: null,
         })
         .where("id", "=", cacheId)
         .where("owner_id", "=", userId)

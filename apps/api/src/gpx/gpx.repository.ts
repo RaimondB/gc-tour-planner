@@ -414,6 +414,13 @@ export class GpxRepository {
           .deleteFrom("cache_landuse")
           .where("cache_id", "in", relocatedCacheIds)
           .execute();
+        // Reset the landuse scan stamp so the re-warm populate re-scans these
+        // moved caches (their old membership was just deleted; 1779720000000).
+        await tx
+          .updateTable("caches")
+          .set({ landuse_scanned_at: null })
+          .where("id", "in", relocatedCacheIds)
+          .execute();
       }
 
       return {
