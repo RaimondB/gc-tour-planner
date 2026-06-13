@@ -4,6 +4,7 @@
 import { Module, type Provider } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Tours } from "@gctp/shared";
+import { DatabaseModule } from "../database/database.module.js";
 import { CachesModule } from "../caches/caches.module.js";
 import { CachesRepository } from "../caches/caches.repository.js";
 import { CachesService } from "../caches/caches.service.js";
@@ -113,7 +114,13 @@ const tourPlannerProvider: Provider = {
 };
 
 @Module({
-  imports: [CachesModule, RoutingModule, OsmModule, LanduseProfilesModule],
+  imports: [
+    DatabaseModule,
+    CachesModule,
+    RoutingModule,
+    OsmModule,
+    LanduseProfilesModule,
+  ],
   controllers: [ToursController, SavedToursController],
   providers: [
     ToursService,
