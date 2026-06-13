@@ -15,9 +15,12 @@ import { KYSELY } from "../database/database.tokens.js";
  *
  * Storage strategy: lazy-populate per bbox on first plan that touches a
  * region. The `populate_cache_landuse_in_bbox` SQL function is idempotent
- * (ON CONFLICT DO NOTHING), so it's safe to call repeatedly on overlapping
- * regions. PK is now (cache_id, kind) so a cache inside three forest
- * polygons gets ONE forest row, not three.
+ * (ON CONFLICT DO NOTHING) AND scan-once: it only scans caches whose
+ * `caches.landuse_scanned_at` is NULL, stamping them afterwards, so calling it
+ * repeatedly on an already-scanned region is a near-instant no-op instead of
+ * re-running the caches × landuse_polygons spatial join (migration
+ * 1779720000000 — it dominated Pass-1 discovery latency). PK is (cache_id,
+ * kind) so a cache inside three forest polygons gets ONE forest row, not three.
  */
 @Injectable()
 export class CacheLanduseRepository {

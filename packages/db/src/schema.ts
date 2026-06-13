@@ -107,6 +107,18 @@ export interface CachesTable {
   solved: ColumnType<boolean, boolean | undefined, boolean>;
   /** When `solved` was first set TRUE. NULL while solved=FALSE. */
   solved_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+  /**
+   * When this cache was last scanned for landuse-polygon membership. NULL =
+   * never scanned → `populate_cache_landuse_in_bbox` will (re)scan it; stamped
+   * once scanned so steady-state discovery skips the spatial join. Reset to
+   * NULL whenever the cache's `location` moves (its cache_landuse rows are
+   * deleted in the same transaction). See migration 1779720000000.
+   */
+  landuse_scanned_at: ColumnType<
+    Date | null,
+    Date | null | undefined,
+    Date | null
+  >;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
 }
