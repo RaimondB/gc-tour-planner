@@ -5,8 +5,10 @@
 // discovery (`POST /tours/clusters`) across its phases. The other benches time
 // clustering QUALITY (clustering-sweep) or end-to-end packing (cluster-tuning);
 // neither tells you WHERE the seconds go. This one does, because the perceived
-// "hdbscan-star is slow" is a misattribution — the algorithm is ~3 ms; the cost
-// is the OSRM `/table` walking-graph build (see the perf handoff).
+// "hdbscan-star is slow" is a misattribution — the algorithm is ~3 ms. The
+// first run of this bench found the cost was the PostGIS k-NN over-fetch (one
+// DB round-trip per origin), NOT the OSRM `/table` build as assumed — which is
+// why you measure instead of guess (see the perf handoff).
 //
 // Per seed it runs the real discovery path twice and reports the split:
 //   1. prepareClusteringContext (I/O — DB list, landuse, walking-graph), with a
@@ -20,9 +22,9 @@
 //
 // Cold vs warm: pass A populates route_legs (mostly cold — OSRM misses), pass B
 // re-runs the identical context (fully warm — route_legs hits). The A→B delta
-// in `osrm.fetch` is the headline cost the precompute / cache-hit-rate levers
-// attack. Non-destructive: it only fills the cache, never clears it. On an
-// already-precomputed area pass A is already warm and the two passes converge.
+// in `osrm.fetch` exposes any cold-OSRM cost the precompute / cache-hit-rate
+// levers would attack (small on an already-warm area). Non-destructive: it only
+// fills the cache, never clears it; on a warm area the two passes converge.
 //
 // Discovery is run INLINE (prepareClusteringContext, not planner.discoverClusters)
 // so we can hold the ctx and time the worker round-trip separately; the planner
@@ -221,7 +223,9 @@ async function main(): Promise<void> {
           const poolMs = clock() - tPo;
           worker.push({ inlineMs, poolMs, overheadMs: poolMs - inlineMs });
         } catch (e) {
-          log.warn(`seed ${lng},${lat}: worker compare (${(e as Error).message})`);
+          log.warn(
+            `seed ${lng},${lat}: worker compare (${(e as Error).message})`,
+          );
         }
       }
     }
@@ -260,25 +264,69 @@ function reportPass(title: string, s: PassSample[]): void {
   console.warn(
     `    context wall-clock     ${ms(s.map((x) => x.ctxWallMs)).padStart(16)}   100%`,
   );
-  console.warn(phaseLine("├ list (DB pull)", s.map((x) => x.listMs), wall));
-  console.warn(phaseLine("├ landuse", s.map((x) => x.landuseMs), wall));
   console.warn(
-    phaseLine("├ walking-graph", s.map((x) => x.walkingGraphMs), wall),
+    phaseLine(
+      "├ list (DB pull)",
+      s.map((x) => x.listMs),
+      wall,
+    ),
   );
   console.warn(
-    phaseLine("│  ├ postgis overfetch", s.map((x) => x.overFetchMs), wall),
+    phaseLine(
+      "├ landuse",
+      s.map((x) => x.landuseMs),
+      wall,
+    ),
   );
   console.warn(
-    phaseLine("│  ├ route_legs read", s.map((x) => x.cacheReadMs), wall),
+    phaseLine(
+      "├ walking-graph",
+      s.map((x) => x.walkingGraphMs),
+      wall,
+    ),
   );
   console.warn(
-    phaseLine("│  ├ OSRM /table fetch", s.map((x) => x.osrmFetchMs), wall),
+    phaseLine(
+      "│  ├ postgis overfetch",
+      s.map((x) => x.overFetchMs),
+      wall,
+    ),
   );
-  console.warn(phaseLine("│  ├ persist", s.map((x) => x.persistMs), wall));
   console.warn(
-    phaseLine("│  └ rank+symmetrise", s.map((x) => x.rankSymmetriseMs), wall),
+    phaseLine(
+      "│  ├ route_legs read",
+      s.map((x) => x.cacheReadMs),
+      wall,
+    ),
   );
-  console.warn(phaseLine("└ seeds", s.map((x) => x.seedsMs), wall));
+  console.warn(
+    phaseLine(
+      "│  ├ OSRM /table fetch",
+      s.map((x) => x.osrmFetchMs),
+      wall,
+    ),
+  );
+  console.warn(
+    phaseLine(
+      "│  ├ persist",
+      s.map((x) => x.persistMs),
+      wall,
+    ),
+  );
+  console.warn(
+    phaseLine(
+      "│  └ rank+symmetrise",
+      s.map((x) => x.rankSymmetriseMs),
+      wall,
+    ),
+  );
+  console.warn(
+    phaseLine(
+      "└ seeds",
+      s.map((x) => x.seedsMs),
+      wall,
+    ),
+  );
   console.warn(
     `    pool ${mean(s.map((x) => x.poolSize)).toFixed(0)} caches (of ${mean(s.map((x) => x.candidateCount)).toFixed(0)} cand), ` +
       `${mean(s.map((x) => x.origins)).toFixed(0)} origins, ` +
@@ -303,10 +351,11 @@ function report(
   if (warm.length) reportPass("PASS B (warm — route_legs hits)", warm);
 
   if (warm.length && cold.length) {
-    const dOsrm = mean(cold.map((x) => x.osrmFetchMs)) -
+    const dOsrm =
+      mean(cold.map((x) => x.osrmFetchMs)) -
       mean(warm.map((x) => x.osrmFetchMs));
-    const dWall = mean(cold.map((x) => x.ctxWallMs)) -
-      mean(warm.map((x) => x.ctxWallMs));
+    const dWall =
+      mean(cold.map((x) => x.ctxWallMs)) - mean(warm.map((x) => x.ctxWallMs));
     console.warn(
       `\n▸ COLD→WARM delta: OSRM /table ${dOsrm.toFixed(0)}ms saved, ` +
         `context wall ${dWall.toFixed(0)}ms saved ` +
