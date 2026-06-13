@@ -328,9 +328,10 @@ function report(
   }
 
   console.warn(
-    "\nReal discovery = context wall-clock + worker pool round-trip. " +
-      "If OSRM /table dominates a cold pool, pull the cache-hit-rate lever " +
-      "(precompute coverage, PLANNER_KNN_K, over-fetch radius) — see docs/PLANNER_TUNING.md.",
+    "\nReal discovery = context wall-clock + worker pool round-trip. Read the " +
+      "biggest %-of-wall row above and pull THAT lever — don't assume which " +
+      "phase dominates (profiling showed the PostGIS over-fetch, not OSRM, was " +
+      "the original cost). Levers per phase in docs/PLANNER_TUNING.md.",
   );
 }
 
