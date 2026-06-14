@@ -75,6 +75,7 @@ import {
   mergeCachesById,
 } from "./features/planning/halo-caches.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
+import { Logo } from "./features/shell/Logo.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
 import { AdminToolsPanel } from "./features/shell/AdminToolsPanel.js";
@@ -1059,6 +1060,7 @@ export default function App(): JSX.Element {
   return (
     <div className="app">
       <header className="app-header">
+        <Logo size={34} />
         <div className="app-header__title">
           <h1>gc-tour-planner</h1>
           <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>

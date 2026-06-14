@@ -1520,7 +1520,9 @@ p.error,
   transition: transform 150ms ease;
 }
 
-.advanced-section--open > .advanced-section__summary .advanced-section__chevron {
+.advanced-section--open
+  > .advanced-section__summary
+  .advanced-section__chevron {
   transform: rotate(90deg);
 }
 
@@ -1799,4 +1801,343 @@ button.danger {
 }
 button.danger:hover:not(:disabled) {
   background: #fef2f2;
+}
+
+/* ── Landing page (public /welcome) ───────────────────────────────────── */
+
+.landing {
+  min-height: 100%;
+  overflow-y: auto;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.landing__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.96);
+  z-index: var(--z-map-control);
+}
+
+.landing__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+
+.brand-logo {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* The hero mark sits above the headline as a focal point. */
+.landing__hero .brand-logo {
+  margin: 0 auto var(--space-4);
+  filter: drop-shadow(0 4px 10px rgba(191, 54, 12, 0.25));
+}
+
+.landing__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Secondary action — plain text link. */
+.landing__signin {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.landing__signin:hover {
+  text-decoration: underline;
+}
+
+/* Primary CTA — accent pill button. */
+.landing__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.landing__cta:hover {
+  background: var(--color-accent-strong);
+}
+
+.landing__cta--lg {
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  font-size: 1.05rem;
+}
+
+.landing__signin--lg {
+  font-size: 1.05rem;
+}
+
+.landing__hero {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+
+.landing__hero-title {
+  margin: 0 0 var(--space-4);
+  font-size: clamp(1.8rem, 5vw, 2.75rem);
+  line-height: 1.15;
+}
+
+.landing__hero-lede {
+  margin: 0 auto var(--space-5);
+  max-width: 620px;
+  font-size: 1.15rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+.landing__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: center;
+  align-items: center;
+}
+
+.landing__section {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.landing__section-title {
+  margin: 0 0 var(--space-5);
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  text-align: center;
+}
+
+/* How-it-works: three steps, each a framed screenshot + text. */
+.landing__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.landing__step {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: var(--space-5);
+  align-items: center;
+}
+
+/* Alternate the image side for visual rhythm on wide screens. */
+.landing__step:nth-child(even) .landing__step-shot {
+  order: 2;
+}
+
+.landing__step-shot {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-2);
+  background: var(--color-surface-alt);
+}
+
+.landing__step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.landing__step-title {
+  margin: var(--space-2) 0 var(--space-2);
+  font-size: 1.25rem;
+}
+
+.landing__step-text p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+/* "Works everywhere" callout: text + a desktop/mobile composite image. */
+.landing__everywhere {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: center;
+}
+
+.landing__everywhere .landing__section-title {
+  text-align: left;
+  margin-bottom: var(--space-3);
+}
+
+.landing__everywhere-text p {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+.landing__everywhere-shot {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-3);
+}
+
+/* Feature grid. */
+.landing__features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.landing__feature {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface-alt);
+}
+
+.landing__feature-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.05rem;
+  color: var(--color-accent-strong);
+}
+
+.landing__feature p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.landing__finalcta {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.landing__footer {
+  padding: var(--space-5);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.landing__footer p {
+  margin: 0 0 var(--space-2);
+}
+
+.landing__footer a {
+  color: inherit;
+}
+
+.landing__footer-note {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  /* Tighten the top bar so the brand + nav fit one line without wrapping. */
+  .landing__topbar {
+    padding: var(--space-3) var(--space-4);
+    gap: var(--space-2);
+  }
+
+  .landing__brand {
+    font-size: 1rem;
+  }
+
+  .landing__nav {
+    gap: var(--space-2);
+  }
+
+  .landing__cta {
+    padding: 0 var(--space-3);
+    font-size: 0.9rem;
+  }
+
+  /* Hero CTAs go full-width and stack so the buttons read as a clear column. */
+  .landing__hero {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .landing__hero-lede {
+    font-size: 1.05rem;
+  }
+
+  .landing__hero-actions {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .landing__hero-actions .landing__cta--lg {
+    width: 100%;
+  }
+
+  .landing__section,
+  .landing__finalcta {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  /* Stack each step's screenshot above its text; keep image first. */
+  .landing__step,
+  .landing__everywhere {
+    grid-template-columns: 1fr;
+  }
+
+  .landing__step:nth-child(even) .landing__step-shot {
+    order: 0;
+  }
+
+  .landing__everywhere .landing__section-title {
+    text-align: center;
+  }
+}
+
+/* Very narrow phones: drop the brand wordmark to keep the nav on one line. */
+@media (max-width: 380px) {
+  .landing__brand {
+    font-size: 0.9rem;
+  }
+
+  .landing__nav {
+    gap: var(--space-1);
+  }
 }
