@@ -12,6 +12,7 @@ import App from "./App.js";
 import type { AuthContextValue } from "./features/auth/AuthProvider.js";
 import { LoginPage } from "./features/auth/LoginPage.js";
 import { RegisterPage } from "./features/auth/RegisterPage.js";
+import { MyToursPage } from "./features/tours/MyToursPage.js";
 
 /** Router context — the live auth state, injected by `RouterProvider`. */
 export interface RouterContext {
@@ -46,10 +47,23 @@ const registerRoute = createRoute({
   component: RegisterPage,
 });
 
+/** Protected `/tours` route (M6-γ) — the My Tours list. */
+const toursRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tours",
+  beforeLoad: ({ context }) => {
+    if (!context.auth.isAuthenticated) {
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: MyToursPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   registerRoute,
+  toursRoute,
 ]);
 
 export const router = createRouter({
@@ -62,5 +76,13 @@ export const router = createRouter({
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
+  }
+  /**
+   * History state carried across a navigation. M6-γ uses `openTourId` to hand
+   * a saved-tour id from `/tours` → `/`, where App rehydrates the planner from
+   * the stored plan (no replan).
+   */
+  interface HistoryState {
+    openTourId?: string;
   }
 }

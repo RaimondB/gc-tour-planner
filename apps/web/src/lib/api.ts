@@ -39,6 +39,9 @@ import {
   PlanResult,
   type PurgeBogusInput,
   PurgeBogusResponse,
+  type SaveTourInput,
+  SavedTourDetail,
+  SavedTourSummary,
   type TestRouteInput,
   TestRouteResponse,
   type ViaRouteInput,
@@ -46,6 +49,7 @@ import {
   type WalkingGraphInput,
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
+import { z } from "zod";
 
 /**
  * Hand-written typed client. The OpenAPI-generated client lands once the API
@@ -396,6 +400,48 @@ export async function purgeBogusWalkingCells(input: PurgeBogusInput) {
     body: JSON.stringify(input),
   });
   return PurgeBogusResponse.parse(raw);
+}
+
+// ─── Saved tours (M6-γ) ─────────────────────────────────────────────────────
+
+/** Persist the just-planned tour (FR-P1). Returns the saved tour's full detail. */
+export async function saveTour(input: SaveTourInput): Promise<SavedTourDetail> {
+  const raw = await request<unknown>("/tours", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return SavedTourDetail.parse(raw);
+}
+
+/** The caller's saved tours as lean summaries, newest first (FR-P2.1). */
+export async function listTours(): Promise<SavedTourSummary[]> {
+  const raw = await request<unknown>("/tours");
+  return z.array(SavedTourSummary).parse(raw);
+}
+
+/** Open one saved tour in full detail so it re-renders without replanning (FR-P2.2). */
+export async function getTour(id: string): Promise<SavedTourDetail> {
+  const raw = await request<unknown>(`/tours/${id}`);
+  return SavedTourDetail.parse(raw);
+}
+
+/** Rename a saved tour (FR-P2.3). */
+export async function renameTour(
+  id: string,
+  name: string,
+): Promise<SavedTourDetail> {
+  const raw = await request<unknown>(`/tours/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  return SavedTourDetail.parse(raw);
+}
+
+/** Delete a saved tour (FR-P2.3). */
+export async function deleteTour(id: string): Promise<void> {
+  await request<void>(`/tours/${id}`, { method: "DELETE" });
 }
 
 // ─── Admin: precompute dashboard ──────────────────────────────────────────

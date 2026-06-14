@@ -4,6 +4,7 @@
 import { Module, type Provider } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Tours } from "@gctp/shared";
+import { DatabaseModule } from "../database/database.module.js";
 import { CachesModule } from "../caches/caches.module.js";
 import { CachesRepository } from "../caches/caches.repository.js";
 import { CachesService } from "../caches/caches.service.js";
@@ -32,6 +33,9 @@ import {
 } from "./strategies/solver/solver-client.js";
 import { ToursController } from "./tours.controller.js";
 import { ToursService } from "./tours.service.js";
+import { SavedToursController } from "./saved-tours.controller.js";
+import { SavedToursService } from "./saved-tours.service.js";
+import { SavedToursRepository } from "./saved-tours.repository.js";
 
 /**
  * Strategy factory.
@@ -110,10 +114,18 @@ const tourPlannerProvider: Provider = {
 };
 
 @Module({
-  imports: [CachesModule, RoutingModule, OsmModule, LanduseProfilesModule],
-  controllers: [ToursController],
+  imports: [
+    DatabaseModule,
+    CachesModule,
+    RoutingModule,
+    OsmModule,
+    LanduseProfilesModule,
+  ],
+  controllers: [ToursController, SavedToursController],
   providers: [
     ToursService,
+    SavedToursService,
+    SavedToursRepository,
     { provide: SOLVER_CLIENT, useClass: HttpSolverClient },
     { provide: COMPUTE_POOL, useClass: PiscinaComputePool },
     tourPlannerProvider,

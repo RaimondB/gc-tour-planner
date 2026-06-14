@@ -10,14 +10,20 @@ import {
   type JSX,
 } from "react";
 import type maplibregl from "maplibre-gl";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
   PlanResult,
 } from "@gctp/shared/tours";
-import { discoverClusters, listCaches, planLoop } from "./lib/api.js";
+import {
+  discoverClusters,
+  getTour,
+  listCaches,
+  planLoop,
+  saveTour,
+} from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
 import { downloadText } from "./lib/download-text.js";
 import {
@@ -303,6 +309,43 @@ export default function App(): JSX.Element {
     (cluster: ClusterCandidate) => planMutation.mutate(cluster),
     [planMutation],
   );
+
+  // ── Save tour (M6-γ, FR-P1) ──────────────────────────────────────────
+  const saveMutation = useMutation({
+    mutationFn: (name: string) => {
+      if (!planResult) throw new Error("No tour to save");
+      return saveTour({ name, plan: planResult });
+    },
+  });
+  const onSaveTour = useCallback(() => {
+    if (!planResult || saveMutation.isPending) return;
+    const name = window.prompt("Name this tour")?.trim();
+    if (!name) return;
+    saveMutation.mutate(name, {
+      onSuccess: () => void navigate({ to: "/tours" }),
+    });
+  }, [planResult, saveMutation, navigate]);
+
+  // ── Open a saved tour (M6-γ, FR-P2.2) ────────────────────────────────
+  // /tours hands a tour id via router state; fetch it and re-render the loop
+  // from the stored plan WITHOUT replanning, then clear the state so a reload
+  // or back-nav doesn't re-open it.
+  const openTourId = useRouterState({
+    select: (s) => s.location.state.openTourId,
+  });
+  const openTourMutation = useMutation({
+    mutationFn: (id: string) => getTour(id),
+    onSuccess: (detail) => {
+      setPlanResult(detail.plan);
+      setChosenClusterId(null);
+    },
+  });
+  const openTourMutate = openTourMutation.mutate;
+  useEffect(() => {
+    if (!openTourId) return;
+    openTourMutate(openTourId);
+    void navigate({ to: "/", replace: true, state: { openTourId: undefined } });
+  }, [openTourId, openTourMutate, navigate]);
 
   // Picking a cluster makes it the Tour context (and clears a stale result
   // from a previously-picked cluster) WITHOUT switching steps — the user
@@ -883,6 +926,14 @@ export default function App(): JSX.Element {
             <button
               type="button"
               className="primary"
+              onClick={onSaveTour}
+              disabled={saveMutation.isPending}
+              title="Save this tour to My Tours so you can re-open it later."
+            >
+              {saveMutation.isPending ? "Saving…" : "💾 Save tour"}
+            </button>
+            <button
+              type="button"
               onClick={() => downloadGpx("track")}
               title="Download a GPX track — your device follows the exact route on the map."
             >
@@ -1026,6 +1077,13 @@ export default function App(): JSX.Element {
         )}
         {user && (
           <div className="app-header__user">
+            <Link
+              to="/tours"
+              className="app-header__tours"
+              title="Your saved tours"
+            >
+              My tours
+            </Link>
             <span className="app-header__user-name" title={user.email}>
               {user.displayName}
             </span>
