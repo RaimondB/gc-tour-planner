@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { type JSX } from "react";
+import { Navigation } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
@@ -773,6 +774,16 @@ export function PlanResultPanel({
           <strong>{labelForParking(result.parking.type)}</strong>
           <br />
           <small>{result.parking.reason}</small>
+          <br />
+          <a
+            className="parking-nav-link"
+            href={googleMapsDirUrl(result.parking.point)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open Google Maps directions to the parking coordinate (shareable)"
+          >
+            <Navigation size={13} aria-hidden="true" /> Navigate (Google Maps)
+          </a>
         </dd>
       </dl>
       <h4>Score breakdown</h4>
@@ -1666,6 +1677,16 @@ export function ClusterLabPanel({
       )}
     </div>
   );
+}
+
+/**
+ * Google Maps "directions to" URL for the parking coordinate. `api=1` +
+ * `destination=lat,lng` opens Google Maps (or the app on mobile) routing from
+ * the user's current location — i.e. "navigate to the parking". Shareable too.
+ */
+function googleMapsDirUrl(point: PlanResult["parking"]["point"]): string {
+  const [lng, lat] = point.coordinates;
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
 }
 
 function labelForParking(t: PlanResult["parking"]["type"]): string {
