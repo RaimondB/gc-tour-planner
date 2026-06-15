@@ -2,7 +2,9 @@
 
 Plan geocaching tours: pick a starting point and radius, filter caches by type / attributes / landuse (forest vs. city), find a dense cluster, and get a closed walking loop with a parking spot.
 
-**Status:** actively developed and runnable end-to-end. Milestones **M1–M5 are shipped** — GPX ingest, map + filters, OSM context, routing infrastructure, and tour planning (cluster discovery → optimised loop → parking) all work, with a backend API, a React/MapLibre web app, and async precompute workers. Next up is **M6** (accounts, saved tours, share links). See the full breakdown in [docs/requirements/roadmap.md](docs/requirements/roadmap.md).
+**Live site:** **<https://gctp.brookman.live>** — currently covering the **Netherlands** and **North Rhine-Westphalia (NRW)**, Germany (the regions whose OSM map + walking-route data we host). Want another area? [Open a region request](https://github.com/RaimondB/gc-tour-planner/issues/new?labels=region-request) — we add regions based on demand.
+
+**Status:** actively developed and runnable end-to-end. Milestones **M1–M5 and most of M6 are shipped** — GPX ingest, map + filters, OSM context, routing infrastructure, and tour planning (cluster discovery → optimised loop → parking), plus **user accounts (email + Google sign-in), server-saved tours, and a public landing page** — all backed by a NestJS API, a React/MapLibre web app, and async precompute workers. The remaining M6 piece is read-only **share links (M6-δ)**. See the full breakdown in [docs/requirements/roadmap.md](docs/requirements/roadmap.md).
 
 ## What it does
 
@@ -16,7 +18,7 @@ Plan geocaching tours: pick a starting point and radius, filter caches by type /
 
 ### Coming next
 
-- **M6** — accounts, server-saved tours, read-only share links. _(Shareable URLs already capture your search + plan as state; persistent saved tours land in M6.)_
+- **M6-δ** — read-only share links (accounts + server-saved tours have already shipped).
 - **M7** — OKAPI source adapter (Opencaching networks).
 - **M8** — GC.com adapter, gated on partner-API approval and kept feature-flagged off.
 
