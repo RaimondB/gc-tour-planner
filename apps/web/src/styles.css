@@ -138,11 +138,71 @@ body,
   border-color: #60a5fa;
 }
 
-/* Hamburger is mobile-only — the sidebar is always visible at desktop
-   widths. Hidden by default; the media query at the bottom of this
-   file shows it. */
-.app-header__hamburger {
+/* Desktop action cluster (Admin button + user links). Hidden on mobile,
+   where the actions collapse into the hamburger dropdown below. */
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+/* Mobile hamburger + dropdown. The wrapper is hidden at desktop widths. */
+.app-header__menu-wrap {
   display: none;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-header__menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-drawer) - 1);
+}
+
+.app-header__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: var(--space-1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-2);
+}
+
+.app-header__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--tap-min);
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.95rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-header__menu-item:hover {
+  background: var(--color-hover);
+}
+
+@media (max-width: 768px) {
+  .app-header__actions {
+    display: none;
+  }
+  .app-header__menu-wrap {
+    display: block;
+  }
 }
 
 /* --- Journey rail (map-first overhaul) -------------------------------- */

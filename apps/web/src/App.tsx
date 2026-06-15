@@ -75,7 +75,7 @@ import {
   mergeCachesById,
 } from "./features/planning/halo-caches.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
-import { Crosshair, Download, Save, Wrench } from "lucide-react";
+import { Crosshair, Download, Menu, Save, Wrench } from "lucide-react";
 import { Logo } from "./features/shell/Logo.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
@@ -224,6 +224,8 @@ export default function App(): JSX.Element {
     "caches",
   );
   const [toolsOpen, setToolsOpen] = useState(false);
+  // Mobile header overflow → collapse the nav actions into a hamburger menu.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
   // Map-picked start point ([lng, lat]) for startPreference="user-supplied-point".
   // Set by clicking the map; replaces the old "use search center" auto-fill.
@@ -1072,46 +1074,115 @@ export default function App(): JSX.Element {
           <h1>gc-tour-planner</h1>
           <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>
         </div>
-        {isAdmin && (
-          <button
-            type="button"
-            className="app-header__tools"
-            onClick={() => setToolsOpen((v) => !v)}
-            aria-expanded={toolsOpen}
-            aria-controls="tools-drawer"
-            title="Admin tools (precompute, cluster lab, debug overlays)"
-          >
-            <Wrench size={16} aria-hidden="true" />
-            <span className="app-header__tools-label">Admin</span>
-          </button>
-        )}
-        {user && (
-          <div className="app-header__user">
-            <Link
-              to="/tours"
-              className="app-header__tours"
-              title="Your saved tours"
-            >
-              My tours
-            </Link>
-            <Link
-              to="/account"
-              className="app-header__tours"
-              title="Account & password"
-            >
-              Account
-            </Link>
-            <span className="app-header__user-name" title={user.email}>
-              {user.displayName}
-            </span>
+        {/* Desktop: inline actions. Hidden on mobile (collapsed into the menu). */}
+        <div className="app-header__actions">
+          {isAdmin && (
             <button
               type="button"
-              className="app-header__logout"
-              onClick={() => void onLogout()}
-              title="Sign out"
+              className="app-header__tools"
+              onClick={() => setToolsOpen((v) => !v)}
+              aria-expanded={toolsOpen}
+              aria-controls="tools-drawer"
+              title="Admin tools (precompute, cluster lab, debug overlays)"
             >
-              Sign out
+              <Wrench size={16} aria-hidden="true" />
+              <span className="app-header__tools-label">Admin</span>
             </button>
+          )}
+          {user && (
+            <div className="app-header__user">
+              <Link
+                to="/tours"
+                className="app-header__tours"
+                title="Your saved tours"
+              >
+                My tours
+              </Link>
+              <Link
+                to="/account"
+                className="app-header__tours"
+                title="Account & password"
+              >
+                Account
+              </Link>
+              <span className="app-header__user-name" title={user.email}>
+                {user.displayName}
+              </span>
+              <button
+                type="button"
+                className="app-header__logout"
+                onClick={() => void onLogout()}
+                title="Sign out"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile: a hamburger that opens the same actions as a dropdown. */}
+        {user && (
+          <div className="app-header__menu-wrap">
+            <button
+              type="button"
+              className="app-header__hamburger"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-expanded={menuOpen}
+              aria-controls="header-menu"
+              aria-label="Menu"
+            >
+              <Menu size={20} aria-hidden="true" />
+            </button>
+            {menuOpen && (
+              <>
+                <div
+                  className="app-header__menu-backdrop"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div id="header-menu" className="app-header__menu" role="menu">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="app-header__menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setToolsOpen(true);
+                      }}
+                    >
+                      <Wrench size={16} aria-hidden="true" /> Admin tools
+                    </button>
+                  )}
+                  <Link
+                    to="/tours"
+                    className="app-header__menu-item"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    My tours
+                  </Link>
+                  <Link
+                    to="/account"
+                    className="app-header__menu-item"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Account
+                  </Link>
+                  <button
+                    type="button"
+                    className="app-header__menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void onLogout();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </header>
