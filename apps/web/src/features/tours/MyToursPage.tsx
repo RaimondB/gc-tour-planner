@@ -9,6 +9,43 @@ import { deleteTour, listTours, renameTour } from "../../lib/api.js";
 
 const TOURS_KEY = ["tours"] as const;
 
+/** Inline stroke icons (no icon font — matches AttributeIcon/Logo). */
+function PencilIcon(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function TrashIcon(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 function km(meters: number): string {
   return `${(meters / 1000).toFixed(1)} km`;
 }
@@ -118,16 +155,24 @@ export function MyToursPage(): JSX.Element {
                 >
                   Open
                 </button>
-                <button type="button" onClick={() => onRename(tour)}>
-                  Rename
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onRename(tour)}
+                  aria-label={`Rename ${tour.name}`}
+                  title="Rename"
+                >
+                  <PencilIcon />
                 </button>
                 <button
                   type="button"
-                  className="danger"
+                  className="icon-btn icon-btn--danger"
                   onClick={() => onDelete(tour)}
                   disabled={deleteMutation.isPending}
+                  aria-label={`Delete ${tour.name}`}
+                  title="Delete"
                 >
-                  Delete
+                  <TrashIcon />
                 </button>
               </div>
             </li>
