@@ -75,7 +75,16 @@ import {
   mergeCachesById,
 } from "./features/planning/halo-caches.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
-import { Crosshair, Download, Menu, Save, Wrench } from "lucide-react";
+import {
+  Crosshair,
+  Download,
+  Menu,
+  Navigation,
+  Save,
+  Wrench,
+} from "lucide-react";
+import type { CacheSummaryDTO, CacheType } from "@gctp/shared/caches";
+import { googleMapsDirUrl } from "./lib/maps.js";
 import { Logo } from "./features/shell/Logo.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
@@ -194,6 +203,12 @@ export default function App(): JSX.Element {
   const [selectedParking, setSelectedParking] =
     useState<SelectedParking | null>(null);
   const [planResult, setPlanResultRaw] = useState<PlanResult | null>(null);
+  // Caches from an opened saved tour — the stored plan's denormalised snapshots.
+  // Rendered even though they fall outside the live radius query; cleared when
+  // the user starts a fresh search / discovery / plan (see effects below).
+  const [tourCaches, setTourCaches] = useState<
+    readonly CacheSummaryDTO[] | null
+  >(null);
   /** Manual cluster selection (shift-click markers) — drives the Cluster Lab. */
   const [selectedCacheIds, setSelectedCacheIds] = useState<ReadonlySet<number>>(
     () => new Set(),
@@ -306,6 +321,8 @@ export default function App(): JSX.Element {
     },
     onSuccess: (res) => {
       setPlannedKey(pendingPlanKeyRef.current);
+      // A fresh plan is in the live query area — drop any opened-tour snapshots.
+      setTourCaches(null);
       setPlanResult(res);
     },
   });
@@ -340,6 +357,10 @@ export default function App(): JSX.Element {
   const openTourMutation = useMutation({
     mutationFn: (id: string) => getTour(id),
     onSuccess: (detail) => {
+      // Render the tour's caches from the stored snapshots — they're outside
+      // the current radius query (and may no longer exist), so the markers
+      // would otherwise be missing.
+      setTourCaches(tourCachesToSummaries(detail.plan.caches));
       setPlanResult(detail.plan);
       setChosenClusterId(null);
     },
@@ -350,6 +371,14 @@ export default function App(): JSX.Element {
     openTourMutate(openTourId);
     void navigate({ to: "/", replace: true, state: { openTourId: undefined } });
   }, [openTourId, openTourMutate, navigate]);
+
+  // A fresh search (center/radius change) is a new exploration → drop any
+  // opened-tour snapshot caches so they don't linger as stale markers. Opening
+  // a tour fits the map via fitBounds (not setParams), so this never fires on
+  // open — only on a deliberate re-search.
+  useEffect(() => {
+    setTourCaches(null);
+  }, [params.center, params.radiusM]);
 
   // Picking a cluster makes it the Tour context (and clears a stale result
   // from a previously-picked cluster) WITHOUT switching steps — the user
@@ -405,6 +434,7 @@ export default function App(): JSX.Element {
       setDiagnostics(res.diagnostics);
       setPlannedKey(null);
       setPlanResult(null);
+      setTourCaches(null);
       setDiscoveredInputKey(discoverInputKey(params, planSettings));
       // Pre-pick the top candidate so the "Pick a cluster" peek shows the
       // carousel + an active "Plan cluster #1" button by default (no camera
@@ -555,8 +585,11 @@ export default function App(): JSX.Element {
   // just the base set.
   const caches = useMemo(
     () =>
-      mergeCachesById(cachesQuery.data?.caches, haloCachesQuery.data?.caches),
-    [cachesQuery.data, haloCachesQuery.data],
+      mergeCachesById(
+        mergeCachesById(cachesQuery.data?.caches, haloCachesQuery.data?.caches),
+        tourCaches ?? undefined,
+      ),
+    [cachesQuery.data, haloCachesQuery.data, tourCaches],
   );
 
   // Explicit "frame this cluster" — the ONLY place a cluster tap moves the
@@ -896,36 +929,48 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    // tour
-    if (!chosenCluster) {
-      return <span className="muted">Pick a cluster first.</span>;
-    }
-    return (
-      <div className="step-peek step-peek--stack">
-        <div className="step-peek__row">
-          <span className="step-peek__stat">
-            Cluster #{chosenClusterRank} · {chosenCluster.cacheIds.length}{" "}
-            caches
-            {planStale && !planMutation.isPending && (
-              <span className="badge badge--stale">settings changed</span>
+    // tour — a planned (or opened-saved) tour shows its stats + a prominent
+    // "Navigate to parking" link right in the always-visible peek.
+    if (planResult) {
+      const totalMin =
+        planResult.totals.seconds / 60 + planResult.totals.visitMinutes;
+      return (
+        <div className="step-peek step-peek--stack">
+          <div className="tour-peek__row">
+            <span className="tour-peek__stats">
+              <strong>{(planResult.totals.meters / 1000).toFixed(1)} km</strong>
+              <span className="tour-peek__sep">·</span>
+              {formatDurationMin(totalMin)}
+              <span className="tour-peek__sep">·</span>
+              {planResult.orderedCacheIds.length} caches
+              {planStale && !planMutation.isPending && (
+                <span className="badge badge--stale">settings changed</span>
+              )}
+            </span>
+            {chosenCluster && (
+              <button
+                type="button"
+                className="primary"
+                onClick={replan}
+                disabled={planMutation.isPending || needsPickedStart}
+              >
+                {planMutation.isPending
+                  ? "Planning…"
+                  : needsPickedStart
+                    ? "Set start"
+                    : "Replan"}
+              </button>
             )}
-          </span>
-          <button
-            type="button"
-            className="primary"
-            onClick={replan}
-            disabled={planMutation.isPending || needsPickedStart}
+          </div>
+          <a
+            className="tour-peek__navigate"
+            href={googleMapsDirUrl(planResult.parking.point)}
+            target="_blank"
+            rel="noreferrer"
+            title="Open Google Maps directions to the parking (shareable)"
           >
-            {planMutation.isPending
-              ? "Planning…"
-              : needsPickedStart
-                ? "Set start on map"
-                : planResult
-                  ? "Replan"
-                  : "Plan"}
-          </button>
-        </div>
-        {planResult && (
+            <Navigation size={16} aria-hidden="true" /> Navigate to parking
+          </a>
           <div className="gpx-quick">
             <button
               type="button"
@@ -957,9 +1002,34 @@ export default function App(): JSX.Element {
               GPX route
             </button>
           </div>
-        )}
-      </div>
-    );
+        </div>
+      );
+    }
+    if (chosenCluster) {
+      return (
+        <div className="step-peek step-peek--stack">
+          <div className="step-peek__row">
+            <span className="step-peek__stat">
+              Cluster #{chosenClusterRank} · {chosenCluster.cacheIds.length}{" "}
+              caches
+            </span>
+            <button
+              type="button"
+              className="primary"
+              onClick={replan}
+              disabled={planMutation.isPending || needsPickedStart}
+            >
+              {planMutation.isPending
+                ? "Planning…"
+                : needsPickedStart
+                  ? "Set start on map"
+                  : "Plan"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return <span className="muted">Pick a cluster first.</span>;
   }
 
   function renderBody(): JSX.Element {
@@ -1226,6 +1296,7 @@ export default function App(): JSX.Element {
             />
             <CachesLayer
               queryInput={debouncedCacheInput}
+              extraCaches={tourCaches ?? undefined}
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
@@ -1359,6 +1430,45 @@ export default function App(): JSX.Element {
       </footer>
     </div>
   );
+}
+
+/**
+ * Build map-ready cache summaries from a saved tour's denormalised snapshots.
+ * Snapshots carry only identity + location, so the live-only fields (found,
+ * disabled, solved, stages, parking, tool) default off — enough to render the
+ * marker when re-opening a saved tour, even if the cache row is gone (FR-P1.3).
+ */
+function tourCachesToSummaries(
+  snaps: readonly {
+    id: number;
+    code: string;
+    type: string;
+    name: string;
+    location: CacheSummaryDTO["location"];
+  }[],
+): CacheSummaryDTO[] {
+  return snaps.map((s) => ({
+    id: s.id,
+    code: s.code,
+    name: s.name,
+    type: s.type as CacheType,
+    location: s.location,
+    disabled: false,
+    solved: false,
+    foundByMe: false,
+    stageCount: 0,
+    parkingPoints: [],
+    requiresTool: false,
+  }));
+}
+
+/** Human total duration (walking + visit) for the tour peek headline. */
+function formatDurationMin(totalMin: number): string {
+  const m = Math.round(totalMin);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h} h` : `${h} h ${rem} min`;
 }
 
 function zoomForRadius(radiusM: number): number {

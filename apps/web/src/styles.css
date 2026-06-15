@@ -1509,6 +1509,52 @@ button.primary:disabled {
   gap: var(--space-3);
 }
 
+/* Tour peek headline — stats + (optional) Replan, then a prominent navigate. */
+.tour-peek__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tour-peek__stats {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.tour-peek__stats strong {
+  font-size: 1rem;
+}
+
+.tour-peek__sep {
+  margin: 0 0.35rem;
+  color: var(--color-muted);
+}
+
+/* Prominent, full-width "Navigate to parking" — green ("go"), distinct from
+   the orange Save CTA. An <a>, so it can't reuse `button.primary`. */
+.tour-peek__navigate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0.5rem 0.9rem;
+  background: var(--color-success);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-1);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.tour-peek__navigate:hover {
+  background: #14532d;
+  border-color: #14532d;
+}
+
 /* Quick GPX downloads, surfaced directly in the Tour peek. */
 .gpx-quick {
   display: flex;

@@ -15,6 +15,7 @@ M6 ships in four sub-phases (see [roadmap.md](roadmap.md)): **M6-α** auth backe
   2. `GET /tours/:id` returns full detail. A cross-tenant id returns **404**, indistinguishable from "does not exist" (matching the FR-I9 isolation convention).
   3. `PATCH /tours/:id` renames (name only in M6). `DELETE /tours/:id` removes the row. Both 404 cross-tenant.
   4. Deleting a shared tour revokes its share — the slug is gone, so `GET /shared/:slug` 404s.
+  5. **Opening** a saved tour rehydrates the planner from the stored plan and draws the loop **and its cache markers from the `StoredPlan.caches` snapshots** — independent of the current map search area (and resilient to the source caches being deleted/re-uploaded, FR-P1.3). The web client renders the snapshot caches via the map's cache layer in addition to the live radius query.
 - **FR-P3 (read-only sharing link).**
   1. `POST /tours/:id/share` mints an opaque `share_slug` if absent and returns the shareable path. Idempotent: an already-shared tour returns its existing slug.
   2. `GET /shared/:slug` is **public** (no auth, no CSRF) and returns map geometry, the ordered cache list, and **totals only** (distance + time) from a **snapshot denormalised into the tour's `plan` column at save time** — never the score breakdown or other soft-preference internals, never the owner id/email/display name, and never the user's other tours. The shared view never reads owner-scoped cache tables (see [ADR-0022](../adr/0022-tour-sharing-link-security.md)).

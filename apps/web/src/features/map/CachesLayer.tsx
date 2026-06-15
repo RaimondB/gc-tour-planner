@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CacheDTO, CacheType } from "@gctp/shared/caches";
+import type { CacheDTO, CacheSummaryDTO, CacheType } from "@gctp/shared/caches";
 import {
   clearSolvedCoordinates,
   fetchCacheDetail,
@@ -14,6 +14,7 @@ import {
   unmarkCacheFound,
   type ListCachesParams,
 } from "../../lib/api.js";
+import { mergeCachesById } from "../planning/halo-caches.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
 import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
@@ -112,6 +113,13 @@ export interface CachesLayerProps {
    * the single source of what renders — there's no client-side narrowing.
    */
   queryInput: ListCachesParams;
+  /**
+   * Extra caches to render unconditionally, unioned (by id) with the query
+   * result. Used when opening a saved tour: the stored plan's denormalised
+   * cache snapshots are shown even though they fall outside the current
+   * radius query (or no longer exist in the caches table — FR-P1.3).
+   */
+  extraCaches?: readonly CacheSummaryDTO[];
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
   selectedCacheIds?: ReadonlySet<number>;
   /** Shift-click toggles a cache in/out of the selection. */
@@ -126,6 +134,7 @@ export interface CachesLayerProps {
 
 export function CachesLayer({
   queryInput,
+  extraCaches,
   selectedCacheIds,
   onSelectionChange,
   onParkingSelect,
@@ -150,7 +159,9 @@ export function CachesLayer({
     // shown on the map, so every filter lives in one place — the server
     // query — and the map just renders whatever `/caches` returned. No
     // client-side narrowing here anymore.
-    const caches = query.data?.caches ?? [];
+    // Union the radius query with any explicit extras (saved-tour snapshots),
+    // query data winning on id collisions (it carries the full live fields).
+    const caches = mergeCachesById(query.data?.caches, extraCaches) ?? [];
 
     const cachesFeatures = caches.map<
       GeoJSON.Feature<GeoJSON.Point, CacheProps>
@@ -333,7 +344,7 @@ export function CachesLayer({
     map.triggerRepaint();
 
     return undefined;
-  }, [map, ready, query.data, selectedCacheIds]);
+  }, [map, ready, query.data, extraCaches, selectedCacheIds]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.
