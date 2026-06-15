@@ -1,7 +1,11 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { ConflictException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth.service.js";
 import type { GoogleProfile } from "./google-oauth.service.js";
@@ -30,6 +34,7 @@ describe("AuthService", () => {
       findByEmail: vi.fn(),
       findById: vi.fn(),
       create: vi.fn(),
+      setPasswordHash: vi.fn(),
     } as never;
     passwords = { hash: vi.fn(), verify: vi.fn() } as never;
     sessions = {
@@ -111,6 +116,59 @@ describe("AuthService", () => {
         service.login({ email: "jane@example.com", password: "pw" }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(passwords.hash).toHaveBeenCalled();
+    });
+  });
+
+  describe("setPassword", () => {
+    it("sets a first password on an OAuth-only account without a current one", async () => {
+      users.findById.mockResolvedValue({ ...USER, passwordHash: null });
+      passwords.hash.mockResolvedValue("$argon2id$new");
+      await service.setPassword("u1", { newPassword: "correct-horse-battery" });
+      expect(passwords.verify).not.toHaveBeenCalled();
+      expect(users.setPasswordHash).toHaveBeenCalledWith("u1", "$argon2id$new");
+    });
+
+    it("changes an existing password when the current one verifies", async () => {
+      users.findById.mockResolvedValue(USER);
+      passwords.verify.mockResolvedValue(true);
+      passwords.hash.mockResolvedValue("$argon2id$new");
+      await service.setPassword("u1", {
+        currentPassword: "old-passphrase-9",
+        newPassword: "correct-horse-battery",
+      });
+      expect(passwords.verify).toHaveBeenCalledWith(
+        "$argon2id$stored",
+        "old-passphrase-9",
+      );
+      expect(users.setPasswordHash).toHaveBeenCalledWith("u1", "$argon2id$new");
+      expect(limiter.reset).toHaveBeenCalledWith("password", USER.email);
+    });
+
+    it("400s when changing an existing password without the current one", async () => {
+      users.findById.mockResolvedValue(USER);
+      await expect(
+        service.setPassword("u1", { newPassword: "correct-horse-battery" }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(users.setPasswordHash).not.toHaveBeenCalled();
+    });
+
+    it("401s when the current password is wrong", async () => {
+      users.findById.mockResolvedValue(USER);
+      passwords.verify.mockResolvedValue(false);
+      await expect(
+        service.setPassword("u1", {
+          currentPassword: "nope",
+          newPassword: "correct-horse-battery",
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(users.setPasswordHash).not.toHaveBeenCalled();
+    });
+
+    it("401s when the user no longer exists", async () => {
+      users.findById.mockResolvedValue(undefined);
+      await expect(
+        service.setPassword("u1", { newPassword: "correct-horse-battery" }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

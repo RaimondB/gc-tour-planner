@@ -79,6 +79,19 @@ export class UsersRepository {
     }
   }
 
+  /**
+   * Set (or replace) a user's password hash. Used by the authenticated
+   * set/change-password flow — including letting an OAuth-only account
+   * (`password_hash IS NULL`) gain its first password.
+   */
+  async setPasswordHash(id: string, passwordHash: string): Promise<void> {
+    await this.db
+      .updateTable("users")
+      .set({ password_hash: passwordHash })
+      .where("id", "=", id)
+      .execute();
+  }
+
   private toRow(row: {
     id: string;
     email: string;

@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import App from "./App.js";
 import type { AuthContextValue } from "./features/auth/AuthProvider.js";
+import { AccountPage } from "./features/auth/AccountPage.js";
 import { LoginPage } from "./features/auth/LoginPage.js";
 import { RegisterPage } from "./features/auth/RegisterPage.js";
 import { LandingPage } from "./features/landing/LandingPage.js";
@@ -67,12 +68,25 @@ const toursRoute = createRoute({
   component: MyToursPage,
 });
 
+/** Protected `/account` route — set/change password (FR-P5a). */
+const accountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/account",
+  beforeLoad: ({ context }) => {
+    if (!context.auth.isAuthenticated) {
+      throw redirect({ to: "/welcome" });
+    }
+  },
+  component: AccountPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   welcomeRoute,
   loginRoute,
   registerRoute,
   toursRoute,
+  accountRoute,
 ]);
 
 export const router = createRouter({

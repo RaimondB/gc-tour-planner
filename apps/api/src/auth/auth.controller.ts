@@ -123,6 +123,29 @@ export class AuthController {
     clearAuthCookies(res, this.cfg);
   }
 
+  @Post("password")
+  @HttpCode(204)
+  @ApiOperation({
+    summary: "Set or change the signed-in user's password",
+  })
+  @ApiResponse({ status: 204, description: "Password updated." })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid input, or current password required but missing.",
+  })
+  @ApiResponse({
+    status: 401,
+    description: "Not authenticated, or current password incorrect.",
+  })
+  async setPassword(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ): Promise<void> {
+    const parsed = Auth.SetPasswordInput.safeParse(req.body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    await this.auth.setPassword(user.id, parsed.data);
+  }
+
   @Get("me")
   @ApiOperation({ summary: "The currently authenticated user" })
   @ApiResponse({ status: 200, description: "The current AuthUser." })
