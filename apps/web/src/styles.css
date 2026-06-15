@@ -2045,6 +2045,52 @@ button.danger:hover:not(:disabled) {
   font-size: 0.95rem;
 }
 
+/* Coverage note under the hero CTAs. */
+.landing__coverage-note {
+  margin: var(--space-4) 0 0;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.landing__coverage-note a {
+  color: var(--color-accent-strong);
+  font-weight: 600;
+}
+
+/* "Where it works today" section. */
+.landing__coverage {
+  text-align: center;
+}
+
+.landing__coverage-text {
+  max-width: 620px;
+  margin: 0 auto var(--space-4);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+
+/* Secondary outline CTA (e.g. "Request a region") — distinct from the
+   accent-filled primary so it doesn't compete with "Create account". */
+.landing__btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 var(--space-6);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.landing__btn-outline:hover {
+  background: var(--color-hover);
+}
+
 .landing__finalcta {
   max-width: 1040px;
   margin: 0 auto;

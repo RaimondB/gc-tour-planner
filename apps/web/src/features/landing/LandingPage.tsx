@@ -7,6 +7,23 @@ import { Logo } from "../shell/Logo.js";
 
 const REPO_URL = "https://github.com/RaimondB/gc-tour-planner";
 
+/**
+ * Prefilled "request a region" GitHub issue. We open new regions based on
+ * demand, so interest is tallied from the issue count + 👍 reactions.
+ */
+const REGION_REQUEST_URL = `${REPO_URL}/issues/new?${new URLSearchParams({
+  title: "Region request: <your area>",
+  labels: "region-request",
+  body: [
+    "Which area would you like gc-tour-planner to cover?",
+    "",
+    "- Region / country:",
+    "- Roughly how often would you use it (and how many caches?):",
+    "",
+    "We open new regions based on demand — thanks for the nudge! 👍 this issue (or an existing one) to add weight.",
+  ].join("\n"),
+}).toString()}`;
+
 /** One of the three "how it works" steps, mirroring the in-app JourneyRail. */
 interface Step {
   readonly n: number;
@@ -109,6 +126,13 @@ export function LandingPage(): JSX.Element {
               Sign in
             </Link>
           </div>
+          <p className="landing__coverage-note">
+            Currently covering the <strong>Netherlands</strong> and{" "}
+            <strong>NRW</strong> (Germany).{" "}
+            <a href={REGION_REQUEST_URL} target="_blank" rel="noreferrer">
+              Want another region?
+            </a>
+          </p>
         </section>
 
         <section className="landing__section" aria-labelledby="how-heading">
@@ -175,6 +199,33 @@ export function LandingPage(): JSX.Element {
               </li>
             ))}
           </ul>
+        </section>
+
+        <section
+          className="landing__section landing__coverage"
+          aria-labelledby="coverage-heading"
+        >
+          <h2 id="coverage-heading" className="landing__section-title">
+            Where it works today
+          </h2>
+          <p className="landing__coverage-text">
+            Right now the planner covers the <strong>Netherlands</strong> and{" "}
+            <strong>North Rhine-Westphalia (NRW)</strong> in Germany — the
+            regions whose OpenStreetMap map and walking-route data we currently
+            host.
+          </p>
+          <p className="landing__coverage-text">
+            Want your part of the world supported? Let us know — we open up new
+            regions based on how much interest there is.
+          </p>
+          <a
+            className="landing__btn-outline"
+            href={REGION_REQUEST_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Request a region
+          </a>
         </section>
 
         <section className="landing__finalcta">
