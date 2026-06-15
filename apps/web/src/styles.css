@@ -112,6 +112,9 @@ body,
 .app-header__tools,
 .app-header__hamburger {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   background: white;
   border: 1px solid #d1d5db;
   border-radius: 4px;
@@ -1373,6 +1376,7 @@ button.primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
   color: #fff;
@@ -1437,6 +1441,10 @@ button.primary:disabled {
 
 .gpx-quick button {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
 }
 
 .gpx-quick button:not(.primary) {
@@ -1495,6 +1503,9 @@ p.error,
   z-index: var(--z-map-control);
   width: var(--tap-min);
   height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.96);
