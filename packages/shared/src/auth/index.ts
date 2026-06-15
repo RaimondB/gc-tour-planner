@@ -48,6 +48,18 @@ export const LoginInput = z.object({
 export type LoginInput = z.infer<typeof LoginInput>;
 
 /**
+ * Set or change the signed-in user's password (FR-P5a). `currentPassword` is
+ * required by the server only when the account already has one (an OAuth-only
+ * account — e.g. a Google sign-up — can set its first password without it).
+ * The new password follows the full {@link Password} policy.
+ */
+export const SetPasswordInput = z.object({
+  currentPassword: z.string().min(1).max(128).optional(),
+  newPassword: Password,
+});
+export type SetPasswordInput = z.infer<typeof SetPasswordInput>;
+
+/**
  * The authenticated principal as exposed on the wire (`GET /auth/me`) and as
  * resolved by the API's `@CurrentUser()` decorator. Structurally identical to
  * the API-side `AuthUser` interface — kept here as the single shared contract.

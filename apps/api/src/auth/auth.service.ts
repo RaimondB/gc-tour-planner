@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -83,6 +84,38 @@ export class AuthService {
 
   async logout(sessionId: string | undefined): Promise<void> {
     if (sessionId) await this.sessions.destroy(sessionId);
+  }
+
+  /**
+   * Set or change the signed-in user's password (FR-P5a). The request is
+   * already session-authenticated; as defence-in-depth, when the account
+   * **already has** a password the current one must be supplied and verified
+   * (per-email rate-limited to blunt a hijacked-session brute force). An
+   * OAuth-only account (`password_hash IS NULL`, e.g. a Google sign-up) sets
+   * its first password without one — enabling a shareable family login.
+   */
+  async setPassword(
+    userId: string,
+    input: Auth.SetPasswordInput,
+  ): Promise<void> {
+    const row = await this.users.findById(userId);
+    if (!row) throw new UnauthorizedException("No authenticated user");
+
+    if (row.passwordHash) {
+      await this.limiter.hit("password", row.email);
+      if (!input.currentPassword) {
+        throw new BadRequestException("Current password is required");
+      }
+      const ok = await this.passwords.verify(
+        row.passwordHash,
+        input.currentPassword,
+      );
+      if (!ok) throw new UnauthorizedException("Current password is incorrect");
+      await this.limiter.reset("password", row.email);
+    }
+
+    const newHash = await this.passwords.hash(input.newPassword);
+    await this.users.setPasswordHash(userId, newHash);
   }
 
   /**

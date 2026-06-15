@@ -13,6 +13,7 @@ import {
   AuthUser,
   type LoginInput,
   type RegisterInput,
+  type SetPasswordInput,
 } from "@gctp/shared/auth";
 import {
   CacheDTO,
@@ -513,6 +514,19 @@ export async function login(input: LoginInput): Promise<AuthUser> {
 /** Logout; clears the cookies and deletes the Valkey session server-side. */
 export async function logout(): Promise<void> {
   await request<void>("/auth/logout", { method: "POST" });
+}
+
+/**
+ * Set or change the signed-in user's password. `currentPassword` is required
+ * only when the account already has one (an OAuth-only account can set its
+ * first password without it). Authenticated + CSRF-protected like any mutation.
+ */
+export async function setPassword(input: SetPasswordInput): Promise<void> {
+  await request<void>("/auth/password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 /**

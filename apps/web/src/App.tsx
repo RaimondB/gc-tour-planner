@@ -1086,6 +1086,13 @@ export default function App(): JSX.Element {
             >
               My tours
             </Link>
+            <Link
+              to="/account"
+              className="app-header__tours"
+              title="Account & password"
+            >
+              Account
+            </Link>
             <span className="app-header__user-name" title={user.email}>
               {user.displayName}
             </span>

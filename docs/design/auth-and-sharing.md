@@ -130,6 +130,7 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 | `POST /auth/register` | public | — | Self-service (FR-P5); Turnstile token in body when configured (§7c) |
 | `POST /auth/login` | public | — | Sets session + `csrf` cookies |
 | `POST /auth/logout` | session | yes | Clears cookies (+ deletes Valkey session) |
+| `POST /auth/password` | session | yes | Set/change own password (FR-P5a). Current password required + verified only when one already exists; OAuth-only accounts set their first without it. Per-email rate-limited. |
 | `GET /auth/me` | session | — | Backs the web auth context |
 | `GET /auth/google` → `GET /auth/google/callback` | public | — | OAuth (FR-P4.3) |
 | `POST /tours` | session | yes | Save a `PlanResult` (FR-P1) |
@@ -141,7 +142,7 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
 | `GET /shared/:slug` | public | — | Read-only snapshot (FR-P3, §10) |
 
-Shared zod schemas in `packages/shared`: `RegisterInput`, `LoginInput`, `AuthUser`, `SaveTourInput`, `SavedTourSummary`, `SavedTourDetail`, `SharedTour`. The detailed bodies are recorded in [api-surface.md](api-surface.md).
+Shared zod schemas in `packages/shared`: `RegisterInput`, `LoginInput`, `SetPasswordInput`, `AuthUser`, `SaveTourInput`, `SavedTourSummary`, `SavedTourDetail`, `SharedTour`. The detailed bodies are recorded in [api-surface.md](api-surface.md).
 
 ## 12. Frontend integration
 

@@ -6,6 +6,7 @@ import {
   LoginInput,
   Password,
   RegisterInput,
+  SetPasswordInput,
   isCommonPassword,
 } from "./index.js";
 
@@ -58,6 +59,28 @@ describe("RegisterInput / LoginInput", () => {
     ).toBe(true);
     expect(
       LoginInput.safeParse({ email: "u@e.com", password: "" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("SetPasswordInput (FR-P5a)", () => {
+  it("requires a policy-compliant newPassword; currentPassword is optional", () => {
+    expect(
+      SetPasswordInput.safeParse({ newPassword: "correct-horse-battery" })
+        .success,
+    ).toBe(true);
+    expect(
+      SetPasswordInput.safeParse({
+        currentPassword: "x",
+        newPassword: "correct-horse-battery",
+      }).success,
+    ).toBe(true);
+    // newPassword still under the full FR-P5 policy
+    expect(SetPasswordInput.safeParse({ newPassword: "short" }).success).toBe(
+      false,
+    );
+    expect(
+      SetPasswordInput.safeParse({ newPassword: "password123" }).success,
     ).toBe(false);
   });
 });

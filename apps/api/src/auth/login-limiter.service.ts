@@ -25,7 +25,10 @@ export class LoginLimiterService {
   }
 
   /** Increment the counter and throw 429 once the window cap is exceeded. */
-  async hit(scope: "login" | "register", email: string): Promise<void> {
+  async hit(
+    scope: "login" | "register" | "password",
+    email: string,
+  ): Promise<void> {
     const key = this.key(scope, email);
     const count = await this.valkey.incr(key);
     if (count === 1) {
@@ -40,7 +43,10 @@ export class LoginLimiterService {
   }
 
   /** Clear the counter on a successful login (don't penalise legitimate users). */
-  async reset(scope: "login" | "register", email: string): Promise<void> {
+  async reset(
+    scope: "login" | "register" | "password",
+    email: string,
+  ): Promise<void> {
     await this.valkey.del(this.key(scope, email));
   }
 }
