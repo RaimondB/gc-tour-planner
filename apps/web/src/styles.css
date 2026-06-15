@@ -1820,13 +1820,14 @@ p.error,
 }
 .tours-list__name {
   font-weight: 600;
+  font-size: 1.05rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tours-list__meta {
-  font-size: 0.85rem;
-  color: #6b7280;
+  font-size: 0.9rem;
+  color: #4b5563;
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -1834,8 +1835,72 @@ p.error,
 }
 .tours-list__actions {
   display: flex;
+  align-items: center;
   gap: 0.4rem;
   flex-shrink: 0;
+}
+
+/* Compact the Open button so the action cluster stays small. */
+.tours-list__actions .primary {
+  min-height: 40px;
+  padding: 0 0.85rem;
+  font-size: 0.875rem;
+}
+
+/* Square icon button (rename / delete) — no icon font; SVG inherits color. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-1);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.icon-btn--danger:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: var(--color-danger);
+}
+
+/* Mobile: give the tour info the full width (larger, two readable lines) and
+   drop the compact action cluster onto its own right-aligned row. */
+@media (max-width: 768px) {
+  .tours-list__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+  .tours-list__name {
+    font-size: 1.15rem;
+    white-space: normal;
+  }
+  .tours-list__meta {
+    font-size: 0.95rem;
+  }
+  .tours-list__actions {
+    justify-content: flex-end;
+  }
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 .badge--shared {
