@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useRef, type JSX } from "react";
+import { Check, Lock } from "lucide-react";
 import { JOURNEY_LABELS, JOURNEY_STEPS, type JourneyStep } from "./journey.js";
 
 export interface JourneyRailProps {
@@ -92,7 +93,13 @@ export function JourneyRail({
                 onKeyDown={(e) => onKeyDown(e, idx)}
               >
                 <span className="journey-chip__marker" aria-hidden="true">
-                  {!isEnabled ? "🔒" : isDone ? "✓" : idx + 1}
+                  {!isEnabled ? (
+                    <Lock size={15} aria-hidden="true" />
+                  ) : isDone ? (
+                    <Check size={16} aria-hidden="true" />
+                  ) : (
+                    idx + 1
+                  )}
                 </span>
                 <span className="journey-chip__label">
                   {JOURNEY_LABELS[step]}

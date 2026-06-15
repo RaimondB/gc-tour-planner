@@ -19,6 +19,7 @@
     "@gctp/shared": "workspace:*",
     "@tanstack/react-query": "5.101.0",
     "@tanstack/react-router": "1.170.15",
+    "lucide-react": "^1.18.0",
     "maplibre-gl": "5.24.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

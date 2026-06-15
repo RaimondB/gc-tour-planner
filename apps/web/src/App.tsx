@@ -75,6 +75,7 @@ import {
   mergeCachesById,
 } from "./features/planning/halo-caches.js";
 import { UploadDropzone } from "./features/upload/UploadDropzone.js";
+import { Crosshair, Download, Save, Wrench } from "lucide-react";
 import { Logo } from "./features/shell/Logo.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
@@ -931,14 +932,20 @@ export default function App(): JSX.Element {
               disabled={saveMutation.isPending}
               title="Save this tour to My Tours so you can re-open it later."
             >
-              {saveMutation.isPending ? "Saving…" : "💾 Save tour"}
+              {saveMutation.isPending ? (
+                "Saving…"
+              ) : (
+                <>
+                  <Save size={16} aria-hidden="true" /> Save tour
+                </>
+              )}
             </button>
             <button
               type="button"
               onClick={() => downloadGpx("track")}
               title="Download a GPX track — your device follows the exact route on the map."
             >
-              ↓ GPX track
+              <Download size={16} aria-hidden="true" /> GPX track
             </button>
             <button
               type="button"
@@ -1074,7 +1081,8 @@ export default function App(): JSX.Element {
             aria-controls="tools-drawer"
             title="Admin tools (precompute, cluster lab, debug overlays)"
           >
-            ⚙<span className="app-header__tools-label"> Admin</span>
+            <Wrench size={16} aria-hidden="true" />
+            <span className="app-header__tools-label">Admin</span>
           </button>
         )}
         {user && (
@@ -1242,7 +1250,7 @@ export default function App(): JSX.Element {
             aria-label="Frame current view"
             title="Re-center the map on the current step's content"
           >
-            ⊕
+            <Crosshair size={20} aria-hidden="true" />
           </button>
         </main>
 
