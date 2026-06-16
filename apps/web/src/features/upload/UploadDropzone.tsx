@@ -5,10 +5,12 @@ import { useRef, useState, type JSX, type MouseEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, uploadGpx, type UploadGpxResult } from "../../lib/api.js";
 import { AdvancedSection } from "../shell/AdvancedSection.js";
+import { useOnline } from "../shell/ConnectivityProvider.js";
 
 export function UploadDropzone(): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+  const online = useOnline();
   const [dragging, setDragging] = useState(false);
   const [solvedCoordinates, setSolvedCoordinates] = useState(false);
 
@@ -60,26 +62,30 @@ export function UploadDropzone(): JSX.Element {
         )}
       </AdvancedSection>
       <div
-        className={`dropzone${dragging ? " dropzone--active" : ""}`}
+        className={`dropzone${dragging ? " dropzone--active" : ""}${
+          online ? "" : " dropzone--disabled"
+        }`}
         onDragEnter={(e) => {
           e.preventDefault();
-          setDragging(true);
+          if (online) setDragging(true);
         }}
         onDragOver={(e) => {
           e.preventDefault();
-          setDragging(true);
+          if (online) setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          accept(e.dataTransfer.files);
+          if (online) accept(e.dataTransfer.files);
         }}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => online && inputRef.current?.click()}
         role="button"
-        tabIndex={0}
+        tabIndex={online ? 0 : -1}
+        aria-disabled={!online}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+          if (online && (e.key === "Enter" || e.key === " "))
+            inputRef.current?.click();
         }}
       >
         <input
@@ -87,12 +93,15 @@ export function UploadDropzone(): JSX.Element {
           type="file"
           accept=".gpx,application/gpx+xml,application/xml,text/xml"
           hidden
+          disabled={!online}
           onChange={(e) => accept(e.target.files)}
         />
         <div className="dropzone__primary">
-          {mutation.isPending
-            ? "Uploading…"
-            : "Drop a GPX here or click to choose"}
+          {!online
+            ? "GPX upload needs a connection"
+            : mutation.isPending
+              ? "Uploading…"
+              : "Drop a GPX here or click to choose"}
         </div>
         {!mutation.isPending && !mutation.isSuccess && (
           <div className="dropzone__hint">

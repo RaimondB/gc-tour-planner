@@ -9,6 +9,7 @@ Source-of-truth for what gc-tour-planner must do. Changes here are normative; de
 - [Tour planning](tour-planning.md) — cluster discovery, routed loop, parking, warm cache (FR-T\*)
 - [Persistence + sharing](persistence-sharing.md) — saved tours, sharing links, auth (FR-P\*) — M6
 - [Map UI](map-ui.md) — MapLibre map, sidebar, attribution (FR-M\*)
+- [Web app / PWA](web-app.md) — installability, native share, offline saved tours, map snapshots (FR-W\*)
 - [Non-functional](non-functional.md) — performance, determinism, license, ownership (NFR-\*)
 - [Out of scope](out-of-scope.md) — what we explicitly are not building (MVP)
 - [Roadmap](roadmap.md) — milestones M1–M8 with status

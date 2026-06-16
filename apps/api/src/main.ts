@@ -11,7 +11,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import type { Queue } from "bullmq";
 import cookieParser from "cookie-parser";
-import type { RequestHandler } from "express";
+import { raw, type RequestHandler } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
 import { parseTrustProxy } from "./auth/client-ip.js";
@@ -40,6 +40,12 @@ async function bootstrap(): Promise<void> {
   // which the auth guard reads for the session + CSRF tokens.
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.use(cookieParser());
+
+  // Buffer raw image/webp bodies (the saved-tour map snapshot, PUT
+  // /tours/:id/preview). The filter means this parser only touches image/webp
+  // requests — every JSON route is untouched and still parsed by Nest. The 1 MB
+  // limit is a backstop; the controller enforces the real 512 KB cap.
+  app.use(raw({ type: "image/webp", limit: "1mb" }));
 
   // CORS: opt-in via env. The dev setup proxies the API through Vite (same
   // origin), so CORS is unnecessary there. Production deploys that put the

@@ -10,8 +10,8 @@ import {
   type JSX,
 } from "react";
 import type maplibregl from "maplibre-gl";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   ClusterCandidate,
   ClusterDiagnostics,
@@ -19,13 +19,20 @@ import type {
 } from "@gctp/shared/tours";
 import {
   discoverClusters,
-  getTour,
   listCaches,
   planLoop,
   saveTour,
+  saveTourPreview,
+  tourPreviewUrl,
 } from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
-import { downloadText } from "./lib/download-text.js";
+import { shareOrDownloadGpx } from "./lib/share-file.js";
+import { captureMapSnapshot } from "./lib/map-snapshot.js";
+import {
+  useOnline,
+  useRecheckConnectivity,
+} from "./features/shell/ConnectivityProvider.js";
+import { useTourSession } from "./features/tours/TourSessionProvider.js";
 import {
   buildEditedPolyline,
   type LegPicks,
@@ -80,12 +87,13 @@ import {
   Download,
   Menu,
   Navigation,
+  Route,
   Save,
   Wrench,
 } from "lucide-react";
-import type { CacheSummaryDTO, CacheType } from "@gctp/shared/caches";
 import { googleMapsDirUrl } from "./lib/maps.js";
 import { Logo } from "./features/shell/Logo.js";
+import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
 import { AdminToolsPanel } from "./features/shell/AdminToolsPanel.js";
@@ -152,9 +160,13 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
   });
 }
 
+/** Shared tooltip for online-only controls disabled while offline. */
+const OFFLINE_REASON = "Unavailable offline — reconnect to continue.";
+
 export default function App(): JSX.Element {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const onLogout = useCallback(async () => {
     await logout();
     void navigate({ to: "/login" });
@@ -202,13 +214,39 @@ export default function App(): JSX.Element {
    */
   const [selectedParking, setSelectedParking] =
     useState<SelectedParking | null>(null);
-  const [planResult, setPlanResultRaw] = useState<PlanResult | null>(null);
-  // Caches from an opened saved tour — the stored plan's denormalised snapshots.
-  // Rendered even though they fall outside the live radius query; cleared when
-  // the user starts a fresh search / discovery / plan (see effects below).
-  const [tourCaches, setTourCaches] = useState<
-    readonly CacheSummaryDTO[] | null
-  >(null);
+  // Ephemeral, online-only output of the live planning flow (discover → plan).
+  // The OTHER source of a renderable plan — an opened *saved* tour — is owned by
+  // `TourSessionProvider` (durable, offline). The two are reconciled into a
+  // single `planResult` below.
+  const [plannedResult, setPlannedResultRaw] = useState<PlanResult | null>(
+    null,
+  );
+  /**
+   * Authoritative connectivity (probes `/api/health`), decoupled from tile
+   * rendering so cached tiles can't make it flap. When offline, an opened tour
+   * with a snapshot shows the snapshot in place of the live map.
+   */
+  const online = useOnline();
+  const recheckConnectivity = useRecheckConnectivity();
+  /**
+   * The opened saved tour — single source of truth (persisted id + IndexedDB +
+   * React Query). Everything tour-related (`tourCaches`, the snapshot flag, the
+   * open error) is derived here, not scattered through App state/effects.
+   */
+  const {
+    openTourId,
+    detail: openedDetail,
+    planResult: openedPlan,
+    tourCaches,
+    openedTour,
+    error: tourError,
+    closeTour,
+    markPreviewCaptured,
+  } = useTourSession();
+  // A freshly planned cluster wins over an opened tour (matches the old
+  // clear-on-plan behaviour — now a derivation, not a side-effect).
+  const planResult = plannedResult ?? openedPlan;
+  const viewingOpenedTour = plannedResult === null && openedPlan !== null;
   /** Manual cluster selection (shift-click markers) — drives the Cluster Lab. */
   const [selectedCacheIds, setSelectedCacheIds] = useState<ReadonlySet<number>>(
     () => new Set(),
@@ -267,15 +305,20 @@ export default function App(): JSX.Element {
   const isAdmin = user?.isAdmin === true;
 
   // A fresh plan jumps the user into the Tour step so the result is in view.
-  const setPlanResult = useCallback(
+  // Setting a planned result supersedes any opened tour (see `planResult`
+  // derivation), so also drop the opened-tour session here.
+  const setPlannedResult = useCallback(
     (next: PlanResult | null) => {
-      setPlanResultRaw(next);
-      if (next) setActiveStep("tour");
+      setPlannedResultRaw(next);
+      if (next) {
+        setActiveStep("tour");
+        closeTour();
+      }
       setSelectedLegIndex(null);
       setPreviewAlternativeIndex(null);
       setViaDrag(null);
     },
-    [setActiveStep],
+    [setActiveStep, closeTour],
   );
 
   const startViaDrag = useCallback(
@@ -321,14 +364,17 @@ export default function App(): JSX.Element {
     },
     onSuccess: (res) => {
       setPlannedKey(pendingPlanKeyRef.current);
-      // A fresh plan is in the live query area — drop any opened-tour snapshots.
-      setTourCaches(null);
-      setPlanResult(res);
+      // `setPlannedResult` supersedes any opened tour (closeTour) and jumps to
+      // the Tour step — see its definition.
+      setPlannedResult(res);
     },
   });
   const planCluster = useCallback(
-    (cluster: ClusterCandidate) => planMutation.mutate(cluster),
-    [planMutation],
+    (cluster: ClusterCandidate) => {
+      if (!online) return;
+      planMutation.mutate(cluster);
+    },
+    [online, planMutation],
   );
 
   // ── Save tour (M6-γ, FR-P1) ──────────────────────────────────────────
@@ -339,46 +385,78 @@ export default function App(): JSX.Element {
     },
   });
   const onSaveTour = useCallback(() => {
-    if (!planResult || saveMutation.isPending) return;
+    if (!planResult || saveMutation.isPending || !online) return;
     const name = window.prompt("Name this tour")?.trim();
     if (!name) return;
     saveMutation.mutate(name, {
-      onSuccess: () => void navigate({ to: "/tours" }),
+      onSuccess: async (detail) => {
+        // Snapshot the framed tour for its offline preview / list thumbnail
+        // (FR-W4) BEFORE navigating away unmounts the map. Capture the blob
+        // synchronously (the tour is already drawn + idle), then upload in the
+        // background — best-effort, never blocks the save or the nav.
+        const map = mapRef.current;
+        if (map) {
+          const blob = await captureMapSnapshot(map);
+          if (blob)
+            void saveTourPreview(detail.id, blob)
+              // Refresh My Tours so the new thumbnail shows without a manual
+              // reload (the list was fetched before the upload landed).
+              .then(() =>
+                queryClient.invalidateQueries({ queryKey: ["tours"] }),
+              )
+              .catch(() => {});
+        }
+        void navigate({ to: "/tours" });
+      },
     });
-  }, [planResult, saveMutation, navigate]);
+  }, [planResult, saveMutation, navigate, queryClient, online]);
 
-  // ── Open a saved tour (M6-γ, FR-P2.2) ────────────────────────────────
-  // /tours hands a tour id via router state; fetch it and re-render the loop
-  // from the stored plan WITHOUT replanning, then clear the state so a reload
-  // or back-nav doesn't re-open it.
-  const openTourId = useRouterState({
-    select: (s) => s.location.state.openTourId,
-  });
-  const openTourMutation = useMutation({
-    mutationFn: (id: string) => getTour(id),
-    onSuccess: (detail) => {
-      // Render the tour's caches from the stored snapshots — they're outside
-      // the current radius query (and may no longer exist), so the markers
-      // would otherwise be missing.
-      setTourCaches(tourCachesToSummaries(detail.plan.caches));
-      setPlanResult(detail.plan);
-      setChosenClusterId(null);
-    },
-  });
-  const openTourMutate = openTourMutation.mutate;
+  // ── Opened saved tour (M6-γ, FR-P2.2 / FR-W3) ────────────────────────
+  // Opening, resuming, switching and the offline-durable data all live in
+  // `TourSessionProvider`; `MyToursPage` calls `openTour(id)`. Here we only
+  // react to a tour becoming the active view: drop ephemeral planning context
+  // and surface it on the Tour step. Single trigger, no refs/mount-guards.
   useEffect(() => {
-    if (!openTourId) return;
-    openTourMutate(openTourId);
-    void navigate({ to: "/", replace: true, state: { openTourId: undefined } });
-  }, [openTourId, openTourMutate, navigate]);
+    if (!openedPlan) return;
+    setPlannedResultRaw(null);
+    setChosenClusterId(null);
+    setActiveStep("tour");
+  }, [openTourId, openedPlan, setActiveStep]);
 
-  // A fresh search (center/radius change) is a new exploration → drop any
-  // opened-tour snapshot caches so they don't linger as stale markers. Opening
-  // a tour fits the map via fitBounds (not setParams), so this never fires on
-  // open — only on a deliberate re-search.
+  // Backfill a missing offline snapshot for a freshly opened tour (saved before
+  // FR-W4 or whose capture failed). Online only — offline has no fresh tiles.
+  // Once per tour id; updates the session's cached `hasPreview`.
+  const backfilledRef = useRef<string | null>(null);
   useEffect(() => {
-    setTourCaches(null);
-  }, [params.center, params.radiusM]);
+    if (!openedDetail || openedDetail.hasPreview || !online) return;
+    if (backfilledRef.current === openedDetail.id) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const id = openedDetail.id;
+    backfilledRef.current = id;
+    void captureMapSnapshot(map, { awaitNextIdle: true }).then((blob) => {
+      if (!blob) return;
+      void saveTourPreview(id, blob)
+        .then(() => {
+          markPreviewCaptured(id);
+          return queryClient.invalidateQueries({ queryKey: ["tours"] });
+        })
+        .catch(() => {});
+    });
+  }, [openedDetail, online, markPreviewCaptured, queryClient]);
+
+  // A fresh search (center/radius change) is a new exploration → leave the
+  // opened tour. Opening a tour fits the map via fitBounds (not setParams), so
+  // this never fires on open. Skip the mount run so a resumed tour survives the
+  // initial render (params are restored from localStorage on mount).
+  const searchChangeMountRef = useRef(true);
+  useEffect(() => {
+    if (searchChangeMountRef.current) {
+      searchChangeMountRef.current = false;
+      return;
+    }
+    closeTour();
+  }, [params.center, params.radiusM, closeTour]);
 
   // Picking a cluster makes it the Tour context (and clears a stale result
   // from a previously-picked cluster) WITHOUT switching steps — the user
@@ -386,12 +464,12 @@ export default function App(): JSX.Element {
   const pickCluster = useCallback(
     (cluster: ClusterCandidate) => {
       if (cluster.clusterId !== chosenClusterId) {
-        setPlanResult(null);
+        setPlannedResultRaw(null);
         setPlannedKey(null);
       }
       setChosenClusterId(cluster.clusterId);
     },
-    [chosenClusterId, setPlanResult],
+    [chosenClusterId],
   );
 
   // ── Discover-clusters mutation ───────────────────────────────────────
@@ -433,8 +511,9 @@ export default function App(): JSX.Element {
       setClusters(res.candidates);
       setDiagnostics(res.diagnostics);
       setPlannedKey(null);
-      setPlanResult(null);
-      setTourCaches(null);
+      // Discovering a new pool abandons any planned result and opened tour.
+      setPlannedResultRaw(null);
+      closeTour();
       setDiscoveredInputKey(discoverInputKey(params, planSettings));
       // Pre-pick the top candidate so the "Pick a cluster" peek shows the
       // carousel + an active "Plan cluster #1" button by default (no camera
@@ -445,9 +524,10 @@ export default function App(): JSX.Element {
     },
   });
   const onDiscover = useCallback(() => {
+    if (!online) return;
     setActiveStep("clusters");
     discoverMutation.mutate();
-  }, [discoverMutation, setActiveStep]);
+  }, [online, discoverMutation, setActiveStep]);
 
   // Cache IDs feeding the parking-preview layer.
   const parkingPreviewCacheIds = useMemo<readonly number[]>(() => {
@@ -490,6 +570,8 @@ export default function App(): JSX.Element {
   const cachesQuery = useQuery({
     queryKey: ["caches", debouncedCacheInput],
     queryFn: ({ signal }) => listCaches(debouncedCacheInput, signal),
+    // Don't poll a dead network offline; keep the last-fetched caches on screen.
+    enabled: online,
     placeholderData: (prev) => prev,
   });
 
@@ -516,7 +598,7 @@ export default function App(): JSX.Element {
   const haloCachesQuery = useQuery({
     queryKey: ["caches", haloCacheInput],
     queryFn: ({ signal }) => listCaches(haloCacheInput, signal),
-    enabled: clusters !== null,
+    enabled: clusters !== null && online,
     placeholderData: (prev) => prev,
   });
 
@@ -667,10 +749,11 @@ export default function App(): JSX.Element {
             )
           : planToGpxRoute(planResult, caches);
       const ts = new Date().toISOString().replace(/[:.]/g, "-");
-      downloadText({
+      void shareOrDownloadGpx({
         text,
         filename: `gctp-tour-${mode}-${ts}.gpx`,
         mimeType: "application/gpx+xml",
+        title: `gc-tour-planner ${mode}`,
       });
     },
     [planResult, caches, legPicks],
@@ -820,9 +903,12 @@ export default function App(): JSX.Element {
   }, [planResult, activeStep, fitToCoordinates]);
 
   // ── Journey-rail state ───────────────────────────────────────────────
+  // Find + cluster discovery hit the live API; offline they're locked. The tour
+  // step stays reachable so an opened/planned tour can still export & show its
+  // offline snapshot.
   const railEnabled: Record<JourneyStep, boolean> = {
-    caches: true,
-    clusters: clustersStepEnabled,
+    caches: online,
+    clusters: clustersStepEnabled && online,
     tour: tourStepEnabled,
   };
   const railDone: Record<JourneyStep, boolean> = {
@@ -831,7 +917,10 @@ export default function App(): JSX.Element {
     tour: planResult !== null,
   };
   const railLocked: Partial<Record<JourneyStep, string>> = {
-    clusters: "Upload a GPX or widen the search to see caches first.",
+    caches: online ? undefined : "Finding caches needs a connection.",
+    clusters: online
+      ? "Upload a GPX or widen the search to see caches first."
+      : "Cluster discovery needs a connection.",
     tour: "Pick a cluster first.",
   };
 
@@ -851,16 +940,18 @@ export default function App(): JSX.Element {
           <button
             type="button"
             className="primary"
-            disabled={cacheCount === 0}
+            disabled={cacheCount === 0 || !online}
             onClick={goToClusters}
             title={
-              cacheCount === 0
-                ? "Load caches first (upload a GPX or widen the radius)."
-                : clustersStale
-                  ? "Search/discovery settings changed — re-run discovery"
-                  : clusters && clusters.length > 0
-                    ? "Go to your discovered clusters"
-                    : "Find walkable cluster loops from these caches"
+              !online
+                ? OFFLINE_REASON
+                : cacheCount === 0
+                  ? "Load caches first (upload a GPX or widen the radius)."
+                  : clustersStale
+                    ? "Search/discovery settings changed — re-run discovery"
+                    : clusters && clusters.length > 0
+                      ? "Go to your discovered clusters"
+                      : "Find walkable cluster loops from these caches"
             }
           >
             {clustersStale ? "Re-discover →" : "Find clusters →"}
@@ -879,7 +970,8 @@ export default function App(): JSX.Element {
                 type="button"
                 className="primary"
                 onClick={onDiscover}
-                disabled={discoverMutation.isPending}
+                disabled={discoverMutation.isPending || !online}
+                title={!online ? OFFLINE_REASON : undefined}
               >
                 {discoverMutation.isPending ? "Searching…" : "Re-discover"}
               </button>
@@ -890,7 +982,8 @@ export default function App(): JSX.Element {
               type="button"
               className="primary"
               onClick={onDiscover}
-              disabled={discoverMutation.isPending}
+              disabled={discoverMutation.isPending || !online}
+              title={!online ? OFFLINE_REASON : undefined}
             >
               {discoverMutation.isPending ? "Searching…" : "Discover clusters"}
             </button>
@@ -911,7 +1004,10 @@ export default function App(): JSX.Element {
                   type="button"
                   className="primary"
                   onClick={() => planCluster(chosenCluster)}
-                  disabled={planMutation.isPending || needsPickedStart}
+                  disabled={
+                    planMutation.isPending || needsPickedStart || !online
+                  }
+                  title={!online ? OFFLINE_REASON : undefined}
                 >
                   {planMutation.isPending
                     ? "Planning…"
@@ -952,7 +1048,8 @@ export default function App(): JSX.Element {
                 type="button"
                 className="primary"
                 onClick={replan}
-                disabled={planMutation.isPending || needsPickedStart}
+                disabled={planMutation.isPending || needsPickedStart || !online}
+                title={!online ? OFFLINE_REASON : undefined}
               >
                 {planMutation.isPending
                   ? "Planning…"
@@ -976,8 +1073,12 @@ export default function App(): JSX.Element {
               type="button"
               className="primary"
               onClick={onSaveTour}
-              disabled={saveMutation.isPending}
-              title="Save this tour to My Tours so you can re-open it later."
+              disabled={saveMutation.isPending || !online}
+              title={
+                !online
+                  ? OFFLINE_REASON
+                  : "Save this tour to My Tours so you can re-open it later."
+              }
             >
               {saveMutation.isPending ? (
                 "Saving…"
@@ -1017,7 +1118,8 @@ export default function App(): JSX.Element {
               type="button"
               className="primary"
               onClick={replan}
-              disabled={planMutation.isPending || needsPickedStart}
+              disabled={planMutation.isPending || needsPickedStart || !online}
+              title={!online ? OFFLINE_REASON : undefined}
             >
               {planMutation.isPending
                 ? "Planning…"
@@ -1063,7 +1165,7 @@ export default function App(): JSX.Element {
           focusedClusterId={focusedClusterId}
           onFocusClusterChange={setFocusedClusterId}
           result={planResult}
-          onResultChange={setPlanResult}
+          onResultChange={setPlannedResult}
           caches={caches}
           selectedCacheIds={selectedCacheIds}
           onSelectionChange={setSelectedCacheIds}
@@ -1091,6 +1193,7 @@ export default function App(): JSX.Element {
           onDiscover={onDiscover}
           discoverPending={discoverMutation.isPending}
           discoverError={(discoverMutation.error as Error) ?? null}
+          online={online}
         />
       );
     }
@@ -1138,124 +1241,158 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <Logo size={34} />
-        <div className="app-header__title">
-          <h1>gc-tour-planner</h1>
-          <p>Plan closed-loop geocaching tours from filtered cache clusters.</p>
-        </div>
-        {/* Desktop: inline actions. Hidden on mobile (collapsed into the menu). */}
-        <div className="app-header__actions">
-          {isAdmin && (
-            <button
-              type="button"
-              className="app-header__tools"
-              onClick={() => setToolsOpen((v) => !v)}
-              aria-expanded={toolsOpen}
-              aria-controls="tools-drawer"
-              title="Admin tools (precompute, cluster lab, debug overlays)"
-            >
-              <Wrench size={16} aria-hidden="true" />
-              <span className="app-header__tools-label">Admin</span>
-            </button>
-          )}
-          {user && (
-            <div className="app-header__user">
-              <Link
-                to="/tours"
-                className="app-header__tours"
-                title="Your saved tours"
-              >
-                My tours
-              </Link>
-              <Link
-                to="/account"
-                className="app-header__tours"
-                title="Account & password"
-              >
-                Account
-              </Link>
-              <span className="app-header__user-name" title={user.email}>
-                {user.displayName}
-              </span>
+      {/* Header + offline banner + open-tour error share ONE grid row (`.app`
+          is `grid-template-rows: auto 1fr auto` — header / body / footer). The
+          banner must NOT be a direct grid child or, when it appears offline, it
+          steals the map's 1fr track and the map collapses. */}
+      <div className="app-top">
+        <header className="app-header">
+          <Logo size={34} />
+          <div className="app-header__title">
+            <h1>gc-tour-planner</h1>
+            <p>
+              Plan closed-loop geocaching tours from filtered cache clusters.
+            </p>
+          </div>
+          <OfflineBadge />
+          {/* Desktop: inline actions. Hidden on mobile (collapsed into the menu). */}
+          <div className="app-header__actions">
+            {isAdmin && (
               <button
                 type="button"
-                className="app-header__logout"
-                onClick={() => void onLogout()}
-                title="Sign out"
+                className="app-header__tools"
+                onClick={() => setToolsOpen((v) => !v)}
+                aria-expanded={toolsOpen}
+                aria-controls="tools-drawer"
+                title="Admin tools (precompute, cluster lab, debug overlays)"
               >
-                Sign out
+                <Wrench size={16} aria-hidden="true" />
+                <span className="app-header__tools-label">Admin</span>
               </button>
-            </div>
-          )}
-        </div>
+            )}
+            {user && (
+              <div className="app-header__user">
+                <Link
+                  to="/tours"
+                  className="app-header__tours"
+                  title="Your saved tours"
+                >
+                  My tours
+                </Link>
+                <Link
+                  to="/account"
+                  className="app-header__tours"
+                  title="Account & password"
+                >
+                  Account
+                </Link>
+                <span className="app-header__user-name" title={user.email}>
+                  {user.displayName}
+                </span>
+                <button
+                  type="button"
+                  className="app-header__logout"
+                  onClick={() => void onLogout()}
+                  title="Sign out"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
 
-        {/* Mobile: a hamburger that opens the same actions as a dropdown. */}
-        {user && (
-          <div className="app-header__menu-wrap">
-            <button
-              type="button"
-              className="app-header__hamburger"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
-              aria-controls="header-menu"
-              aria-label="Menu"
+          {/* My Tours stays a first-class, always-visible action (icon on mobile,
+            where the rest collapse into the hamburger). */}
+          {user && (
+            <Link
+              to="/tours"
+              className="app-header__tours-quick"
+              aria-label="My tours"
+              title="Your saved tours"
             >
-              <Menu size={20} aria-hidden="true" />
-            </button>
-            {menuOpen && (
-              <>
-                <div
-                  className="app-header__menu-backdrop"
-                  onClick={() => setMenuOpen(false)}
-                />
-                <div id="header-menu" className="app-header__menu" role="menu">
-                  {isAdmin && (
+              <Route size={20} aria-hidden="true" />
+            </Link>
+          )}
+
+          {/* Mobile: a hamburger that opens the same actions as a dropdown. */}
+          {user && (
+            <div className="app-header__menu-wrap">
+              <button
+                type="button"
+                className="app-header__hamburger"
+                onClick={() => setMenuOpen((v) => !v)}
+                aria-expanded={menuOpen}
+                aria-controls="header-menu"
+                aria-label="Menu"
+              >
+                <Menu size={20} aria-hidden="true" />
+              </button>
+              {menuOpen && (
+                <>
+                  <div
+                    className="app-header__menu-backdrop"
+                    onClick={() => setMenuOpen(false)}
+                  />
+                  <div
+                    id="header-menu"
+                    className="app-header__menu"
+                    role="menu"
+                  >
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="app-header__menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setToolsOpen(true);
+                        }}
+                      >
+                        <Wrench size={16} aria-hidden="true" /> Admin tools
+                      </button>
+                    )}
+                    <Link
+                      to="/account"
+                      className="app-header__menu-item"
+                      role="menuitem"
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      Account
+                    </Link>
                     <button
                       type="button"
                       className="app-header__menu-item"
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
-                        setToolsOpen(true);
+                        void onLogout();
                       }}
                     >
-                      <Wrench size={16} aria-hidden="true" /> Admin tools
+                      Sign out
                     </button>
-                  )}
-                  <Link
-                    to="/tours"
-                    className="app-header__menu-item"
-                    role="menuitem"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    My tours
-                  </Link>
-                  <Link
-                    to="/account"
-                    className="app-header__menu-item"
-                    role="menuitem"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Account
-                  </Link>
-                  <button
-                    type="button"
-                    className="app-header__menu-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void onLogout();
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </div>
-              </>
-            )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </header>
+
+        <OfflineBanner />
+
+        {tourError && (
+          <div className="open-tour-error" role="alert">
+            <span>{tourError}</span>
+            <button
+              type="button"
+              className="open-tour-error__dismiss"
+              onClick={() => closeTour()}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
           </div>
         )}
-      </header>
+      </div>
 
       <div className="app-body">
         <main className="app-main">
@@ -1275,6 +1412,7 @@ export default function App(): JSX.Element {
               mapRef.current = m;
             }}
             onViewportChange={setViewport}
+            onBasemapError={recheckConnectivity}
           >
             <LanduseLayer params={params} />
             <OsmParkingLayer
@@ -1300,6 +1438,7 @@ export default function App(): JSX.Element {
               selectedCacheIds={selectedCacheIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
+              online={online}
             />
             <ClustersPreviewLayer
               candidates={clusters}
@@ -1370,6 +1509,25 @@ export default function App(): JSX.Element {
             <ZoomDebugBadge />
           </MapView>
 
+          {/* Offline fallback: when basemap tiles can't load, show the opened
+              tour's stored snapshot (FR-W4) — it bakes in the basemap + route.
+              Driven by real tile load failures, not navigator.onLine. The image
+              is an OSM-derived "Produced Work", so it carries OSM attribution. */}
+          {viewingOpenedTour && openedTour?.hasPreview && !online && (
+            <div className="map-offline-snapshot">
+              <img
+                src={tourPreviewUrl(openedTour.id)}
+                alt="Saved tour map (offline)"
+              />
+              <span className="map-offline-snapshot__badge">
+                Offline preview
+              </span>
+              <span className="map-offline-snapshot__attribution">
+                © OpenStreetMap contributors
+              </span>
+            </div>
+          )}
+
           <JourneyRail
             current={activeStep}
             enabled={railEnabled}
@@ -1430,36 +1588,6 @@ export default function App(): JSX.Element {
       </footer>
     </div>
   );
-}
-
-/**
- * Build map-ready cache summaries from a saved tour's denormalised snapshots.
- * Snapshots carry only identity + location, so the live-only fields (found,
- * disabled, solved, stages, parking, tool) default off — enough to render the
- * marker when re-opening a saved tour, even if the cache row is gone (FR-P1.3).
- */
-function tourCachesToSummaries(
-  snaps: readonly {
-    id: number;
-    code: string;
-    type: string;
-    name: string;
-    location: CacheSummaryDTO["location"];
-  }[],
-): CacheSummaryDTO[] {
-  return snaps.map((s) => ({
-    id: s.id,
-    code: s.code,
-    name: s.name,
-    type: s.type as CacheType,
-    location: s.location,
-    disabled: false,
-    solved: false,
-    foundByMe: false,
-    stageCount: 0,
-    parkingPoints: [],
-    requiresTool: false,
-  }));
 }
 
 /** Human total duration (walking + visit) for the tour peek headline. */

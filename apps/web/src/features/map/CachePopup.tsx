@@ -38,6 +38,11 @@ export interface CachePopupProps {
    * The header (code/name/type/found) renders immediately regardless.
    */
   loadingDetail?: boolean;
+  /**
+   * False when offline — mark-found / clear-solved write to the server, so the
+   * buttons disable and explain why. Defaults to true.
+   */
+  online?: boolean;
 }
 
 export function CachePopup({
@@ -54,6 +59,7 @@ export function CachePopup({
   solved = false,
   onClearSolved,
   loadingDetail = false,
+  online = true,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [clearingSolved, setClearingSolved] = useState(false);
@@ -139,7 +145,8 @@ export function CachePopup({
         type="button"
         className={`cache-popup__btn${foundByMe ? " cache-popup__btn--unmark" : ""}`}
         onClick={handleClick}
-        disabled={busy}
+        disabled={busy || !online}
+        title={online ? undefined : "Marking found needs a connection."}
       >
         {busy ? "Saving…" : foundByMe ? "Unmark as found" : "Mark as found"}
       </button>
@@ -148,10 +155,16 @@ export function CachePopup({
           type="button"
           className="cache-popup__btn cache-popup__btn--unmark"
           onClick={handleClearSolved}
-          disabled={clearingSolved}
+          disabled={clearingSolved || !online}
+          title={online ? undefined : "Editing coordinates needs a connection."}
         >
           {clearingSolved ? "Removing…" : "Remove solved coordinates"}
         </button>
+      )}
+      {!online && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          Offline — found/solved edits are unavailable.
+        </div>
       )}
     </div>
   );

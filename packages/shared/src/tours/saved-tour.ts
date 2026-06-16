@@ -20,6 +20,12 @@ export const SavedTourSummary = z.object({
   cacheCount: z.number().int().nonnegative(),
   /** True once a share link has been minted (M6-δ). Always false in M6-γ. */
   isShared: z.boolean(),
+  /**
+   * True once a map snapshot has been captured (FR-W4). The image itself is
+   * served as binary from `GET /tours/:id/preview`; this flag tells the client
+   * whether to render the thumbnail / offline basemap or to backfill it.
+   */
+  hasPreview: z.boolean(),
   createdAt: z.string(),
 });
 export type SavedTourSummary = z.infer<typeof SavedTourSummary>;

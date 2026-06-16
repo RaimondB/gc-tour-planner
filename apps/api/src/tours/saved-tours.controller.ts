@@ -11,12 +11,21 @@ import {
   Param,
   Patch,
   Post,
+  Put,
+  Req,
+  Res,
 } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import type { Request, Response } from "express";
 import { Tours } from "@gctp/shared";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import type { AuthUser } from "../auth/auth.types.js";
 import { SavedToursService } from "./saved-tours.service.js";
+
+/** Max accepted map-snapshot size. WebP at ~modest quality is tens of KB. */
+const MAX_PREVIEW_BYTES = 512 * 1024;
+/** Only WebP is accepted — what the web client captures via toDataURL. */
+const PREVIEW_MIME = "image/webp";
 
 /**
  * Saved-tour persistence (M6-γ, FR-P1/FR-P2). Distinct from the planning
@@ -79,6 +88,52 @@ export class SavedToursController {
       throw new BadRequestException(parsed.error.flatten());
     }
     return this.service.rename(user.id, id, parsed.data.name);
+  }
+
+  @Put(":id/preview")
+  @HttpCode(204)
+  @ApiOperation({
+    summary: "Store the tour's map snapshot (FR-W4)",
+    description:
+      "Body is a raw image/webp captured client-side. Shown offline and as the list thumbnail.",
+  })
+  @ApiResponse({ status: 204, description: "Snapshot stored." })
+  @ApiResponse({ status: 400, description: "Missing/too large/wrong type." })
+  @ApiResponse({ status: 404, description: "Not found or not yours." })
+  async putPreview(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    // `express.raw({ type: "image/webp" })` (registered in main.ts) buffers the
+    // body only for that content-type; any other type leaves a non-Buffer here.
+    const body: unknown = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      throw new BadRequestException(
+        `Expected a non-empty ${PREVIEW_MIME} body`,
+      );
+    }
+    if (body.length > MAX_PREVIEW_BYTES) {
+      throw new BadRequestException("Snapshot too large");
+    }
+    await this.service.savePreview(user.id, id, body, PREVIEW_MIME);
+  }
+
+  @Get(":id/preview")
+  @ApiOperation({ summary: "Fetch the tour's map snapshot (FR-W4)" })
+  @ApiResponse({ status: 200, description: "The image/webp snapshot." })
+  @ApiResponse({ status: 404, description: "No snapshot, or not yours." })
+  async getPreview(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const preview = await this.service.getPreview(user.id, id);
+    res.setHeader("Content-Type", preview.mime);
+    // Private (owner-only) data — the service worker still caches it per-client
+    // for offline viewing; the browser may revalidate within a short window.
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(preview.image);
   }
 
   @Delete(":id")

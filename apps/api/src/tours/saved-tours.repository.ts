@@ -35,6 +35,7 @@ export interface TourSummaryRow {
   total_seconds: string;
   cache_count: number;
   is_shared: boolean;
+  has_preview: boolean;
   created_at: Date;
 }
 
@@ -54,6 +55,7 @@ const SUMMARY_COLUMNS = sql`
   total_seconds,
   cardinality(cache_ids)::int AS cache_count,
   (share_slug IS NOT NULL) AS is_shared,
+  (preview_image IS NOT NULL) AS has_preview,
   created_at
 `;
 
@@ -93,6 +95,7 @@ export class SavedToursRepository {
         id, name, total_meters, total_seconds,
         cardinality(cache_ids)::int AS cache_count,
         (share_slug IS NOT NULL) AS is_shared,
+        (preview_image IS NOT NULL) AS has_preview,
         created_at,
         ST_AsGeoJSON(start_point) AS start_geojson,
         ST_AsGeoJSON(parking_point) AS parking_geojson,
@@ -118,6 +121,7 @@ export class SavedToursRepository {
         id, name, total_meters, total_seconds,
         cardinality(cache_ids)::int AS cache_count,
         (share_slug IS NOT NULL) AS is_shared,
+        (preview_image IS NOT NULL) AS has_preview,
         created_at,
         ST_AsGeoJSON(start_point) AS start_geojson,
         ST_AsGeoJSON(parking_point) AS parking_geojson,
@@ -142,12 +146,52 @@ export class SavedToursRepository {
         id, name, total_meters, total_seconds,
         cardinality(cache_ids)::int AS cache_count,
         (share_slug IS NOT NULL) AS is_shared,
+        (preview_image IS NOT NULL) AS has_preview,
         created_at,
         ST_AsGeoJSON(start_point) AS start_geojson,
         ST_AsGeoJSON(parking_point) AS parking_geojson,
         plan
     `.execute(this.db);
     return result.rows[0] ?? null;
+  }
+
+  /**
+   * Store (or replace) the map snapshot for a tour. Owner-scoped — returns true
+   * only when the caller's own row was updated, so a cross-tenant id is a no-op
+   * the service surfaces as 404.
+   */
+  async savePreview(
+    ownerId: string,
+    id: string,
+    image: Buffer,
+    mime: string,
+  ): Promise<boolean> {
+    const result = await this.db
+      .updateTable("tours")
+      .set({ preview_image: image, preview_mime: mime })
+      .where("owner_id", "=", ownerId)
+      .where("id", "=", id)
+      .returning("id")
+      .executeTakeFirst();
+    return !!result;
+  }
+
+  /** Read a tour's stored snapshot; null cross-tenant or when none captured. */
+  async getPreview(
+    ownerId: string,
+    id: string,
+  ): Promise<{ image: Buffer; mime: string } | null> {
+    const row = await this.db
+      .selectFrom("tours")
+      .select(["preview_image", "preview_mime"])
+      .where("owner_id", "=", ownerId)
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!row?.preview_image) return null;
+    return {
+      image: row.preview_image,
+      mime: row.preview_mime ?? "application/octet-stream",
+    };
   }
 
   /** Delete (CASCADE-free); returns true when a row was actually removed. */

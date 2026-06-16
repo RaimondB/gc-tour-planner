@@ -100,12 +100,4 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
-  /**
-   * History state carried across a navigation. M6-γ uses `openTourId` to hand
-   * a saved-tour id from `/tours` → `/`, where App rehydrates the planner from
-   * the stored plan (no replan).
-   */
-  interface HistoryState {
-    openTourId?: string;
-  }
 }

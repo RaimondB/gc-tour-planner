@@ -1,0 +1,31 @@
+<!-- Maskable variant of the gc-tour-planner brand mark. SOURCE OF TRUTH for
+     pwa-maskable-512.png AND apple-touch-icon.png. Android/iOS apply their own
+     circle/squircle mask to the icon, so the monogram is inset to the central
+     ~70% on a full-bleed background — the mask only ever crops the white
+     padding, never the logo. Render once, locally, and commit:
+       rsvg-convert -w 512 -h 512 icon-maskable.svg -o pwa-maskable-512.png
+       rsvg-convert -w 180 -h 180 icon-maskable.svg -o ../apple-touch-icon.png -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="512" height="512">
+  <rect x="0" y="0" width="40" height="40" fill="#ffffff" />
+  <!-- The full rounded-square monogram, scaled to ~70% and centred so it stays
+       inside the maskable safe zone (central 80% circle). -->
+  <g transform="translate(6,6) scale(0.7)">
+    <defs>
+      <clipPath id="gctp-mask-clip"><rect x="1" y="1" width="38" height="38" rx="10" /></clipPath>
+    </defs>
+    <g clip-path="url(#gctp-mask-clip)">
+      <rect x="1" y="1" width="19" height="19" fill="#d84315" />
+      <rect x="20" y="1" width="19" height="19" fill="#bf360c" />
+      <rect x="1" y="20" width="19" height="19" fill="#bf360c" />
+      <rect x="20" y="20" width="19" height="19" fill="#16a34a" />
+    </g>
+    <line x1="20" y1="2" x2="20" y2="38" stroke="#fff" stroke-width="1.6" />
+    <line x1="2" y1="20" x2="38" y2="20" stroke="#fff" stroke-width="1.6" />
+    <g fill="#fff" font-family="DejaVu Sans, Verdana, system-ui, sans-serif" font-weight="700" font-size="13" text-anchor="middle">
+      <text x="10.5" y="15.5">G</text>
+      <text x="29.5" y="15.5">C</text>
+      <text x="10.5" y="34.5">T</text>
+      <text x="29.5" y="34.5">P</text>
+    </g>
+  </g>
+</svg>

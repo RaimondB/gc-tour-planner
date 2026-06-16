@@ -445,6 +445,31 @@ export async function deleteTour(id: string): Promise<void> {
   await request<void>(`/tours/${id}`, { method: "DELETE" });
 }
 
+/** Same-origin URL of a tour's map snapshot (FR-W4). Use as an `<img src>`. */
+export function tourPreviewUrl(id: string): string {
+  return `${BASE}/tours/${id}/preview`;
+}
+
+/**
+ * Upload the client-captured map snapshot for a tour (FR-W4). Sent as raw
+ * image/webp — not JSON — so it bypasses `request()`; we still attach the
+ * double-submit CSRF header for the mutating PUT and carry the session cookie.
+ */
+export async function saveTourPreview(id: string, image: Blob): Promise<void> {
+  const headers = new Headers({ "Content-Type": "image/webp" });
+  const token = readCookie(CSRF_COOKIE);
+  if (token) headers.set(CSRF_HEADER, token);
+  const res = await fetch(`${BASE}/tours/${id}/preview`, {
+    method: "PUT",
+    headers,
+    body: image,
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, `/tours/${id}/preview`, await res.text());
+  }
+}
+
 // ─── Admin: precompute dashboard ──────────────────────────────────────────
 
 export async function fetchPrecomputeSummary() {

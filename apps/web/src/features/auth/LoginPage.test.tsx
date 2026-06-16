@@ -28,6 +28,14 @@ vi.mock("@tanstack/react-router", () => ({
   }): JSX.Element => <a href={to}>{children}</a>,
 }));
 
+// AuthProvider now reads `useOnline()`; stub the connectivity module so the test
+// doesn't need a real ConnectivityProvider (whose probe would consume a `fetch`
+// from the sequenced mock below). Default to online.
+vi.mock("../shell/ConnectivityProvider.js", () => ({
+  useOnline: () => true,
+  useRecheckConnectivity: () => () => {},
+}));
+
 // Import after the mock so the page picks up the stubbed router. The real `api`
 // layer runs against a mocked `fetch`, so ApiError / zod parsing stay genuine.
 const { AuthProvider, useAuth } = await import("./AuthProvider.js");
