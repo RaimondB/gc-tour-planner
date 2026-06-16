@@ -5,24 +5,22 @@
        rsvg-convert -w 512 -h 512 icon-source.svg -o pwa-512.png
        rsvg-convert -w 192 -h 192 icon-source.svg -o pwa-192.png
        rsvg-convert -w 180 -h 180 icon-source.svg -o ../apple-touch-icon.png
-     Rounded corners + transparent margin suit the "any" icon purpose. The
-     maskable variant lives in icon-maskable.svg (full-bleed, no rounding). -->
+     FULL-BLEED on purpose: the colour reaches every edge so a launcher/OS that
+     applies its own circle/squircle mask only ever rounds off solid colour —
+     never a pre-rounded corner (which double-masks and looks clipped on the
+     home screen). The G/C/T/P glyphs sit at the quadrant centres, well inside
+     the mask safe zone, so they're never cropped. iOS adds its own rounding. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="512" height="512">
-  <defs>
-    <clipPath id="gctp-clip"><rect x="1" y="1" width="38" height="38" rx="10" /></clipPath>
-  </defs>
-  <g clip-path="url(#gctp-clip)">
-    <rect x="1" y="1" width="19" height="19" fill="#d84315" />
-    <rect x="20" y="1" width="19" height="19" fill="#bf360c" />
-    <rect x="1" y="20" width="19" height="19" fill="#bf360c" />
-    <rect x="20" y="20" width="19" height="19" fill="#16a34a" />
-  </g>
-  <line x1="20" y1="2" x2="20" y2="38" stroke="#fff" stroke-width="1.6" />
-  <line x1="2" y1="20" x2="38" y2="20" stroke="#fff" stroke-width="1.6" />
-  <g fill="#fff" font-family="DejaVu Sans, Verdana, system-ui, sans-serif" font-weight="700" font-size="13" text-anchor="middle">
-    <text x="10.5" y="15.5">G</text>
-    <text x="29.5" y="15.5">C</text>
-    <text x="10.5" y="34.5">T</text>
-    <text x="29.5" y="34.5">P</text>
+  <rect x="0" y="0" width="20" height="20" fill="#d84315" />
+  <rect x="20" y="0" width="20" height="20" fill="#bf360c" />
+  <rect x="0" y="20" width="20" height="20" fill="#bf360c" />
+  <rect x="20" y="20" width="20" height="20" fill="#16a34a" />
+  <line x1="20" y1="0" x2="20" y2="40" stroke="#fff" stroke-width="1.6" />
+  <line x1="0" y1="20" x2="40" y2="20" stroke="#fff" stroke-width="1.6" />
+  <g fill="#fff" font-family="DejaVu Sans, Verdana, system-ui, sans-serif" font-weight="700" font-size="12" text-anchor="middle">
+    <text x="10" y="14.2">G</text>
+    <text x="30" y="14.2">C</text>
+    <text x="10" y="33.8">T</text>
+    <text x="30" y="33.8">P</text>
   </g>
 </svg>
