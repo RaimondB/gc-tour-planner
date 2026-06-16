@@ -7,7 +7,12 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["vite/client", "geojson"],
+    "types": [
+      "vite/client",
+      "geojson",
+      "vite-plugin-pwa/client",
+      "vite-plugin-pwa/react"
+    ],
     "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*", "vite.config.ts", "vitest.config.ts"],

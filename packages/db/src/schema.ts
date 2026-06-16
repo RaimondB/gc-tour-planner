@@ -409,6 +409,14 @@ export interface ToursTable {
   plan: JSONColumnType<Record<string, unknown>>;
   /** NULL until shared (M6-δ). UNIQUE provides the slug-lookup index. */
   share_slug: ColumnType<string | null, string | null, string | null>;
+  /**
+   * Client-captured WebP map snapshot (basemap + route overlay) for the offline
+   * detail view and list thumbnail. NULL until saved/backfilled. node-pg
+   * reads/writes BYTEA as a Buffer.
+   */
+  preview_image: ColumnType<Buffer | null, Buffer | null, Buffer | null>;
+  /** MIME type of preview_image (the app writes `image/webp`). NULL until set. */
+  preview_mime: ColumnType<string | null, string | null, string | null>;
   created_at: Generated<Date>;
 }
 

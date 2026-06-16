@@ -94,6 +94,30 @@ export class SavedToursService {
     if (!ok) throw new NotFoundException("Tour not found");
   }
 
+  /**
+   * Store the client-captured map snapshot (FR-W4). Owner-scoped; a cross-tenant
+   * id surfaces as 404 like every other route here.
+   */
+  async savePreview(
+    ownerId: string,
+    id: string,
+    image: Buffer,
+    mime: string,
+  ): Promise<void> {
+    const ok = await this.repo.savePreview(ownerId, id, image, mime);
+    if (!ok) throw new NotFoundException("Tour not found");
+  }
+
+  /** Read a tour's stored snapshot; 404 when missing or not the caller's. */
+  async getPreview(
+    ownerId: string,
+    id: string,
+  ): Promise<{ image: Buffer; mime: string }> {
+    const preview = await this.repo.getPreview(ownerId, id);
+    if (!preview) throw new NotFoundException("Tour preview not found");
+    return preview;
+  }
+
   private toSummary(r: TourSummaryRow): Tours.SavedTourSummary {
     return {
       id: r.id,
@@ -102,6 +126,7 @@ export class SavedToursService {
       totalSeconds: Number(r.total_seconds),
       cacheCount: r.cache_count,
       isShared: r.is_shared,
+      hasPreview: r.has_preview,
       createdAt: r.created_at.toISOString(),
     };
   }

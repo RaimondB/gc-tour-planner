@@ -55,6 +55,12 @@ export interface MapViewProps {
     center: [number, number];
     zoom: number;
   }) => void;
+  /**
+   * Fires (at most once per render cycle) when basemap tiles fail to load — a
+   * fast local hint that we may be offline. The caller confirms with an
+   * authoritative connectivity probe before swapping in the offline snapshot.
+   */
+  onBasemapError?: () => void;
   children?: ReactNode;
 }
 
@@ -64,6 +70,7 @@ export function MapView({
   onPickCenter,
   onReady,
   onViewportChange,
+  onBasemapError,
   children,
 }: MapViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -74,6 +81,8 @@ export function MapView({
   onReadyRef.current = onReady;
   const onViewportRef = useRef(onViewportChange);
   onViewportRef.current = onViewportChange;
+  const onBasemapErrorRef = useRef(onBasemapError);
+  onBasemapErrorRef.current = onBasemapError;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -92,6 +101,11 @@ export function MapView({
       style: styleSource,
       center: initialCenter,
       zoom: initialZoom,
+      // Keep the WebGL backbuffer readable so we can snapshot the canvas
+      // (map.getCanvas().toBlob) for a saved tour's offline preview (FR-W4).
+      // Small always-on memory cost; required because the buffer is otherwise
+      // cleared after each frame and toBlob would yield a blank image.
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
     // E2E-only handle (no-op unless VITE_E2E) so Playwright can read map state.
     exposeMapForE2E(map);
@@ -123,6 +137,21 @@ export function MapView({
         zoom: map.getZoom(),
       });
     };
+    // Tile-failure hint: tally tile/source load errors per render cycle and, if
+    // any occurred, ping the caller ONCE at `idle` to re-check connectivity.
+    // This only nudges an authoritative probe — it never decides offline itself
+    // (a cached tile is indistinguishable from being online), so it can't flap.
+    let tileErrorCount = 0;
+    const onMapError = () => {
+      tileErrorCount += 1;
+    };
+    const onIdle = () => {
+      if (tileErrorCount > 0) onBasemapErrorRef.current?.();
+      tileErrorCount = 0;
+    };
+    map.on("error", onMapError);
+    map.on("idle", onIdle);
+
     map.on("load", () => {
       map.on("click", clickHandler);
       map.on("moveend", onMoveEnd);
@@ -181,6 +210,8 @@ export function MapView({
       canvas.removeEventListener("webglcontextrestored", onContextRestored);
       map.off("click", clickHandler);
       map.off("moveend", onMoveEnd);
+      map.off("error", onMapError);
+      map.off("idle", onIdle);
       onReadyRef.current?.(null);
       map.remove();
       setApi(null);

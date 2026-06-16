@@ -204,6 +204,49 @@ describe("M6-γ saved-tours persistence (PostGIS via Testcontainers)", () => {
     );
   });
 
+  it("map snapshot round-trips, flips hasPreview, and is owner-scoped (FR-W4)", async () => {
+    const saved = await service.save(ownerId, {
+      name: "Snapshotted",
+      plan: makePlan(cacheIds, park),
+    });
+    // Fresh save has no snapshot yet.
+    expect(saved.hasPreview).toBe(false);
+    expect((await service.list(ownerId))[0]!.hasPreview).toBe(false);
+
+    const bytes = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x01, 0x02]);
+    await service.savePreview(ownerId, saved.id, bytes, "image/webp");
+
+    // hasPreview now true on both detail and the lean summary.
+    expect((await service.getById(ownerId, saved.id)).hasPreview).toBe(true);
+    const summary = (await service.list(ownerId)).find(
+      (t) => t.id === saved.id,
+    );
+    expect(summary?.hasPreview).toBe(true);
+
+    // Bytes + mime read back verbatim.
+    const preview = await service.getPreview(ownerId, saved.id);
+    expect(preview.mime).toBe("image/webp");
+    expect(Buffer.compare(preview.image, bytes)).toBe(0);
+
+    // Cross-tenant store and read both 404.
+    await expect(
+      service.savePreview(otherId, saved.id, bytes, "image/webp"),
+    ).rejects.toThrow(/not found/i);
+    await expect(service.getPreview(otherId, saved.id)).rejects.toThrow(
+      /not found/i,
+    );
+  });
+
+  it("getPreview 404s when no snapshot has been captured (FR-W4)", async () => {
+    const saved = await service.save(ownerId, {
+      name: "No snapshot",
+      plan: makePlan(cacheIds, park),
+    });
+    await expect(service.getPreview(ownerId, saved.id)).rejects.toThrow(
+      /not found/i,
+    );
+  });
+
   it("snapshot omits caches the owner no longer has (FR-P1.3)", async () => {
     // A tour referencing an id the owner doesn't own → that id is absent from
     // the baked snapshot rather than breaking the save.

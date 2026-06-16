@@ -5,6 +5,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   type JSX,
   type ReactNode,
@@ -12,9 +13,37 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AuthUser, LoginInput, RegisterInput } from "@gctp/shared/auth";
 import * as api from "../../lib/api.js";
+import { useOnline } from "../shell/ConnectivityProvider.js";
 
 /** React Query key for the `GET /auth/me` session probe. */
 export const AUTH_ME_QUERY_KEY = ["auth", "me"] as const;
+
+// The last principal we saw, mirrored to localStorage. A cold *offline* launch
+// (e.g. the installed PWA opened in the field) can't reach `/auth/me`; without a
+// fallback the probe errors, the app treats the user as logged out, and the `/`
+// guard bounces to a login that can't complete offline — trapping them before
+// their cached tours (FR-W3). Storing the user's own identity on their own
+// device matches the privacy posture already accepted for the saved-tour SW
+// cache (ADR-0028). Cleared on a clean sign-out.
+const CACHED_USER_KEY = "gctp:auth:last-user";
+
+function readCachedUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(CACHED_USER_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedUser(user: AuthUser | null): void {
+  try {
+    if (user) localStorage.setItem(CACHED_USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(CACHED_USER_KEY);
+  } catch {
+    /* storage unavailable (private mode, quota) — best effort */
+  }
+}
 
 export type AuthStatus = "pending" | "authenticated" | "unauthenticated";
 
@@ -42,6 +71,7 @@ export function AuthProvider({
   children: ReactNode;
 }): JSX.Element {
   const qc = useQueryClient();
+  const online = useOnline();
   const meQuery = useQuery({
     queryKey: AUTH_ME_QUERY_KEY,
     queryFn: () => api.fetchMe(),
@@ -49,6 +79,14 @@ export function AuthProvider({
     retry: false,
     staleTime: 5 * 60_000,
   });
+
+  // Mirror the live answer to localStorage: persist a real principal, and clear
+  // it on a clean logout (`null`). An *errored* probe leaves the cache intact so
+  // the offline fallback below can still recover the session.
+  useEffect(() => {
+    if (meQuery.data) writeCachedUser(meQuery.data);
+    else if (meQuery.data === null) writeCachedUser(null);
+  }, [meQuery.data]);
 
   const login = useCallback(
     async (input: LoginInput) => {
@@ -75,7 +113,13 @@ export function AuthProvider({
   }, [qc]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const user = meQuery.data ?? null;
+    const liveUser = meQuery.data ?? null;
+    // Offline + the probe errored before any answer this session (cold launch):
+    // restore the last principal we saw rather than treating a network failure
+    // as a sign-out. A clean 401 returns `null` (not an error), so a genuine
+    // logout still falls through to "unauthenticated".
+    const fallbackUser = meQuery.isError && !online ? readCachedUser() : null;
+    const user = liveUser ?? fallbackUser;
     const status: AuthStatus = meQuery.isPending
       ? "pending"
       : user
@@ -89,7 +133,15 @@ export function AuthProvider({
       register,
       logout,
     };
-  }, [meQuery.data, meQuery.isPending, login, register, logout]);
+  }, [
+    meQuery.data,
+    meQuery.isPending,
+    meQuery.isError,
+    online,
+    login,
+    register,
+    logout,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

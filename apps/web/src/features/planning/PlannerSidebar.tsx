@@ -29,7 +29,7 @@ import {
   testOsrmRoute,
 } from "../../lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "../../lib/gpx-export.js";
-import { downloadText } from "../../lib/download-text.js";
+import { shareOrDownloadGpx } from "../../lib/share-file.js";
 import {
   type LegPicks,
   planSignature,
@@ -219,6 +219,8 @@ export interface PlannerSidebarProps {
   onDiscover: () => void;
   discoverPending: boolean;
   discoverError: Error | null;
+  /** Offline → cluster discovery (live API) is unavailable; the button disables. */
+  online?: boolean;
 }
 
 export function PlannerSidebar({
@@ -259,6 +261,7 @@ export function PlannerSidebar({
   onDiscover,
   discoverPending,
   discoverError,
+  online = true,
 }: PlannerSidebarProps) {
   const landuseProfilesQuery = useQuery({
     queryKey: ["landuse-profiles"],
@@ -491,7 +494,12 @@ export function PlannerSidebar({
       )}
 
       <div className="planner-actions">
-        <button type="button" onClick={onDiscover} disabled={discoverPending}>
+        <button
+          type="button"
+          onClick={onDiscover}
+          disabled={discoverPending || !online}
+          title={online ? undefined : "Cluster discovery needs a connection."}
+        >
           {discoverPending ? "Searching…" : "Discover clusters"}
         </button>
         <button
@@ -740,10 +748,11 @@ export function PlanResultPanel({
           )
         : planToGpxRoute(result, caches);
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadText({
+    void shareOrDownloadGpx({
       text,
       filename: `gctp-tour-${mode}-${ts}.gpx`,
       mimeType: "application/gpx+xml",
+      title: `gc-tour-planner ${mode}`,
     });
   };
 

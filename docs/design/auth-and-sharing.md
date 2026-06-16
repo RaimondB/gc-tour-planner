@@ -138,6 +138,8 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 | `GET /tours/:id` | session | — | Full detail; cross-tenant → 404 |
 | `PATCH /tours/:id` | session | yes | Rename |
 | `DELETE /tours/:id` | session | yes | Delete (revokes any share) |
+| `PUT /tours/:id/preview` | session | yes | Store the WebP map snapshot (FR-W4); owner-scoped, ≤512 KB |
+| `GET /tours/:id/preview` | session | — | Read the snapshot; cross-tenant/none → 404 (FR-W4) |
 | `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
 | `GET /shared/:slug` | public | — | Read-only snapshot (FR-P3, §10) |

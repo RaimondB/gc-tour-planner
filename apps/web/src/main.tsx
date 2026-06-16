@@ -12,6 +12,10 @@ import {
 } from "./features/auth/AuthProvider.js";
 import { setUnauthorizedHandler } from "./lib/api.js";
 import { router } from "./router.js";
+import { ConnectivityProvider } from "./features/shell/ConnectivityProvider.js";
+import { TourSessionProvider } from "./features/tours/TourSessionProvider.js";
+import { PwaUpdatePrompt } from "./features/shell/PwaUpdatePrompt.js";
+import { PwaInstallPrompt } from "./features/shell/PwaInstallPrompt.js";
 import "./styles.css";
 
 // The heavy read queries are bbox/param-keyed (caches, landuse, osm-parking,
@@ -65,9 +69,15 @@ if (!rootEl) throw new Error("root element missing from index.html");
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
+      <ConnectivityProvider>
+        <AuthProvider>
+          <TourSessionProvider>
+            <AppRouter />
+          </TourSessionProvider>
+        </AuthProvider>
+        <PwaUpdatePrompt />
+        <PwaInstallPrompt />
+      </ConnectivityProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

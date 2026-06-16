@@ -7,6 +7,8 @@ import { Password } from "@gctp/shared/auth";
 import { setPassword } from "../../lib/api.js";
 import { useAuth } from "./AuthProvider.js";
 import { setPasswordErrorMessage } from "./auth-messages.js";
+import { OfflineBadge } from "../shell/OfflineBadge.js";
+import { useOnline } from "../shell/ConnectivityProvider.js";
 
 /**
  * Protected `/account` route — lets the signed-in user set or change their
@@ -15,6 +17,7 @@ import { setPasswordErrorMessage } from "./auth-messages.js";
  */
 export function AccountPage(): JSX.Element {
   const { user } = useAuth();
+  const online = useOnline();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -65,6 +68,7 @@ export function AccountPage(): JSX.Element {
         <Link to="/" className="account-page__back">
           ← Back to planner
         </Link>
+        <OfflineBadge />
       </div>
 
       <h1 className="account-page__title">Account</h1>
@@ -133,7 +137,14 @@ export function AccountPage(): JSX.Element {
           )}
         </label>
 
-        <button type="submit" className="auth-submit" disabled={pending}>
+        <button
+          type="submit"
+          className="auth-submit"
+          disabled={pending || !online}
+          title={
+            online ? undefined : "Changing your password needs a connection."
+          }
+        >
           {pending ? "Saving…" : "Save password"}
         </button>
       </form>

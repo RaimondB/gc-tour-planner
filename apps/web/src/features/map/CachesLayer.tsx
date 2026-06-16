@@ -130,6 +130,13 @@ export interface CachesLayerProps {
    * caller wants to deselect on outside click).
    */
   onParkingSelect?: (next: SelectedParking | null) => void;
+  /**
+   * Connectivity, so the in-popup mark-found / clear-solved writes disable
+   * offline. Passed (not read via `useOnline`) because the popup is built
+   * imperatively inside a map event handler; a ref keeps the live value
+   * readable from that long-lived closure.
+   */
+  online?: boolean;
 }
 
 export function CachesLayer({
@@ -138,9 +145,14 @@ export function CachesLayer({
   selectedCacheIds,
   onSelectionChange,
   onParkingSelect,
+  online = true,
 }: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
+  // The click→popup handler is bound once; read connectivity through a ref so it
+  // always sees the current value without rebinding the whole layer effect.
+  const onlineRef = useRef(online);
+  onlineRef.current = online;
   // Screen point of the last pointer-down, used to tell a tap from a pan so a
   // pan that happens to end on a marker doesn't open its popup. See the click
   // handlers below and ./pointer-drag.
@@ -421,7 +433,9 @@ export function CachesLayer({
             stageCount={props.stageCount}
             solved={solved}
             loadingDetail={detail === null}
+            online={onlineRef.current}
             onToggleFound={async () => {
+              if (!onlineRef.current) return;
               try {
                 if (found) await unmarkCacheFound(id);
                 else await markCacheFound(id);
@@ -435,6 +449,7 @@ export function CachesLayer({
             onClearSolved={
               solved
                 ? async () => {
+                    if (!onlineRef.current) return;
                     try {
                       const { cleared } = await clearSolvedCoordinates(id);
                       if (cleared) solved = false;

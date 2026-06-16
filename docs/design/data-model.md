@@ -181,6 +181,11 @@ CREATE TABLE tours (
   -- GET /shared/:slug never reads owner-scoped cache tables (ADR-0022).
   plan            JSONB NOT NULL,
   share_slug      TEXT UNIQUE,                                -- nullable until shared
+  -- Client-captured WebP map snapshot (basemap + route overlay), added in the
+  -- M6.5 PWA work (1781000000000_tours-preview-image.sql, FR-W4). Shown offline
+  -- and as the My-Tours thumbnail; served owner-scoped via GET /tours/:id/preview.
+  preview_image   BYTEA,                                      -- nullable until captured/backfilled
+  preview_mime    TEXT,                                       -- 'image/webp'
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX tours_owner_idx ON tours (owner_id);

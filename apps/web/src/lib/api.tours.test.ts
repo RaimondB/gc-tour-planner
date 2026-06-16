@@ -14,6 +14,7 @@ const DETAIL: SavedTourDetail = {
   totalSeconds: 678.9,
   cacheCount: 2,
   isShared: false,
+  hasPreview: false,
   createdAt: "2026-06-13T12:00:00.000Z",
   startPoint: { type: "Point", coordinates: [5.12, 52.09] },
   parkingPoint: { type: "Point", coordinates: [5.12, 52.09] },
@@ -62,6 +63,7 @@ const SUMMARY: SavedTourSummary = {
   totalSeconds: DETAIL.totalSeconds,
   cacheCount: DETAIL.cacheCount,
   isShared: DETAIL.isShared,
+  hasPreview: DETAIL.hasPreview,
   createdAt: DETAIL.createdAt,
 };
 

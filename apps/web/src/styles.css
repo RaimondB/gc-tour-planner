@@ -109,6 +109,59 @@ body,
   font-size: 0.875rem;
 }
 
+/* --- Offline awareness: header badge + full-width banner -------------- */
+
+.offline-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #fef3c7;
+  border-bottom: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
+/* Surface shown when opening a saved tour fails (typically offline). */
+.open-tour-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.875rem;
+}
+
+.open-tour-error__dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
 .app-header__tools,
 .app-header__hamburger {
   flex-shrink: 0;
@@ -145,6 +198,27 @@ body,
   align-items: center;
   gap: 1rem;
   flex-shrink: 0;
+}
+
+/* Always-visible "My tours" quick action. On desktop the text link in
+   __actions covers it, so it only shows at mobile widths (next to the
+   hamburger) — keeping saved tours one tap away, never buried in the menu. */
+.app-header__tours-quick {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.app-header__tours-quick:hover {
+  background: #f3f4f6;
 }
 
 /* Mobile hamburger + dropdown. The wrapper is hidden at desktop widths. */
@@ -199,6 +273,9 @@ body,
 @media (max-width: 768px) {
   .app-header__actions {
     display: none;
+  }
+  .app-header__tours-quick {
+    display: inline-flex;
   }
   .app-header__menu-wrap {
     display: block;
@@ -568,6 +645,17 @@ body,
   border-color: #2563eb;
   background: #eff6ff;
   color: #1e3a8a;
+}
+
+.dropzone--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dropzone--disabled:hover {
+  border-color: inherit;
+  background: white;
+  color: #4b5563;
 }
 
 .dropzone__primary {
@@ -1169,8 +1257,14 @@ body,
   /* Tagline / tools-label / name chip don't earn their width on a phone. */
   .app-header p,
   .app-header__tools-label,
-  .app-header__user-name {
+  .app-header__user-name,
+  .offline-badge__label {
     display: none;
+  }
+
+  /* Icon-only chip on a phone — keep it round and tappable. */
+  .offline-badge {
+    padding: 0.3rem;
   }
 
   /* Bump tap targets so they're reachable with a thumb. */
@@ -1616,6 +1710,147 @@ p.error,
   font-size: 0.8rem;
 }
 
+/* --- PWA "update available" toast ------------------------------------ */
+
+.pwa-update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: var(--z-drawer);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100vw - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-text, #1f2937);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
+  font-size: 0.85rem;
+}
+
+.pwa-update-toast__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pwa-update-toast__reload {
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pwa-update-toast__reload:hover {
+  background: var(--color-accent-strong);
+}
+
+.pwa-update-toast__dismiss {
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.pwa-update-toast__dismiss:hover {
+  color: #fff;
+}
+
+/* --- PWA "install app" toast ----------------------------------------- */
+
+.pwa-install-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-4) + 3.25rem);
+  transform: translateX(-50%);
+  z-index: var(--z-drawer);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: #fff;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-2);
+  font-size: 0.85rem;
+}
+
+.pwa-install-toast__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.pwa-install-toast__install {
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-2);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pwa-install-toast__install:hover {
+  background: var(--color-accent-strong);
+}
+
+.pwa-install-toast__dismiss {
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted, #6b7280);
+  cursor: pointer;
+}
+
+/* Offline fallback for an opened saved tour: its stored map snapshot, shown
+   when basemap tiles can't load. Sits above the (tile-less) canvas but below
+   the on-map controls (rail/buttons carry higher z-index tokens). */
+.map-offline-snapshot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #e5e7eb;
+}
+
+.map-offline-snapshot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.map-offline-snapshot__badge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: rgba(31, 41, 55, 0.85);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.map-offline-snapshot__attribution {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 255, 255, 0.8);
+  color: #333;
+  font-size: 0.65rem;
+}
+
 /* --- On-map "frame current view" control ----------------------------- */
 
 .map-frame-btn {
@@ -1945,11 +2180,22 @@ p.error,
   border-radius: 8px;
   padding: 0.75rem 1rem;
 }
+.tours-list__thumb {
+  width: 120px;
+  height: 72px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  cursor: pointer;
+}
 .tours-list__main {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
+  flex: 1 1 auto;
 }
 .tours-list__name {
   font-weight: 600;
@@ -2019,6 +2265,12 @@ p.error,
     flex-direction: column;
     align-items: stretch;
     gap: 0.6rem;
+  }
+  /* Full-width banner thumbnail on mobile — no dead space beside a small
+     fixed-width image on a stacked card. */
+  .tours-list__thumb {
+    width: 100%;
+    height: 140px;
   }
   .tours-list__name {
     font-size: 1.15rem;
