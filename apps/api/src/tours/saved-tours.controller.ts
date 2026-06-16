@@ -107,16 +107,23 @@ export class SavedToursController {
   ): Promise<void> {
     // `express.raw({ type: "image/webp" })` (registered in main.ts) buffers the
     // body only for that content-type; any other type leaves a non-Buffer here.
-    const body: unknown = req.body;
-    if (!Buffer.isBuffer(body) || body.length === 0) {
+    // Narrow to a Buffer first so the size checks operate on an unambiguously
+    // binary value — never a tampered array/string request parameter
+    // (js/type-confusion-through-parameter-tampering).
+    const raw: unknown = req.body;
+    if (!Buffer.isBuffer(raw)) {
+      throw new BadRequestException(`Expected a ${PREVIEW_MIME} body`);
+    }
+    const image: Buffer = raw;
+    if (image.length === 0) {
       throw new BadRequestException(
         `Expected a non-empty ${PREVIEW_MIME} body`,
       );
     }
-    if (body.length > MAX_PREVIEW_BYTES) {
+    if (image.length > MAX_PREVIEW_BYTES) {
       throw new BadRequestException("Snapshot too large");
     }
-    await this.service.savePreview(user.id, id, body, PREVIEW_MIME);
+    await this.service.savePreview(user.id, id, image, PREVIEW_MIME);
   }
 
   @Get(":id/preview")
