@@ -4,6 +4,7 @@
 import type { JSX } from "react";
 import { Link } from "@tanstack/react-router";
 import { Logo } from "../shell/Logo.js";
+import { analyticsEnabled } from "../../lib/cloudflare-analytics.js";
 
 const REPO_URL = "https://github.com/RaimondB/gc-tour-planner";
 
@@ -256,6 +257,12 @@ export function LandingPage(): JSX.Element {
           Built on OpenStreetMap data. Bring your own Pocket Query — geocache
           data is never redistributed.
         </p>
+        {analyticsEnabled && (
+          <p className="landing__footer-note">
+            Privacy-friendly, cookieless analytics via{" "}
+            <a href="https://www.cloudflare.com/web-analytics/">Cloudflare</a>.
+          </p>
+        )}
       </footer>
     </div>
   );

@@ -92,6 +92,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { parkingNavTarget } from "./lib/maps.js";
+import { analyticsEnabled } from "./lib/cloudflare-analytics.js";
 import { Logo } from "./features/shell/Logo.js";
 import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
@@ -1588,6 +1589,13 @@ export default function App(): JSX.Element {
         <a href="https://www.openstreetmap.org/copyright">
           OpenStreetMap contributors
         </a>
+        {analyticsEnabled && (
+          <>
+            {" · "}
+            Cookieless analytics via{" "}
+            <a href="https://www.cloudflare.com/web-analytics/">Cloudflare</a>
+          </>
+        )}
       </footer>
     </div>
   );

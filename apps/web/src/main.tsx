@@ -16,7 +16,12 @@ import { ConnectivityProvider } from "./features/shell/ConnectivityProvider.js";
 import { TourSessionProvider } from "./features/tours/TourSessionProvider.js";
 import { PwaUpdatePrompt } from "./features/shell/PwaUpdatePrompt.js";
 import { PwaInstallPrompt } from "./features/shell/PwaInstallPrompt.js";
+import { initCloudflareAnalytics } from "./lib/cloudflare-analytics.js";
 import "./styles.css";
+
+// Cookieless usage analytics — no-ops unless VITE_CF_WEB_ANALYTICS_TOKEN is set
+// (production only). See lib/cloudflare-analytics.ts / ADR-0030.
+initCloudflareAnalytics();
 
 // The heavy read queries are bbox/param-keyed (caches, landuse, osm-parking,
 // walking-graph), so panning the map mints a new cache entry per viewport.

@@ -431,6 +431,9 @@ services:
         # Turnstile site key (public) — baked in so /register shows the captcha.
         # Pair with TURNSTILE_SECRET on the api (FR-P5, Gate 1.4).
         VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+        # Cloudflare Web Analytics token (public) — when set, injects the
+        # cookieless beacon. Set in production only (leave unset in UAT/dev).
+        VITE_CF_WEB_ANALYTICS_TOKEN: ${VITE_CF_WEB_ANALYTICS_TOKEN:-}
     restart: unless-stopped
     mem_limit: 256m
     memswap_limit: 256m
