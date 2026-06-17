@@ -22,22 +22,23 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         icons: [
-          // `?v=2` busts clients (and the installed WebAPK) that cached the
-          // previous icons — the filenames are stable, so without a new URL a
-          // browser holding the old copy would keep it. nginx now serves
-          // /icons/* with `no-cache`, so future icon edits won't need a bump.
+          // BUMP `?v=N` ON EVERY ICON BYTE CHANGE. The filenames are stable, and
+          // the browser's WebAPK minter keys the installed home-screen icon on
+          // the URL — so if the bytes change but the URL doesn't, a reinstall is
+          // handed the previously-minted (stale) icon. The `no-cache` header on
+          // /icons/* only fixes the in-browser HTTP cache, not the WebAPK.
           {
-            src: "/icons/pwa-192.png?v=2",
+            src: "/icons/pwa-192.png?v=3",
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "/icons/pwa-512.png?v=2",
+            src: "/icons/pwa-512.png?v=3",
             sizes: "512x512",
             type: "image/png",
           },
           {
-            src: "/icons/pwa-maskable-512.png?v=2",
+            src: "/icons/pwa-maskable-512.png?v=3",
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",
