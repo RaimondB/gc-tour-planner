@@ -434,6 +434,10 @@ services:
         # Cloudflare Web Analytics token (public) — when set, injects the
         # cookieless beacon. Set in production only (leave unset in UAT/dev).
         VITE_CF_WEB_ANALYTICS_TOKEN: ${VITE_CF_WEB_ANALYTICS_TOKEN:-}
+        # Deployment environment: "production" or "uat" (default). Drives the app
+        # name suffix + badged icons so an installed UAT PWA is distinguishable
+        # from prod. Prod's untracked .env sets this to "production".
+        VITE_APP_ENV: ${VITE_APP_ENV:-uat}
     restart: unless-stopped
     mem_limit: 256m
     memswap_limit: 256m

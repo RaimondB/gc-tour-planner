@@ -4,16 +4,40 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { appIdentity, resolveAppEnv } from "./src/lib/app-identity.js";
+
+// Per-environment identity (UAT carries a "(UAT)" name + badged icons). Resolved
+// at build time from VITE_APP_ENV (default "uat"). BUMP `v` ON EVERY ICON BYTE
+// CHANGE — the WebAPK minter keys the installed icon on the URL.
+const id = appIdentity(resolveAppEnv(process.env.VITE_APP_ENV));
+const v = "v=4";
 
 export default defineConfig({
   plugins: [
     react(),
+    // Fill the env-specific bits of index.html (title, iOS label + touch icon).
+    // `order: "pre"` so these placeholders are resolved before Vite's own HTML
+    // env replacement ever sees them.
+    {
+      name: "gctp-html-app-identity",
+      transformIndexHtml: {
+        order: "pre" as const,
+        handler: (html: string) =>
+          html
+            .replaceAll("%APP_TITLE%", id.title)
+            .replaceAll("%APPLE_APP_TITLE%", id.shortName)
+            .replaceAll(
+              "%APPLE_TOUCH_ICON%",
+              `/apple-touch-icon${id.iconSuffix}.png?${v}`,
+            ),
+      },
+    },
     VitePWA({
       registerType: "prompt",
       injectRegister: false,
       manifest: {
-        name: "gc-tour-planner",
-        short_name: "GC Tour",
+        name: id.name,
+        short_name: id.shortName,
         description:
           "Plan parking-aware geocaching walking tours and export them to your GPS.",
         theme_color: "#bf360c",
@@ -22,23 +46,26 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         icons: [
-          // BUMP `?v=N` ON EVERY ICON BYTE CHANGE. The filenames are stable, and
-          // the browser's WebAPK minter keys the installed home-screen icon on
-          // the URL — so if the bytes change but the URL doesn't, a reinstall is
-          // handed the previously-minted (stale) icon. The `no-cache` header on
-          // /icons/* only fixes the in-browser HTTP cache, not the WebAPK.
+          // `id.iconSuffix` selects the prod ("") or UAT ("-uat", badged) set.
+          // BUMP `v` (above) ON EVERY ICON BYTE CHANGE. The filenames are stable,
+          // and the browser's WebAPK minter keys the installed home-screen icon
+          // on the URL — so if the bytes change but the URL doesn't, a reinstall
+          // is handed the previously-minted (stale) icon. The `no-cache` header
+          // on /icons/* only fixes the in-browser HTTP cache, not the WebAPK.
+          // pwa-192/512 are the ROUNDED "display" icons (shown in full on the
+          // splash); pwa-maskable-512 is FULL-BLEED for the cropped home icon.
           {
-            src: "/icons/pwa-192.png?v=3",
+            src: `/icons/pwa-192${id.iconSuffix}.png?${v}`,
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "/icons/pwa-512.png?v=3",
+            src: `/icons/pwa-512${id.iconSuffix}.png?${v}`,
             sizes: "512x512",
             type: "image/png",
           },
           {
-            src: "/icons/pwa-maskable-512.png?v=3",
+            src: `/icons/pwa-maskable-512${id.iconSuffix}.png?${v}`,
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",

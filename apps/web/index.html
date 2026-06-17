@@ -11,15 +11,18 @@
       type="image/svg+xml"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3CclipPath id='c'%3E%3Crect x='1' y='1' width='38' height='38' rx='10'/%3E%3C/clipPath%3E%3C/defs%3E%3Cg clip-path='url(%23c)'%3E%3Crect x='1' y='1' width='19' height='19' fill='%23d84315'/%3E%3Crect x='20' y='1' width='19' height='19' fill='%23bf360c'/%3E%3Crect x='1' y='20' width='19' height='19' fill='%23bf360c'/%3E%3Crect x='20' y='20' width='19' height='19' fill='%2316a34a'/%3E%3C/g%3E%3Cline x1='20' y1='2' x2='20' y2='38' stroke='%23fff' stroke-width='1.6'/%3E%3Cline x1='2' y1='20' x2='38' y2='20' stroke='%23fff' stroke-width='1.6'/%3E%3Cg fill='%23fff' font-family='system-ui,sans-serif' font-weight='700' font-size='13' text-anchor='middle'%3E%3Ctext x='10.5' y='15.5'%3EG%3C/text%3E%3Ctext x='29.5' y='15.5'%3EC%3C/text%3E%3Ctext x='10.5' y='34.5'%3ET%3C/text%3E%3Ctext x='29.5' y='34.5'%3EP%3C/text%3E%3C/svg%3E"
     />
-    <title>gc-tour-planner</title>
+    <!-- %APP_TITLE% / %APPLE_*% are filled per environment by the
+         gctp-html-app-identity plugin in vite.config.ts (UAT gets a "(UAT)"
+         suffix + the badged apple-touch icon). -->
+    <title>%APP_TITLE%</title>
     <!-- PWA: vite-plugin-pwa injects <link rel="manifest"> at build. The
          theme-color and apple-* tags it does NOT inject are added by hand
          (iOS ignores the manifest's icons/standalone hints anyway). -->
     <meta name="theme-color" content="#bf360c" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+    <link rel="apple-touch-icon" href="%APPLE_TOUCH_ICON%" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="GC Tour" />
+    <meta name="apple-mobile-web-app-title" content="%APPLE_APP_TITLE%" />
   </head>
   <body>
     <div id="root"></div>
