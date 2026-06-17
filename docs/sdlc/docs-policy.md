@@ -26,6 +26,8 @@ The [PR template](../../.github/PULL_REQUEST_TEMPLATE.md) has a docs checklist. 
 | You're changing                                   | Update                                                                                             |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | A user-visible feature (FR-\*)                    | The matching `docs/requirements/<area>.md`                                                         |
+| What users can do, as pitched to visitors         | `apps/web/src/features/landing/LandingPage.tsx` (the public `/welcome` marketing page)             |
+| PWA / service-worker / caching behaviour          | [architecture/frontend.md](../architecture/frontend.md) + [ADR-0029](../adr/0029-frontend-offline-resilience-caching-and-state.md) |
 | A non-functional property (NFR-\*)                | [requirements/non-functional.md](../requirements/non-functional.md)                                |
 | The roadmap (milestone status, scope)             | [requirements/roadmap.md](../requirements/roadmap.md)                                              |
 | An API endpoint shape                             | [design/api-surface.md](../design/api-surface.md)                                                  |

@@ -26,6 +26,8 @@ Docs and code change together — see [docs/sdlc/docs-policy.md](../docs/sdlc/do
 - [ ] Updated [docs/PLANNER_TUNING.md](../docs/PLANNER_TUNING.md) for any new / changed `PLANNER_*` env knob
 - [ ] Added or updated an ADR (`docs/adr/NNNN-...md`) if a design decision changed
 - [ ] Updated [CLAUDE.md](../CLAUDE.md) if agent guidance changed
+- [ ] Updated the public landing page (`apps/web/src/features/landing/LandingPage.tsx`, `/welcome`) if a shipped change alters what users can do
+- [ ] PWA/caching change? Followed [ADR-0029](../docs/adr/0029-frontend-offline-resilience-caching-and-state.md): SW `navigateFallbackDenylist` covers new origin/edge paths; stable-named assets stay `no-cache`; bumped `?v=N` on manifest icon `src`s for any icon byte change
 - [ ] No docs change needed (explain): <why>
 
 ## Verification

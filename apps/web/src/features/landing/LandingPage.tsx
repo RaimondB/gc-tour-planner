@@ -57,7 +57,11 @@ const STEPS: readonly Step[] = [
   },
 ];
 
-/** A shipped capability worth advertising (M1–M6γ only). */
+/**
+ * A shipped capability worth advertising. KEEP IN SYNC with what the app
+ * actually does: when a PR changes what users can do, update this list in the
+ * same PR (docs-policy.md / PR checklist / CLAUDE.md "marketing page parity").
+ */
 const FEATURES: readonly { title: string; body: string }[] = [
   {
     title: "GPX import, kept private",

@@ -38,3 +38,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0026](0026-boundary-spanning-clusters.md)                    | Boundary-spanning clusters (grow past the search radius)      | Accepted                                      |
 | [0027](0027-icon-system-lucide.md)                            | Lucide as the app-wide UI icon set                            | Accepted                                      |
 | [0028](0028-pwa-installability-offline-and-native-share.md)   | PWA install, offline saved tours, native GPX share            | Accepted                                      |
+| [0029](0029-frontend-offline-resilience-caching-and-state.md) | Frontend offline resilience: caching, SW navigation, state    | Accepted                                      |

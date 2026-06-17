@@ -1,0 +1,77 @@
+---
+name: frontend-pwa-offline
+description: Traps and rules for the gc-tour-planner web client's PWA, service worker, HTTP caching, offline behaviour, and cross-route React state. Use BEFORE touching vite-plugin-pwa/workbox config, nginx cache headers, PWA icons, the connectivity/offline UI, MapLibre layers, auth/session status, or any state that must survive navigation/reload — and when a "works in dev but not installed/offline/other-browser" bug appears.
+---
+
+# PWA / offline / caching / frontend-state — don't re-step on these
+
+Authoritative rationale: [ADR-0029](../../../docs/adr/0029-frontend-offline-resilience-caching-and-state.md)
+(+ [ADR-0028](../../../docs/adr/0028-pwa-installability-offline-and-native-share.md)).
+Each rule below is a real incident that cost UAT round-trips.
+
+## Service worker (vite.config.ts → VitePWA workbox)
+
+- **`navigateFallbackDenylist` must exclude every path the origin/edge owns** —
+  currently `[/^\/api\//, /^\/cdn-cgi\//]`. `/cdn-cgi/*` is Cloudflare's reserved
+  space (Access login callback `/cdn-cgi/access/authorized`). If the SW answers
+  such a navigation with the precached `index.html`, the SPA renders "Not Found",
+  the request never reaches the origin, and auth/edge flows dead-end. Adding any
+  new auth-callback or edge path? Add it here in the same PR.
+- **Offline only works in a production build.** `devOptions.enabled:false` keeps
+  the SW out of `pnpm dev`. Verify with `pnpm --filter @gctp/web build` then
+  preview, DevTools → Network → Offline. After deploy, a stale SW persists
+  (`prompt` strategy) until the user clears site data / reinstalls.
+- Symptom decoder: *"works in another browser / Edge but not Chrome", or "the
+  origin log shows zero requests"* → suspect the SW serving from cache. Grab a
+  Chrome trace / DevTools → Application → Service Workers.
+
+## Caching headers (infra/nginx.conf)
+
+- **Stable-named files are never `immutable`.** Only Vite's content-hashed
+  `assets/*-[hash].*` get `immutable`. `/icons/*`, `/apple-touch-icon.png`,
+  `sw.js`, `manifest.webmanifest` → `no-cache`.
+- **Changed a PWA icon's pixels? Bump `?v=N`** on the manifest icon `src`s and
+  the `apple-touch-icon` href (vite.config.ts / index.html). The installed
+  WebAPK icon is keyed on the URL; `no-cache` refreshes the browser HTTP cache
+  but does **not** re-mint the WebAPK. Maskable safe zone: keep glyphs inside the
+  central ~66% (Samsung/Edge crops tighter than Chrome).
+
+## Cross-route / must-survive state
+
+- **One owner, above the router.** State that must survive navigation or reload
+  (the opened tour) lives in a context provider mounted **above** `RouterProvider`
+  (`TourSessionProvider`), with explicit transitions (`openTour`/`closeTour`) —
+  not smeared across `useState` + mount effects, and **not** passed via router
+  history state (that remounts the app and races).
+- **Persist on intent, not on success**, and persist the durable payload in
+  IndexedDB (`lib/tour-cache.ts`) with a small localStorage pointer; React Query
+  is the fetch/cache layer. A slow/failed fetch must not leave the wrong item
+  resuming.
+- Global store still banned (CLAUDE.md): TanStack Query + URL params + these
+  scoped providers. A provider for one concern ≠ a global store.
+
+## Auth / connectivity / map lifecycle
+
+- **Never derive auth status from `online`.** An errored `/auth/me` keeps the
+  last-known user; only a clean `401 → null` logs out. A connectivity probe must
+  never flip identity (it caused a startup route-bounce → map teardown → crash).
+- **MapLibre ops are lifecycle-guarded.** Gate on the `ready`/`load` flag; never
+  `map.getSource`/`getLayer` on a removed/not-loaded map (`… reading 'getSource'
+  of null`). Unbind event/async handlers on cleanup.
+- The router has a **recoverable** `defaultErrorComponent` (Reload / Try again +
+  stack). Keep it; don't regress to a dead-end error screen.
+
+## Marketing page parity
+
+- Shipped a user-visible feature change? Update the landing page
+  (`apps/web/src/features/landing/LandingPage.tsx`, route `/welcome`) in the same
+  PR. It's on the PR docs checklist and in [docs-policy](../../../docs/sdlc/docs-policy.md).
+
+## Every fix ships a regression test
+
+Same rule as everywhere ([test-levels](../test-levels/SKILL.md)): lock the bug at
+the lowest level that reproduces it. SW/WebAPK/edge behaviour isn't reachable in
+jsdom — assert the *config* (e.g. the denylist regex, the `?v=` on manifest
+srcs, the nginx `no-cache` location) and the React layer (provider transitions,
+auth-status stability), and verify the SW/offline behaviour manually in a prod
+build.
