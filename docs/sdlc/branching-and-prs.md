@@ -2,21 +2,22 @@
 
 ## Branches
 
-- `main` — always deployable and **branch-protected**: changes land only via a pull request with green CI; no direct pushes or force-pushes. **UAT tracks `main`** (see Development workflow).
+- `main` — always deployable and **branch-protected**: changes land only via a pull request with green CI; no direct pushes or force-pushes. **prod tracks `main`** (see Development workflow).
 - Feature branches: `<area>/<short-slug>`, e.g. `planner/marginal-trim`, `infra/deploy-uat`.
-- No long-lived release branches — UAT is cut from `main`.
+- No long-lived release branches — prod is cut from `main`.
 
-## Development workflow (dev → PR → main → UAT)
+## Development workflow (dev → UAT → PR → main → prod)
 
-The path for any change, from idea to running in UAT:
+The path for any change, from idea to running in prod:
 
 1. **Branch** off `main` (`<area>/<slug>`). `main` is protected — you can't push to it directly.
-2. **Build and test on the dev environment.** Iterate with `pnpm dev` — the isolated `gctp-dev` compose project on shifted ports (see [release-and-deploy.md](release-and-deploy.md)). **Dev is the only place a feature branch is exercised**; never deploy an in-flight branch to UAT.
-3. **Open a PR** into `main`. CI runs automatically.
-4. **Merge** once CI is green (branch protection enforces a PR + passing checks — see Merge policy).
-5. **Promote to UAT.** After the merge, bring UAT up to the new `main` (pull + redeploy — see [release-and-deploy.md](release-and-deploy.md)).
+2. **Build and self-validate on dev.** Iterate with `pnpm dev` — the isolated `gctp-dev` compose project on shifted ports (see [release-and-deploy.md](release-and-deploy.md)); run unit / integration / e2e ([testing.md](testing.md)).
+3. **Deploy the branch to UAT for owner acceptance.** UAT runs the in-flight feature branch (check it out + `docker compose up --build -d`); the owner validates the real, container-shape app **before** the PR.
+4. **Open a PR** into `main`. CI is the **final validation gate** (build / lint / typecheck / test / licenses / docs-links).
+5. **Merge** once CI is green (branch protection enforces a PR + passing checks — see Merge policy).
+6. **Promote to prod.** prod tracks `main` on a **separate host**; after the merge, pull `main` + redeploy there — manual (see [release-and-deploy.md](release-and-deploy.md)).
 
-The split is the point: **feature branches live on dev, `main` lives on UAT.** Only merged-to-`main` code ever runs in UAT — the two environments never blur.
+The tiers: **dev** is the author/agent inner loop, **UAT** is the owner's pre-PR acceptance tier (it *does* run feature branches), and **prod** is the always-`main` live tier. Keep prod's checkout exactly on `main`.
 
 ## Commit messages
 

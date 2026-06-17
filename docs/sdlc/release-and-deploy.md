@@ -48,20 +48,35 @@ Dev iteration on UI, schema, uploads, and the admin surface doesn't depend on OS
 
 For the full container-shape stack (api + web also in compose), use the production-like recipe below — handy for validating Dockerfile changes or simulating a UAT-shape deploy.
 
-## Current state (pre-M6)
+## Environments & promotion
 
-A single UAT instance runs on a shared host. It is isolated on its own Docker network and exposed via a **dedicated Cloudflare Tunnel** with **Cloudflare Access** in front for authentication ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)) — gctp shares no network with any other workload on that host, and no host ports are published. `web` (nginx) is the single same-origin edge: it serves the SPA and reverse-proxies `/api/*` → `api:3000`.
+Three tiers, each with a clear owner and a clear source. A deployed stack is
+isolated on its own Docker network behind a **dedicated Cloudflare Tunnel** with
+**Cloudflare Access** in front ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)); no host ports are published, and `web` (nginx) is the single same-origin edge that serves the SPA and reverse-proxies `/api/*` → `api:3000`.
 
-**UAT tracks `main`.** It only ever runs merged-to-`main` code — never an in-flight feature branch (those are exercised on the dev environment; see [branching-and-prs.md](branching-and-prs.md)). So promotion to UAT is simply "fast-forward UAT to the latest `main` and redeploy", done **after each PR merges**:
+| Tier     | Where                                          | Source                                              | Validated by                                      |
+| -------- | ---------------------------------------------- | --------------------------------------------------- | ------------------------------------------------- |
+| **dev**  | `gctp-dev` compose project (shared host, shifted ports) | the working tree under `pnpm dev`           | the author/agent — fast inner loop                |
+| **UAT**  | the `gctp` compose stack (shared host)         | the **feature branch under test** (checked out)     | the owner — acceptance **before** the PR          |
+| **prod** | a **separate host**                            | **`main`** (only ever merged code)                  | the PR is the final gate; prod is the live result |
 
-1. SSH to the host.
-2. `git checkout main && git pull --ff-only` — UAT must sit exactly on `main`; if `--ff-only` refuses, the checkout has drifted (don't force — investigate).
-3. `cd infra && docker compose up --build -d` — recreates the stack and the `cloudflared` connector (see [infra/docker-compose.yml](../../infra/docker-compose.yml)). The public hostname route and the Access policy are dashboard state in Cloudflare Zero Trust, not in the repo; `CLOUDFLARE_TUNNEL_TOKEN` is the only related env knob.
-4. `docker compose logs -f api web cloudflared` for the first minute to confirm the stack is healthy and the tunnel registers its connections.
+The path for any change:
 
-(No auto-deploy yet — see below — so this promotion step is manual for now.)
+1. **dev** — the author/agent iterates and self-validates (`pnpm dev`; unit / integration / e2e per [testing.md](testing.md)).
+2. **UAT** — when it's ready for the owner to try, deploy the **feature branch** to UAT for acceptance. On the UAT host:
+   - `git fetch && git checkout <branch> && git pull --ff-only`
+   - `cd infra && docker compose up --build -d` — recreates the stack + the `cloudflared` connector (migrations run via the one-shot `migrate` service, below). A single service is enough for a web-only change: `docker compose up --build -d web`.
+   - `docker compose logs -f api web cloudflared` for the first minute.
+3. **PR** — open the PR into `main`; **CI is the final validation gate** (build / lint / typecheck / test / licenses / docs-links). Merge on green.
+4. **prod** — prod tracks `main` on a separate host; promote **manually** after the merge. On the prod host:
+   - `git checkout main && git pull --ff-only` — prod must sit exactly on `main`; if `--ff-only` refuses, the checkout drifted (don't force — investigate).
+   - `cd infra && docker compose up --build -d`, then tail logs to confirm health + tunnel registration.
 
-DB migrations apply automatically as part of step 3: the one-shot `migrate` service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) runs `node-pg-migrate up` against the live Postgres and exits 0; `api`, `jobs`, and `osm2pgsql-import` all `depends_on: migrate: service_completed_successfully`, so they wait until the schema is at the latest revision. No host-side migrate command is needed. To re-run migrations explicitly (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
+The public hostname route and the Access policy are dashboard state in Cloudflare Zero Trust, not in the repo; `CLOUDFLARE_TUNNEL_TOKEN` is the only related env knob.
+
+> **This replaces the earlier "UAT tracks `main`" model.** UAT is now the owner's pre-PR acceptance tier and *does* run in-flight feature branches; **prod** is the always-`main` tier. Keep prod's checkout exactly on `main`; UAT's checkout floats with whatever branch is under test (reset it to `main` or the next branch as needed).
+
+DB migrations apply automatically on every `docker compose up --build`: the one-shot `migrate` service ([Dockerfile.migrate](../../infra/Dockerfile.migrate)) runs `node-pg-migrate up` against the live Postgres and exits 0; `api`, `jobs`, and `osm2pgsql-import` all `depends_on: migrate: service_completed_successfully`, so they wait until the schema is at the latest revision. No host-side migrate command is needed. To re-run migrations explicitly (e.g. after editing a SQL file without bumping any image): `docker compose up -d --force-recreate migrate`.
 
 OSRM preprocessing (first boot, ~10 min for a country extract) runs in the `osrm` service via `infra/osrm/bootstrap.sh`. Subsequent boots reuse `osrm-data`. Landuse polygons are populated by a parallel one-shot `osm2pgsql-import` service into the existing Postgres (see [ADR-0009](../adr/0009-osm2pgsql-replaces-overpass.md)).
 
@@ -77,20 +92,19 @@ It re-downloads the regional PBFs, re-preprocesses OSRM, and re-imports landuse 
 
 ## What's deliberately not here yet
 
-- No CI auto-deploy. M6+ may add a deploy workflow once auth lands and the blast radius of a bad merge grows.
-- No staging environment separate from UAT — UAT _is_ the only non-dev tier today.
-- No rollback button. Rollback = `git revert` + redeploy.
+- **No CI auto-deploy.** Both UAT (feature branch) and prod (`main`) are promoted manually — `git checkout … && docker compose up --build -d` on the relevant host. Auto-deploy-on-merge for prod is a future option; the blast radius of a bad merge is why it's still a human step.
+- No rollback button. Rollback = `git revert` on `main` + re-promote (or, on UAT, check out a known-good branch and rebuild).
 
-## Production differences (when we get there)
+## Production (prod tier)
 
-Per [docs/architecture/background-and-deploy.md](../architecture/background-and-deploy.md):
+Prod runs on a **separate host** from UAT and tracks `main`. Per [docs/architecture/background-and-deploy.md](../architecture/background-and-deploy.md), it differs from UAT:
 
-- `NODE_ENV=production` (currently UAT uses `NODE_ENV=uat` so the AuthModule pre-M6 dev-user middleware stays active).
-- TLS is terminated at the Cloudflare edge (the tunnel origin is plain HTTP on the internal network); no on-box cert. Authentication is enforced by Cloudflare Access until the M6 JWT module replaces the dev-user middleware ([ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md)).
+- `NODE_ENV=production` (UAT uses `NODE_ENV=uat`). The auth config refuses `AUTH_DEV_BYPASS` under production.
+- TLS is terminated at the Cloudflare edge (the tunnel origin is plain HTTP on the internal network); no on-box cert. Authentication is the app's own session/OAuth, with Cloudflare Access in front per [ADR-0015](../adr/0015-isolated-network-dedicated-cloudflare-tunnel.md) / its staged removal in [ADR-0023](../adr/0023-staged-cloudflare-access-tunnel-removal.md).
 - Backups on `pgdata`, `osrm-data`, and `gctp-uploads` (not yet automated). Losing `gctp-uploads` is not catastrophic — the parsed cache data lives in Postgres — but it removes the ability to re-run `POST /admin/uploads/:id/reprocess` against historical uploads, so users would have to re-upload their PQs to back-fill any new parsed field.
-- Per-host resource limits (CPU/mem) on `mem_limit` in compose for the API and web services.
+- Per-host resource limits (CPU/mem) via `mem_limit` in compose for the API and web services.
 
-## When something breaks in UAT
+## When something breaks in UAT or prod
 
 1. `docker compose logs --tail 200 <service>` first.
 2. Check `valkey-cli MONITOR` if BullMQ jobs look stuck.
