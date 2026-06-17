@@ -169,7 +169,8 @@ export default function App(): JSX.Element {
   const queryClient = useQueryClient();
   const onLogout = useCallback(async () => {
     await logout();
-    void navigate({ to: "/login" });
+    // An explicit sign-out lands on the public welcome page, not the login form.
+    void navigate({ to: "/welcome" });
   }, [logout, navigate]);
   const [params, setParams] = useLocalStorageState<SearchParams>(
     "search",
