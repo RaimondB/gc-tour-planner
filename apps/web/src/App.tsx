@@ -91,7 +91,7 @@ import {
   Save,
   Wrench,
 } from "lucide-react";
-import { googleMapsDirUrl } from "./lib/maps.js";
+import { parkingNavTarget } from "./lib/maps.js";
 import { Logo } from "./features/shell/Logo.js";
 import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
@@ -1031,6 +1031,7 @@ export default function App(): JSX.Element {
     if (planResult) {
       const totalMin =
         planResult.totals.seconds / 60 + planResult.totals.visitMinutes;
+      const parkingNav = parkingNavTarget(planResult.parking.point);
       return (
         <div className="step-peek step-peek--stack">
           <div className="tour-peek__row">
@@ -1062,10 +1063,11 @@ export default function App(): JSX.Element {
           </div>
           <a
             className="tour-peek__navigate"
-            href={googleMapsDirUrl(planResult.parking.point)}
-            target="_blank"
-            rel="noreferrer"
-            title="Open Google Maps directions to the parking (shareable)"
+            href={parkingNav.href}
+            {...(parkingNav.external
+              ? { target: "_blank", rel: "noreferrer" }
+              : {})}
+            title="Navigate to the parking (opens your maps app; works offline)"
           >
             <Navigation size={16} aria-hidden="true" /> Navigate to parking
           </a>

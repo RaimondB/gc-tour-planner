@@ -60,6 +60,17 @@ the offline basemap and list thumbnail.**
   `File`, calls `navigator.share` when `navigator.canShare({ files })` accepts
   it, and falls back to `downloadText` on any unsupported/failed case. A
   user-cancel (`AbortError`) is respected.
+- **Parking navigation hands off natively (offline-capable).** The "Navigate to
+  parking" link (`lib/maps.ts#parkingNavTarget`) emits a **native OS map-intent
+  URI** per platform — `google.navigation:q=lat,lng` (Android, direct turn-by-turn)
+  and `maps://?daddr=lat,lng&dirflg=d` (iOS, Apple Maps) — which the OS resolves
+  *without network* and routes to the installed maps app, where downloaded offline
+  maps take over. Desktop keeps the shareable Google Maps web URL
+  (`https://www.google.com/maps/dir/?api=1&destination=…`, `googleMapsDirUrl`). The
+  earlier web-URL-everywhere link dead-ended offline: the browser couldn't reach
+  `google.com`, and from the installed PWA it wouldn't reliably hand off to the
+  maps app. Only the http(s) desktop URL opens with `target="_blank"` — custom app
+  schemes must not (a blank tab that never closes).
 - **Map snapshot (FR-W4).** On save, the client captures the rendered canvas
   (`map.getCanvas().toBlob(…, "image/webp")`, needing `preserveDrawingBuffer`)
   and uploads it to `PUT /tours/:id/preview`; it's stored in a `bytea` column and
