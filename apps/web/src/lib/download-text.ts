@@ -22,6 +22,22 @@ export function downloadText(opts: {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Download initiation is asynchronous. Revoking the object URL (and detaching
+  // the anchor) synchronously after click() races the browser's handoff to the
+  // OS download manager: in slower contexts the URL dies before the download
+  // starts and it silently never appears. This is what breaks GPX export in
+  // Edge's Android "installed" PWA (a home-screen shortcut, not a true WebAPK,
+  // with a slower handoff than Chrome) — nothing pops up. Defer cleanup well
+  // past the handoff window. See chromium #827932 / mozilla #1282407.
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, REVOKE_DELAY_MS);
 }
+
+/**
+ * How long to keep the object URL + anchor alive after click(). Generous on
+ * purpose — the blob is small (a GPX tour) so the brief retention is harmless,
+ * and a short delay can still lose the race on slow standalone-PWA handoffs.
+ */
+const REVOKE_DELAY_MS = 60_000;

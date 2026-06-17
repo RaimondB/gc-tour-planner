@@ -12,7 +12,16 @@ import { appIdentity, resolveAppEnv } from "./src/lib/app-identity.js";
 const id = appIdentity(resolveAppEnv(process.env.VITE_APP_ENV));
 const v = "v=4";
 
+// Stamped into the bundle so the About dialog can prove which build is running —
+// the only reliable way to confirm an installed (prompt-strategy) PWA actually
+// took a new deploy vs. is still serving the precached old SW. Changes on every
+// build regardless of git/commit state (git isn't in the Docker build context).
+const buildTime = new Date().toISOString();
+
 export default defineConfig({
+  define: {
+    __APP_BUILD_TIME__: JSON.stringify(buildTime),
+  },
   plugins: [
     react(),
     // Fill the env-specific bits of index.html (title, iOS label + touch icon).
@@ -83,8 +92,31 @@ export default defineConfig({
         //    Access cookie is never set — so Google sign-in dead-ends in any
         //    browser whose SW is active and that needs a fresh Access session
         //    (e.g. Chrome with 3rd-party cookies restricted).
-        navigateFallbackDenylist: [/^\/api\//, /^\/cdn-cgi\//],
+        //  - /_gpx/*      → the SW-mediated GPX download (see below). It's a
+        //    navigation, so without this denylist entry the navigateFallback
+        //    would answer it with the SPA shell instead of the file.
+        navigateFallbackDenylist: [/^\/api\//, /^\/cdn-cgi\//, /^\/_gpx\//],
         runtimeCaching: [
+          {
+            // SW-mediated download. In-page anchor/blob `download` is silently
+            // swallowed inside Android "installed" PWAs (notably Edge, whose
+            // install is a shortcut, not a true WebAPK) — nothing surfaces. The
+            // fix: the client pre-stages the GPX as a Response carrying
+            // `Content-Disposition: attachment` in the `gpx-downloads` cache
+            // (lib/sw-download.ts), then navigates to `/_gpx/<id>/<name>`. This
+            // CacheFirst route serves that Response verbatim, so the browser
+            // routes it through the OS download manager — a real, surfaced
+            // download (notification + tap-to-open, filename preserved) that
+            // also works offline. Single-use: the client evicts after firing,
+            // and the short expiry self-cleans anything it misses. [ADR-0032]
+            urlPattern: ({ url }) => url.pathname.startsWith("/_gpx/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "gpx-downloads",
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 30 },
+            },
+          },
           {
             // Saved tours + their snapshots → render offline once viewed online.
             // The regex is INLINE on purpose: workbox stringifies this function

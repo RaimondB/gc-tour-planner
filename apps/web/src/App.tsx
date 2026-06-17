@@ -26,7 +26,8 @@ import {
   tourPreviewUrl,
 } from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
-import { shareOrDownloadGpx } from "./lib/share-file.js";
+import { downloadGpx } from "./lib/gpx-download.js";
+import { tourFilename } from "./lib/tour-filename.js";
 import { captureMapSnapshot } from "./lib/map-snapshot.js";
 import {
   useOnline,
@@ -97,6 +98,7 @@ import { Logo } from "./features/shell/Logo.js";
 import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
+import { AboutDialog } from "./features/shell/AboutDialog.js";
 import { AdminToolsPanel } from "./features/shell/AdminToolsPanel.js";
 import { JOURNEY_LABELS, type JourneyStep } from "./features/shell/journey.js";
 import { useAuth } from "./features/auth/AuthProvider.js";
@@ -281,6 +283,7 @@ export default function App(): JSX.Element {
   const [toolsOpen, setToolsOpen] = useState(false);
   // Mobile header overflow → collapse the nav actions into a hamburger menu.
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
   // Map-picked start point ([lng, lat]) for startPreference="user-supplied-point".
   // Set by clicking the map; replaces the old "use search center" auto-fill.
@@ -737,7 +740,7 @@ export default function App(): JSX.Element {
 
   // Quick GPX export straight from the Tour peek — edit-aware (respects leg
   // swaps / via-points) via the shared `buildEditedPolyline`.
-  const downloadGpx = useCallback(
+  const saveGpx = useCallback(
     (mode: "track" | "route") => {
       if (!planResult) return;
       const edited = buildEditedPolyline(planResult, legPicks);
@@ -750,12 +753,10 @@ export default function App(): JSX.Element {
               edited !== planResult.polyline ? edited : undefined,
             )
           : planToGpxRoute(planResult, caches);
-      const ts = new Date().toISOString().replace(/[:.]/g, "-");
-      void shareOrDownloadGpx({
+      void downloadGpx({
         text,
-        filename: `gctp-tour-${mode}-${ts}.gpx`,
+        filename: tourFilename(planResult, mode, new Date()),
         mimeType: "application/gpx+xml",
-        title: `gc-tour-planner ${mode}`,
       });
     },
     [planResult, caches, legPicks],
@@ -1094,14 +1095,14 @@ export default function App(): JSX.Element {
             </button>
             <button
               type="button"
-              onClick={() => downloadGpx("track")}
+              onClick={() => saveGpx("track")}
               title="Download a GPX track — your device follows the exact route on the map."
             >
               <Download size={16} aria-hidden="true" /> GPX track
             </button>
             <button
               type="button"
-              onClick={() => downloadGpx("route")}
+              onClick={() => saveGpx("route")}
               title="Download a GPX route — parking + each cache as waypoints; the device navigates between them."
             >
               GPX route
@@ -1369,6 +1370,17 @@ export default function App(): JSX.Element {
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
+                        setAboutOpen(true);
+                      }}
+                    >
+                      About
+                    </button>
+                    <button
+                      type="button"
+                      className="app-header__menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
                         void onLogout();
                       }}
                     >
@@ -1583,6 +1595,8 @@ export default function App(): JSX.Element {
           onTestRouteChange={setTestRoute}
         />
       )}
+
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
 
       <footer className="app-footer">
         Map data &copy;{" "}

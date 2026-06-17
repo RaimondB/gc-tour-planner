@@ -16,6 +16,7 @@ import { ConnectivityProvider } from "./features/shell/ConnectivityProvider.js";
 import { TourSessionProvider } from "./features/tours/TourSessionProvider.js";
 import { PwaUpdatePrompt } from "./features/shell/PwaUpdatePrompt.js";
 import { PwaInstallPrompt } from "./features/shell/PwaInstallPrompt.js";
+import { GpxDownloadToast } from "./features/shell/GpxDownloadToast.js";
 import { SessionExpiredGate } from "./features/shell/SessionExpiredGate.js";
 import { initCloudflareAnalytics } from "./lib/cloudflare-analytics.js";
 import "./styles.css";
@@ -83,6 +84,7 @@ createRoot(rootEl).render(
         </AuthProvider>
         <PwaUpdatePrompt />
         <PwaInstallPrompt />
+        <GpxDownloadToast />
         <SessionExpiredGate />
       </ConnectivityProvider>
     </QueryClientProvider>
