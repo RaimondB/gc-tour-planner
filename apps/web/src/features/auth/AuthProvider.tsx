@@ -13,7 +13,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AuthUser, LoginInput, RegisterInput } from "@gctp/shared/auth";
 import * as api from "../../lib/api.js";
-import { useOnline } from "../shell/ConnectivityProvider.js";
 
 /** React Query key for the `GET /auth/me` session probe. */
 export const AUTH_ME_QUERY_KEY = ["auth", "me"] as const;
@@ -71,7 +70,6 @@ export function AuthProvider({
   children: ReactNode;
 }): JSX.Element {
   const qc = useQueryClient();
-  const online = useOnline();
   const meQuery = useQuery({
     queryKey: AUTH_ME_QUERY_KEY,
     queryFn: () => api.fetchMe(),
@@ -115,10 +113,14 @@ export function AuthProvider({
   const value = useMemo<AuthContextValue>(() => {
     const liveUser = meQuery.data ?? null;
     // Offline + the probe errored before any answer this session (cold launch):
-    // restore the last principal we saw rather than treating a network failure
-    // as a sign-out. A clean 401 returns `null` (not an error), so a genuine
-    // logout still falls through to "unauthenticated".
-    const fallbackUser = meQuery.isError && !online ? readCachedUser() : null;
+    // restore the last principal we saw rather than treating the failure as a
+    // sign-out. Gate ONLY on `isError`, never on `online`: a clean 401 returns
+    // `null` (not an error) so a genuine logout still becomes "unauthenticated",
+    // while an errored probe keeps the cached user. Critically this must NOT
+    // depend on `online` — otherwise the periodic `/api/health` probe flipping
+    // online during a flaky startup would drop the fallback, flip status to
+    // unauthenticated, bounce `/`→`/welcome`, and tear the map down mid-startup.
+    const fallbackUser = meQuery.isError ? readCachedUser() : null;
     const user = liveUser ?? fallbackUser;
     const status: AuthStatus = meQuery.isPending
       ? "pending"
@@ -137,7 +139,6 @@ export function AuthProvider({
     meQuery.data,
     meQuery.isPending,
     meQuery.isError,
-    online,
     login,
     register,
     logout,
