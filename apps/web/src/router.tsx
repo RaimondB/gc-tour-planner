@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  type ErrorComponentProps,
   Outlet,
   createRootRouteWithContext,
   createRoute,
@@ -89,8 +90,40 @@ const routeTree = rootRoute.addChildren([
   accountRoute,
 ]);
 
+/**
+ * Recoverable error screen. Replaces TanStack's bare default ("Something went
+ * wrong! / Hide Error") so a transient render/effect error isn't a dead end:
+ * the user can reload (the common cure for a startup race) or retry, and the
+ * stack is shown for diagnosis.
+ */
+function RouteError({ error, reset }: ErrorComponentProps) {
+  return (
+    <div className="route-error" role="alert">
+      <h1>Something went wrong</h1>
+      <p className="route-error__msg">{error.message}</p>
+      <div className="route-error__actions">
+        <button
+          type="button"
+          className="primary"
+          onClick={() => window.location.reload()}
+        >
+          Reload
+        </button>
+        <button type="button" onClick={() => reset()}>
+          Try again
+        </button>
+      </div>
+      <details className="route-error__details">
+        <summary>Details</summary>
+        <pre>{error.stack ?? error.message}</pre>
+      </details>
+    </div>
+  );
+}
+
 export const router = createRouter({
   routeTree,
+  defaultErrorComponent: RouteError,
   // The real auth value is supplied per-render by RouterProvider in main.tsx;
   // this placeholder only satisfies the initial type contract.
   context: { auth: undefined as unknown as AuthContextValue },
