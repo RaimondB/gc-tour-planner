@@ -14,7 +14,10 @@ const OPTS = {
 };
 
 let store: Map<string, Response>;
-let cacheMock: { put: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+let cacheMock: {
+  put: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
+};
 
 function setController(controller: object | null): void {
   Object.defineProperty(navigator, "serviceWorker", {

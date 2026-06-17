@@ -4,7 +4,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import { GpxDownloadToast } from "./GpxDownloadToast.js";
 import { emitGpxSaved } from "../../lib/gpx-saved-events.js";

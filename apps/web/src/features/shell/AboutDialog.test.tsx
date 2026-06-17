@@ -21,7 +21,9 @@ describe("AboutDialog", () => {
   it("surfaces the injected build stamp and environment when open", () => {
     render(<AboutDialog open onClose={() => {}} />);
 
-    expect(screen.getByRole("dialog", { name: /about this app/i })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: /about this app/i }),
+    ).toBeTruthy();
     // The build time is the whole point — it must be shown as a <time> carrying
     // the exact injected ISO value so a stale installed PWA is detectable.
     const stamp = document.querySelector("time");

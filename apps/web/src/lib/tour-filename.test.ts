@@ -11,7 +11,12 @@ function plan(over: Partial<PlanResult> = {}): PlanResult {
   return {
     orderedCacheIds: [1, 2, 3],
     totals: { meters: 8345, seconds: 0, visitMinutes: 0 },
-    parking: { type: "osrm-nearest", point: { type: "Point", coordinates: [0, 0] }, reason: "", fallback: false },
+    parking: {
+      type: "osrm-nearest",
+      point: { type: "Point", coordinates: [0, 0] },
+      reason: "",
+      fallback: false,
+    },
     ...over,
   } as PlanResult;
 }
@@ -27,7 +32,11 @@ describe("tourFilename", () => {
 
   it("trims a whole-number distance and reflects the mode", () => {
     expect(
-      tourFilename(plan({ totals: { meters: 12000, seconds: 0, visitMinutes: 0 } }), "route", JUN17),
+      tourFilename(
+        plan({ totals: { meters: 12000, seconds: 0, visitMinutes: 0 } }),
+        "route",
+        JUN17,
+      ),
     ).toBe("gctp-12km-3c-Jun17-route.gpx");
   });
 
@@ -38,7 +47,13 @@ describe("tourFilename", () => {
         point: { type: "Point", coordinates: [0, 0] },
         reason: "",
         fallback: false,
-        osm: { osmId: 1, osmType: "W", access: null, fee: null, name: "Bospark P3" },
+        osm: {
+          osmId: 1,
+          osmType: "W",
+          access: null,
+          fee: null,
+          name: "Bospark P3",
+        },
       },
     });
     expect(tourFilename(p, "track", JUN17)).toBe(

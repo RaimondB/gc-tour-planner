@@ -48,14 +48,14 @@ describe("downloadText", () => {
   });
 
   it("keeps the anchor in the DOM until after the click, then cleans it up", () => {
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
-      function (this: HTMLAnchorElement) {
-        // At click time the anchor must be live and configured.
-        expect(this.isConnected).toBe(true);
-        expect(this.getAttribute("download")).toBe("tour.gpx");
-        expect(this.href).toBe("blob:mock");
-      },
-    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      // At click time the anchor must be live and configured.
+      expect(this.isConnected).toBe(true);
+      expect(this.getAttribute("download")).toBe("tour.gpx");
+      expect(this.href).toBe("blob:mock");
+    });
 
     downloadText(OPTS);
     expect(document.querySelector("a")).not.toBeNull();
