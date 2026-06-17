@@ -97,6 +97,15 @@ with a follow-up ADR.
 - One authoritative connectivity probe (`/api/health`) lifted into context
   (`useOnline`); an offline indicator + banner; online-only actions disabled with
   a stated reason; view/open/export of an already-loaded tour stay available.
+- **Edge-auth challenge ≠ offline.** Behind Cloudflare Access, a lapsed session
+  makes the SW-served shell boot unauthenticated and every `/api/*` redirect
+  cross-origin — which a default `fetch` follows into a CORS error that reads as
+  "offline". The probe therefore uses `redirect:"manual"` and classifies an opaque
+  redirect (or 401/403) as a distinct `"auth"` state
+  (`use-connectivity.ts#classifyProbe`), surfacing a `SessionExpiredGate` that
+  **unregisters the SW and reloads** to reach the edge login (a plain reload is
+  re-served from the precache and never reaches Access). Generic to any edge auth;
+  no Cloudflare-specific URL is baked in.
 
 ### Marketing page parity
 

@@ -35,6 +35,13 @@ Each rule below is a real incident that cost UAT round-trips.
   WebAPK icon is keyed on the URL; `no-cache` refreshes the browser HTTP cache
   but does **not** re-mint the WebAPK. Maskable safe zone: keep glyphs inside the
   central ~66% (Samsung/Edge crops tighter than Chrome).
+- **Two icon intents + per-env variants (ADR-0031).** `icon-maskable.svg` is
+  FULL-BLEED (cropped home-screen icon + iOS apple-touch); `icon-source.svg` is a
+  ROUNDED tile (shown in full on the splash). `VITE_APP_ENV` (default `uat`) picks
+  the `-uat` badged icons + "(UAT)" name; prod sets `production`. Resolver in
+  `src/lib/app-identity.ts`, consumed by `vite.config.ts` (manifest +
+  `transformIndexHtml` for title/apple-touch). Render PNGs with `rsvg-convert` per
+  the SVG headers, then bump `?v`.
 
 ## Cross-route / must-survive state
 
@@ -55,6 +62,17 @@ Each rule below is a real incident that cost UAT round-trips.
 - **Never derive auth status from `online`.** An errored `/auth/me` keeps the
   last-known user; only a clean `401 → null` logs out. A connectivity probe must
   never flip identity (it caused a startup route-bounce → map teardown → crash).
+- **Edge auth (Cloudflare Access) vs the SW — "shows offline instead of the
+  login".** The SW serves the precached shell for navigations (`navigateFallback`),
+  so when the Access session lapses the Access *challenge* on `/` never reaches the
+  edge: the app boots unauthenticated, every `/api/*` (incl. the `/api/health`
+  probe) is redirected cross-origin, and a default `fetch` follows it into a CORS
+  error → indistinguishable from offline. Fixes: probe with `redirect:"manual"` so
+  the redirect surfaces as `type:"opaqueredirect"` (classify as `"auth"`, not
+  offline — `use-connectivity.ts#classifyProbe`); show a reconnect gate
+  (`SessionExpiredGate`) whose action **unregisters the SW then reloads** (a plain
+  reload is re-served from cache and never reaches Access). Reconnect by escaping
+  the SW, not by hitting a Cloudflare-specific URL.
 - **MapLibre ops are lifecycle-guarded.** Gate on the `ready`/`load` flag; never
   `map.getSource`/`getLayer` on a removed/not-loaded map (`… reading 'getSource'
   of null`). Unbind event/async handlers on cleanup.

@@ -8,7 +8,10 @@ import {
   type JSX,
   type ReactNode,
 } from "react";
-import { useConnectivity } from "../../lib/use-connectivity.js";
+import {
+  useConnectivity,
+  type Connectivity,
+} from "../../lib/use-connectivity.js";
 
 /**
  * App-wide connectivity. `useConnectivity()` runs ONE probe loop here (mounted
@@ -18,6 +21,7 @@ import { useConnectivity } from "../../lib/use-connectivity.js";
  * instead of each spinning up its own `/api/health` poll.
  */
 interface ConnectivityContextValue {
+  status: Connectivity;
   online: boolean;
   recheck: () => void;
 }
@@ -31,10 +35,10 @@ export function ConnectivityProvider({
 }: {
   children: ReactNode;
 }): JSX.Element {
-  const { online, recheck } = useConnectivity();
+  const { status, online, recheck } = useConnectivity();
   const value = useMemo<ConnectivityContextValue>(
-    () => ({ online, recheck }),
-    [online, recheck],
+    () => ({ status, online, recheck }),
+    [status, online, recheck],
   );
   return (
     <ConnectivityContext.Provider value={value}>
@@ -56,6 +60,14 @@ function useConnectivityContext(): ConnectivityContextValue {
 /** `true` when the server is reachable (authoritative `/api/health` probe). */
 export function useOnline(): boolean {
   return useConnectivityContext().online;
+}
+
+/**
+ * Full connectivity status. `"auth"` means an edge gate (Cloudflare Access)
+ * needs a fresh session — distinct from being offline. See SessionExpiredGate.
+ */
+export function useConnectivityStatus(): Connectivity {
+  return useConnectivityContext().status;
 }
 
 /** Force an immediate connectivity re-check (e.g. when basemap tiles fail). */

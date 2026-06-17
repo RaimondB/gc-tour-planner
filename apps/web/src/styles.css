@@ -1362,6 +1362,39 @@ body,
   font-size: 0.95rem;
 }
 
+/* Edge-auth (Cloudflare Access) re-login gate — covers everything, incl. the
+   "offline" UI, since this is a lapsed session, not a network outage. */
+.session-expired {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-drawer) + 10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(17, 24, 39, 0.6);
+}
+
+.session-expired__card {
+  max-width: 22rem;
+  width: 100%;
+  padding: var(--space-4);
+  background: #fff;
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-2);
+  text-align: center;
+}
+
+.session-expired__card h2 {
+  margin: 0 0 var(--space-2);
+}
+
+.session-expired__card p {
+  margin: 0 0 var(--space-4);
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
 .auth-page {
   display: flex;
   align-items: center;
