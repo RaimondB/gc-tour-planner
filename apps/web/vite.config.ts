@@ -47,7 +47,15 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webp,woff2}"],
         navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//],
+        // Never serve the SPA shell for navigations the origin/edge must handle:
+        //  - /api/*       → the backend (e.g. the OAuth start /api/auth/google).
+        //  - /cdn-cgi/*   → Cloudflare's reserved paths, incl. the Access login
+        //    callback /cdn-cgi/access/authorized. Without this the SW hijacks
+        //    that callback, renders the SPA "Not Found" on /cdn-cgi/…, and the
+        //    Access cookie is never set — so Google sign-in dead-ends in any
+        //    browser whose SW is active and that needs a fresh Access session
+        //    (e.g. Chrome with 3rd-party cookies restricted).
+        navigateFallbackDenylist: [/^\/api\//, /^\/cdn-cgi\//],
         runtimeCaching: [
           {
             // Saved tours + their snapshots → render offline once viewed online.
