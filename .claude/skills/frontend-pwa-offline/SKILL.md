@@ -11,12 +11,38 @@ Each rule below is a real incident that cost UAT round-trips.
 
 ## Service worker (vite.config.ts → VitePWA workbox)
 
-- **`navigateFallbackDenylist` must exclude every path the origin/edge owns** —
-  currently `[/^\/api\//, /^\/cdn-cgi\//]`. `/cdn-cgi/*` is Cloudflare's reserved
-  space (Access login callback `/cdn-cgi/access/authorized`). If the SW answers
-  such a navigation with the precached `index.html`, the SPA renders "Not Found",
-  the request never reaches the origin, and auth/edge flows dead-end. Adding any
-  new auth-callback or edge path? Add it here in the same PR.
+- **`navigateFallbackDenylist` must exclude every path the origin/edge/SW owns** —
+  currently `[/^\/api\//, /^\/cdn-cgi\//, /^\/_gpx\//]`. `/cdn-cgi/*` is
+  Cloudflare's reserved space (Access login callback `/cdn-cgi/access/authorized`).
+  `/_gpx/*` is the SW-mediated GPX download (below). If the SW answers such a
+  navigation with the precached `index.html`, the SPA renders "Not Found", the
+  request never reaches its real handler, and auth/edge/download flows dead-end.
+  Adding any new auth-callback, edge, or SW-owned path? Add it here in the same PR.
+- **GPX download is SW-mediated, NOT an in-page anchor/blob ([ADR-0032]).**
+  In-page `<a download>`/blob downloads are silently swallowed inside Android
+  "installed" PWAs (Edge especially — its install is a shortcut, not a true
+  WebAPK): nothing downloads, nothing surfaces. Web Share can't carry a `.gpx`
+  either (Chromium's allowlist rejects the extension AND the MIME). The working
+  path: the client stages the GPX as a `Content-Disposition: attachment`
+  `Response` in the `gpx-downloads` Cache, then points a **hidden iframe** (NO
+  `download` attr) at `/_gpx/<id>/<name>`; a workbox `CacheFirst` route (cacheName
+  **`gpx-downloads`**, used verbatim — must equal the client's `caches.open`)
+  serves it, so the file is saved (filename kept, works offline). The download is
+  **silent by platform** — Edge's installed PWA shows the OS download
+  notification only in the shade, and a top-level navigation (which does route
+  through DownloadManager) just adds a shell "flash" for no real gain. So we give
+  feedback **in-app** instead: `GpxDownloadToast`, a **pure confirmation** ("Saved
+  `<file>`") fired via `emitGpxSaved` on the SW save path. Don't add an "open"
+  action — there is NO web way to open the OS Downloads UI or the "open with"
+  chooser for a `.gpx` from Edge's PWA (intents are sandboxed, Web Share rejects
+  `.gpx`, `window.open` just re-downloads). Filenames follow
+  `gctp-[place-]<km>km-<n>c-<MonDD>-<mode>.gpx` (`lib/tour-filename.ts`) so the
+  toast + Downloads folder are scannable.
+  **No `download` attribute** anywhere — that's the in-page blob path Edge's PWA
+  swallows. Don't "simplify" this back to an in-page anchor download. The blob
+  anchor path
+  (`download-text.ts`, with its **deferred** `revokeObjectURL` — never revoke
+  synchronously) survives only as the no-SW fallback.
 - **Offline only works in a production build.** `devOptions.enabled:false` keeps
   the SW out of `pnpm dev`. Verify with `pnpm --filter @gctp/web build` then
   preview, DevTools → Network → Offline. After deploy, a stale SW persists

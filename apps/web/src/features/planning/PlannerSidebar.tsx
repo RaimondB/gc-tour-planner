@@ -29,7 +29,8 @@ import {
   testOsrmRoute,
 } from "../../lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "../../lib/gpx-export.js";
-import { shareOrDownloadGpx } from "../../lib/share-file.js";
+import { downloadGpx } from "../../lib/gpx-download.js";
+import { tourFilename } from "../../lib/tour-filename.js";
 import {
   type LegPicks,
   planSignature,
@@ -737,7 +738,7 @@ export function PlanResultPanel({
   // Garmin file extension is .gpx regardless; the content header in
   // the file tells the device whether to treat it as a track or a
   // route.
-  const downloadGpx = (mode: "track" | "route") => {
+  const saveGpx = (mode: "track" | "route") => {
     const text =
       mode === "track"
         ? planToGpxTrack(
@@ -747,12 +748,10 @@ export function PlanResultPanel({
             hasEdits ? editedPolyline : undefined,
           )
         : planToGpxRoute(result, caches);
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    void shareOrDownloadGpx({
+    void downloadGpx({
       text,
-      filename: `gctp-tour-${mode}-${ts}.gpx`,
+      filename: tourFilename(result, mode, new Date()),
       mimeType: "application/gpx+xml",
-      title: `gc-tour-planner ${mode}`,
     });
   };
 
@@ -906,14 +905,14 @@ export function PlanResultPanel({
           <button
             type="button"
             className="primary"
-            onClick={() => downloadGpx("track")}
+            onClick={() => saveGpx("track")}
             title="Download as a GPX track — your device follows the exact OSRM polyline drawn on the map. Best when you trust the planner's route more than the device's onboard basemap."
           >
             GPX track
           </button>
           <button
             type="button"
-            onClick={() => downloadGpx("route")}
+            onClick={() => saveGpx("route")}
             title="Download as a GPX route — your device treats the parking + each cache as waypoints and computes leg geometry on-device, with auto-recompute if you stray. Best for turn-by-turn navigation."
           >
             GPX route

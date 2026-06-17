@@ -20,19 +20,30 @@ See [design/frontend.md](../design/frontend.md) and
   directly, instead of relying solely on the browser's menu; it hides once the
   app is installed or already running standalone (and never appears on iOS,
   where install is Safari's Share → Add to Home Screen). [ADR-0028]
-- **FR-W2 (native GPX share with download fallback).** GPX export offers the OS
-  share sheet via `navigator.share({ files })` when the platform accepts the
-  file (`navigator.canShare`), and otherwise falls back to the existing anchor
-  download. A user dismissing the sheet is respected (no forced download); any
-  share failure falls back. The download path remains the guaranteed one, since
-  Chrome's Web Share allowlist frequently rejects `.gpx`
-  ([see download-text.ts](../../apps/web/src/lib/download-text.ts)). [ADR-0028]
+- **FR-W2 (reliable GPX download, incl. installed PWAs).** GPX export saves the
+  file via a **service-worker-mediated download**: the client stages the GPX as a
+  `Content-Disposition: attachment` response in a cache and a hidden iframe
+  fetches it, so the file is saved with its filename. This is the only path that
+  reliably saves a file inside Android "installed" PWAs — in-page anchor/blob
+  `download` is silently swallowed there (notably Edge, whose install is a
+  shortcut, not a true WebAPK), and it works **offline** (FR-W3). Because the
+  installed PWA has no download shelf and Edge surfaces the OS download
+  notification only in the shade, the app shows an **in-app confirmation toast**
+  naming the saved file as the immediate feedback (the file is opened from the
+  shade notification or a file manager — no web API can open the "open with"
+  chooser for a `.gpx`). Filenames follow a short, recognisable convention
+  (`gctp-[place-]<km>km-<n>c-<MonDD>-<mode>.gpx`). It falls back to the anchor
+  download when no SW controls the page (first load, unsupported browser, dev). Web Share is **not** used: Chromium's allowlist
+  rejects `.gpx`/`application/gpx+xml` outright (extension **and** MIME), so a
+  real `.gpx` can never go through the share sheet.
+  ([lib/gpx-download.ts](../../apps/web/src/lib/gpx-download.ts),
+  [lib/sw-download.ts](../../apps/web/src/lib/sw-download.ts)) [ADR-0032]
 - **FR-W3 (offline saved tours).** A saved tour that has been opened online while
   installed is viewable **offline** — route, pins, parking, totals — and
-  exports/shares GPX offline. The service worker caches the saved-tour reads
+  exports GPX offline. The service worker caches the saved-tour reads
   (`GET /tours`, `GET /tours/:id`, `GET /tours/:id/preview`) stale-while-revalidate;
-  tour data and GPX are built client-side from the stored plan, so neither needs
-  the network. Map **tiles are deliberately not cached** (OSM's tile policy
+  tour data and GPX are built client-side from the stored plan, and the GPX
+  download itself is SW-mediated (FR-W2), so neither needs the network. Map **tiles are deliberately not cached** (OSM's tile policy
   forbids downloading tiles for offline use): when basemap tiles can't load, the
   app shows the tour's stored snapshot (FR-W4) instead of the live map; when
   tiles do load (online, or from the browser's normal HTTP cache) the live,

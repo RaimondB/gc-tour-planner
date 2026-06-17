@@ -306,6 +306,71 @@ body,
   }
 }
 
+.about-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: calc(var(--z-drawer) + 20);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+.about-dialog {
+  width: min(360px, 92vw);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.about-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.about-dialog__header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.about-dialog__header button {
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted, #6b7280);
+  padding: 0.25rem 0.5rem;
+}
+
+.about-dialog__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: var(--space-2) 0;
+}
+
+.about-dialog__facts dt {
+  color: var(--color-text-muted, #6b7280);
+  font-size: 0.9rem;
+}
+
+.about-dialog__facts dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.about-dialog__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #6b7280);
+}
+
 /* --- Journey rail (map-first overhaul) -------------------------------- */
 
 /* Persistent "where am I" stepper floating over the top of the map. */
@@ -1816,6 +1881,45 @@ p.error,
 }
 
 .pwa-update-toast__dismiss:hover {
+  color: #fff;
+}
+
+/* --- GPX "saved to downloads" toast ---------------------------------- */
+
+.gpx-saved-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: var(--z-drawer);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100vw - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-text, #1f2937);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-2);
+  font-size: 0.85rem;
+}
+
+.gpx-saved-toast__msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gpx-saved-toast__dismiss {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.gpx-saved-toast__dismiss:hover {
   color: #fff;
 }
 

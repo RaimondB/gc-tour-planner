@@ -28,3 +28,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** ISO-8601 build timestamp, injected by Vite `define`. See vite.config.ts. */
+declare const __APP_BUILD_TIME__: string;
