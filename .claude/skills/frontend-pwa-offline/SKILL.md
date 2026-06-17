@@ -76,6 +76,16 @@ Each rule below is a real incident that cost UAT round-trips.
 - **MapLibre ops are lifecycle-guarded.** Gate on the `ready`/`load` flag; never
   `map.getSource`/`getLayer` on a removed/not-loaded map (`… reading 'getSource'
   of null`). Unbind event/async handlers on cleanup.
+- **Teardown order: the `ready` gate is NOT enough.** React runs effect cleanups
+  **parent-first** on unmount, so `MapView`'s cleanup fires *before* every child
+  layer's. If `MapView` calls `map.remove()` synchronously, `remove()` nulls
+  `map.style`, then each child layer's cleanup runs `map.getLayer(id)` /
+  `removeLayer` on the dead map and throws `Cannot read properties of null
+  (reading 'getLayer')` — the route bounces to the recoverable error screen. This
+  is the same defect #78 saw as `getSource`; #78 only removed one *trigger* of the
+  unmount. The fix lives in `MapView`: **defer `map.remove()` one `queueMicrotask`**
+  so every child cleanup still sees a live map. Don't reintroduce a synchronous
+  `map.remove()` in the cleanup. (`MapView.test.tsx` locks it.)
 - The router has a **recoverable** `defaultErrorComponent` (Reload / Try again +
   stack). Keep it; don't regress to a dead-end error screen.
 

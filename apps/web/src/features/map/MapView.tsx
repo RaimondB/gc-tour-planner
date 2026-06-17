@@ -213,8 +213,16 @@ export function MapView({
       map.off("error", onMapError);
       map.off("idle", onIdle);
       onReadyRef.current?.(null);
-      map.remove();
       setApi(null);
+      // React runs effect cleanups PARENT-FIRST on unmount, so this cleanup
+      // fires BEFORE every child layer's cleanup. Those cleanups drop their
+      // own layers/sources with `map.getLayer(id)` / `map.removeLayer(id)` —
+      // and MapLibre's `getLayer` is `this.style.getLayer(id)`, which throws
+      // "Cannot read properties of null (reading 'getLayer')" once `remove()`
+      // has nulled `this.style`. Defer the teardown one microtask so every
+      // child cleanup still sees a live map; the whole instance is torn down
+      // immediately after this synchronous unmount flush completes.
+      queueMicrotask(() => map.remove());
     };
     // Effect runs once per mount; pan/zoom is user-driven after.
     // eslint-disable-next-line react-hooks/exhaustive-deps
