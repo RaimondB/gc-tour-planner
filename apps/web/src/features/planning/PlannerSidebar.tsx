@@ -4,7 +4,7 @@
 import { type JSX } from "react";
 import { Navigation } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { googleMapsDirUrl } from "../../lib/maps.js";
+import { parkingNavTarget } from "../../lib/maps.js";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type {
   ClusterCandidate,
@@ -756,6 +756,8 @@ export function PlanResultPanel({
     });
   };
 
+  const parkingNav = parkingNavTarget(result.parking.point);
+
   return (
     <div className="plan-result">
       <h3>Planned loop</h3>
@@ -787,12 +789,13 @@ export function PlanResultPanel({
           <br />
           <a
             className="parking-nav-link"
-            href={googleMapsDirUrl(result.parking.point)}
-            target="_blank"
-            rel="noreferrer"
-            title="Open Google Maps directions to the parking coordinate (shareable)"
+            href={parkingNav.href}
+            {...(parkingNav.external
+              ? { target: "_blank", rel: "noreferrer" }
+              : {})}
+            title="Navigate to the parking coordinate (opens your maps app; works offline)"
           >
-            <Navigation size={13} aria-hidden="true" /> Navigate (Google Maps)
+            <Navigation size={13} aria-hidden="true" /> Navigate
           </a>
         </dd>
       </dl>
