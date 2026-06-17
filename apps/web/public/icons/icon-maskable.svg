@@ -1,13 +1,14 @@
-<!-- Maskable variant of the gc-tour-planner brand mark. SOURCE OF TRUTH for
-     pwa-maskable-512.png. Render once, locally, and commit:
+<!-- MASKABLE / FULL-BLEED variant of the gc-tour-planner brand mark — the icon
+     that gets CROPPED: the Android home-screen launcher (circle/squircle mask)
+     and iOS (which rounds it itself). SOURCE OF TRUTH for pwa-maskable-512.png
+     AND apple-touch-icon.png. Render once, locally, and commit:
        rsvg-convert -w 512 -h 512 icon-maskable.svg -o pwa-maskable-512.png
-     Full-bleed: the quadrant colours reach every edge, so Android's
-     circle/squircle adaptive mask rounds off solid colour only. The G/C/T/P
-     glyphs sit at the quadrant centres, comfortably inside the central-80%
-     maskable safe zone, so the mask never crops them — and the result fills the
-     launcher tile like a native icon instead of floating a small monogram on a
-     white card. Matches icon-source.svg so the home-screen icon looks the same
-     whichever purpose the launcher picks. -->
+       rsvg-convert -w 180 -h 180 icon-maskable.svg -o ../apple-touch-icon.png
+     Full-bleed: the quadrant colours reach every edge, so the adaptive mask
+     rounds off solid colour only — never a pre-rounded corner. The G/C/T/P
+     glyphs sit at the quadrant centres, comfortably inside the central-66%
+     maskable safe zone, so the mask never crops them. The counterpart
+     icon-source.svg is the ROUNDED, shown-in-full display/splash variant. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="512" height="512">
   <rect x="0" y="0" width="20" height="20" fill="#d84315" />
   <rect x="20" y="0" width="20" height="20" fill="#bf360c" />
