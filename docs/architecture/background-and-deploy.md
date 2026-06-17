@@ -27,3 +27,4 @@ Production differs only in:
 - `NODE_ENV=production`.
 - TLS terminated upstream (reverse proxy / load balancer).
 - Backups on `pgdata` and `osrm-data`.
+- A **separate host** from UAT; it tracks `main` and is promoted manually after each merge (UAT runs the in-flight feature branch for pre-PR acceptance). See [sdlc/release-and-deploy.md](../sdlc/release-and-deploy.md#environments--promotion).
