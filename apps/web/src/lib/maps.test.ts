@@ -52,7 +52,9 @@ describe("parkingNavTarget", () => {
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
       5,
     );
-    expect(parkingNavTarget(PARKING).href).toBe("maps://?daddr=52.1,5.2&dirflg=d");
+    expect(parkingNavTarget(PARKING).href).toBe(
+      "maps://?daddr=52.1,5.2&dirflg=d",
+    );
   });
 
   it("keeps the shareable Google Maps web URL on desktop, opened externally", () => {
