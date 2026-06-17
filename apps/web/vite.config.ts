@@ -22,10 +22,22 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         icons: [
-          { src: "/icons/pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icons/pwa-512.png", sizes: "512x512", type: "image/png" },
+          // `?v=2` busts clients (and the installed WebAPK) that cached the
+          // previous icons — the filenames are stable, so without a new URL a
+          // browser holding the old copy would keep it. nginx now serves
+          // /icons/* with `no-cache`, so future icon edits won't need a bump.
           {
-            src: "/icons/pwa-maskable-512.png",
+            src: "/icons/pwa-192.png?v=2",
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: "/icons/pwa-512.png?v=2",
+            sizes: "512x512",
+            type: "image/png",
+          },
+          {
+            src: "/icons/pwa-maskable-512.png?v=2",
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",
