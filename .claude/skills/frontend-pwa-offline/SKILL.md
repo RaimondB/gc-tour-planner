@@ -102,16 +102,35 @@ Each rule below is a real incident that cost UAT round-trips.
 - **MapLibre ops are lifecycle-guarded.** Gate on the `ready`/`load` flag; never
   `map.getSource`/`getLayer` on a removed/not-loaded map (`… reading 'getSource'
   of null`). Unbind event/async handlers on cleanup.
-- **Teardown order: the `ready` gate is NOT enough.** React runs effect cleanups
-  **parent-first** on unmount, so `MapView`'s cleanup fires *before* every child
-  layer's. If `MapView` calls `map.remove()` synchronously, `remove()` nulls
-  `map.style`, then each child layer's cleanup runs `map.getLayer(id)` /
-  `removeLayer` on the dead map and throws `Cannot read properties of null
-  (reading 'getLayer')` — the route bounces to the recoverable error screen. This
-  is the same defect #78 saw as `getSource`; #78 only removed one *trigger* of the
-  unmount. The fix lives in `MapView`: **defer `map.remove()` one `queueMicrotask`**
-  so every child cleanup still sees a live map. Don't reintroduce a synchronous
-  `map.remove()` in the cleanup. (`MapView.test.tsx` locks it.)
+- **WebGL context loss nulls `map.style` while the map stays mounted — THIS is
+  the recurring `reading 'getLayer' of null` crash (`#78`, and again post-#84).**
+  When an installed PWA is backgrounded and the OS reclaims the GPU, MapLibre's
+  `webglcontextlost` handler runs `this.style.destroy(); this.style = null` but
+  the `Map` object lives on and `MapView` stays mounted with `ready: true`. On
+  **app refocus** a re-render (React Query refetch-on-focus, connectivity probe,
+  `recover()`) re-runs a layer effect; its `map.getLayer(id)` is
+  `this.style.getLayer(id)` → throws on the null style → the recoverable error
+  screen. It is NOT an auth/route-bounce/unmount bug (that was a red herring —
+  both reported crashes resolved to the *same* `WalkingGraphLayer:126` effect
+  body via the deployed sourcemap; resolve the bundle frame, don't guess). Fix
+  (two parts, both central — no per-layer edits, because every layer effect
+  already opens with `if (!ready) return` and every `return () =>` cleanup only
+  does `map.off`):
+  1. `MapContext.isMapStyleLive(map)` = `Boolean(map.style)`; `useMap()` returns
+     `ready: false` when the style is gone, so a focus re-render makes every
+     layer bail.
+  2. `MapView` listens for `webglcontextlost` (→ `ready:false`) /
+     `webglcontextrestored` (→ `ready:true` + resize/repaint) to drive the
+     re-render deterministically and re-add layers on restore.
+  `isMapStyleLive` also covers the removed-map case. (`MapView.test.tsx` locks it
+  — fails with the literal `reading 'getLayer'` when the gate is removed.)
+- **Teardown order (secondary/defensive).** React runs effect cleanups
+  **parent-first** on unmount, so `MapView`'s cleanup fires before each child
+  layer's; a synchronous `map.remove()` there would null `map.style` before the
+  children clean up. No current layer cleanup touches the style (all are
+  `map.off`), so this is latent — but `MapView` still **defers `map.remove()` one
+  `queueMicrotask`** so a future getLayer-in-cleanup can't regress. Don't
+  reintroduce a synchronous `map.remove()`.
 - The router has a **recoverable** `defaultErrorComponent` (Reload / Try again +
   stack). Keep it; don't regress to a dead-end error screen.
 

@@ -152,6 +152,23 @@ export function MapView({
     map.on("error", onMapError);
     map.on("idle", onIdle);
 
+    // WebGL context loss (installed PWA backgrounded → OS reclaims the GPU)
+    // makes MapLibre destroy + null its style while the map object stays alive
+    // and mounted. With `ready` still true, the next layer effect to run (e.g.
+    // on app refocus) calls `map.getLayer` on the dead style and throws. Flip
+    // `ready` so layers bail until the context is restored; on restore the
+    // style is rebuilt, so flip back and force a re-measure/repaint. (See also
+    // `isMapStyleLive` in MapContext, which guards the render path.)
+    const onMapContextLost = () =>
+      setApi((prev) => (prev?.ready ? { map: prev.map, ready: false } : prev));
+    const onMapContextRestored = () => {
+      setApi((prev) => (prev ? { map: prev.map, ready: true } : prev));
+      map.resize();
+      map.triggerRepaint();
+    };
+    map.on("webglcontextlost", onMapContextLost);
+    map.on("webglcontextrestored", onMapContextRestored);
+
     map.on("load", () => {
       map.on("click", clickHandler);
       map.on("moveend", onMoveEnd);
@@ -212,6 +229,8 @@ export function MapView({
       map.off("moveend", onMoveEnd);
       map.off("error", onMapError);
       map.off("idle", onIdle);
+      map.off("webglcontextlost", onMapContextLost);
+      map.off("webglcontextrestored", onMapContextRestored);
       onReadyRef.current?.(null);
       setApi(null);
       // React runs effect cleanups PARENT-FIRST on unmount, so this cleanup

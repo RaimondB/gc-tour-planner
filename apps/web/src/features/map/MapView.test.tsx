@@ -5,15 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 
-// A fake MapLibre map that mirrors the one trait that matters for this
-// regression: after `remove()`, `getLayer` dereferences a nulled `style` and
-// throws — exactly like the real `Map.getLayer(id) { return this.style.getLayer(id) }`.
+// A fake MapLibre map mirroring the two traits that matter for these
+// regressions:
+//  1. `getLayer` dereferences `this.style` — so a nulled style throws exactly
+//     like the real `Map.getLayer(id) { return this.style.getLayer(id) }`.
+//  2. `remove()` AND a WebGL context loss both null `style` while the map
+//     object stays alive (MapLibre's `webglcontextlost` handler runs
+//     `this.style.destroy(); this.style = null`).
 class FakeMap {
   style: { getLayer: (id: string) => undefined } | null = {
     getLayer: () => undefined,
   };
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>();
-  private canvas = Object.assign(document.createElement("canvas"), {});
+  private canvas = document.createElement("canvas");
   constructor(opts: { container: HTMLElement }) {
     void opts;
     // Fire `load` asynchronously like the real map so `ready` flips true.
@@ -28,11 +32,20 @@ class FakeMap {
     this.handlers.get(event)?.delete(cb);
     return this;
   }
-  private fire(event: string): void {
-    for (const cb of this.handlers.get(event) ?? []) cb({});
+  fire(event: string): void {
+    for (const cb of [...(this.handlers.get(event) ?? [])]) cb({});
+  }
+  /** Simulate the OS reclaiming the GPU while backgrounded. */
+  loseContext(): void {
+    this.style = null;
+    this.fire("webglcontextlost");
+  }
+  restoreContext(): void {
+    this.style = { getLayer: () => undefined };
+    this.fire("webglcontextrestored");
   }
   getLayer(id: string): undefined {
-    // Throws "Cannot read properties of null (reading 'getLayer')" once removed.
+    // Throws "Cannot read properties of null (reading 'getLayer')" when dead.
     return this.style!.getLayer(id);
   }
   getCanvas(): HTMLCanvasElement {
@@ -50,17 +63,24 @@ class FakeMap {
     return [];
   }
   remove(): void {
-    this.style = null; // <- the trap: subsequent getLayer() now throws
+    this.style = null;
   }
 }
 
+let lastMap: FakeMap | null = null;
 vi.mock("maplibre-gl", () => ({
-  default: { Map: FakeMap },
+  default: {
+    Map: function (opts: { container: HTMLElement }): FakeMap {
+      const m = new FakeMap(opts);
+      lastMap = m;
+      return m; // a constructor returning an object makes `new Map()` yield it
+    },
+  },
 }));
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 
-// Stub the browser APIs MapView constructs that jsdom lacks.
 beforeEach(() => {
+  lastMap = null;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -77,17 +97,30 @@ afterEach(() => {
 
 // Imported AFTER the mock is registered.
 const { MapView } = await import("./MapView.js");
-const { useMap } = await import("./MapContext.js");
+const { useMap, isMapStyleLive, MapContext } = await import("./MapContext.js");
 
 /** A layer whose cleanup drops its layer the way the real layers do. */
 function LayerWithGetLayerCleanup(): null {
   const { map } = useMap();
   useEffect(() => {
     return () => {
-      // The exact shape every real layer uses on teardown.
       if (map.getLayer("some-layer")) map.removeLayer?.("some-layer");
     };
   }, [map]);
+  return null;
+}
+
+/**
+ * A realistic layer: every real layer's style-effect opens with `if (!ready)
+ * return` and only then touches the map. `tick` stands in for a focus-driven
+ * dependency change (e.g. a React Query refetch) that re-runs the effect.
+ */
+function RealisticLayer({ tick }: { tick: number }): null {
+  const { map, ready } = useMap();
+  useEffect(() => {
+    if (!ready) return;
+    map.getLayer("gctp-some-layer");
+  }, [map, ready, tick]);
   return null;
 }
 
@@ -100,17 +133,63 @@ describe("MapView teardown", () => {
           <LayerWithGetLayerCleanup />
         </MapView>,
       );
-      // let the fake fire `load`
+      await Promise.resolve();
+    });
+    expect(() => {
+      act(() => view.unmount());
+    }).not.toThrow();
+  });
+});
+
+describe("WebGL context loss", () => {
+  it("treats a null-style map as not-ready so layer effects skip it", () => {
+    const dead = { style: null } as unknown as Parameters<
+      typeof isMapStyleLive
+    >[0];
+    expect(isMapStyleLive(dead)).toBe(false);
+
+    let seenReady: boolean | null = null;
+    function Probe(): null {
+      seenReady = useMap().ready;
+      return null;
+    }
+    // Context says ready:true, but the map's style is gone (context lost).
+    render(
+      <MapContext.Provider value={{ map: dead, ready: true }}>
+        <Probe />
+      </MapContext.Provider>,
+    );
+    expect(seenReady).toBe(false);
+  });
+
+  it("does not call getLayer on a re-render after the WebGL context is lost", async () => {
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(
+        <MapView>
+          <RealisticLayer tick={0} />
+        </MapView>,
+      );
       await Promise.resolve();
     });
 
-    // React unmounts parent-first: MapView's cleanup runs before the layer's.
-    // Without the deferred teardown, the layer cleanup's `map.getLayer` would
-    // throw on the removed map and surface as an unmount error.
+    const map = lastMap!;
+    const getLayer = vi.spyOn(map, "getLayer");
+
+    // GPU reclaimed while backgrounded → style nulled + event fired.
+    act(() => map.loseContext());
+    // App regains focus → a refetch re-runs the layer effect (tick change).
     expect(() => {
       act(() => {
-        view.unmount();
+        view.rerender(
+          <MapView>
+            <RealisticLayer tick={1} />
+          </MapView>,
+        );
       });
     }).not.toThrow();
+    // The effect must have bailed (ready gated false) rather than touching the
+    // dead style.
+    expect(getLayer).not.toHaveBeenCalled();
   });
 });
