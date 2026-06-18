@@ -13,13 +13,18 @@ See [design/frontend.md](../design/frontend.md) and
   icon. The app is **not** offline-capable for planning — discovery/planning need
   the live API + OSRM. A new deploy surfaces an unobtrusive **"update available —
   reload"** prompt (the `prompt` update strategy), never a silent mid-session
-  swap. The running app polls for a newer service worker on an interval and on
-  regaining focus, so the prompt appears live rather than only after a restart.
-  Icons and manifest are self-hosted (no external CDN). An in-app
-  **Install** prompt (driven by `beforeinstallprompt`) offers installation
-  directly, instead of relying solely on the browser's menu; it hides once the
-  app is installed or already running standalone (and never appears on iOS,
-  where install is Safari's Share → Add to Home Screen). [ADR-0028]
+  swap; on mobile it is a full-width, safe-area-aware bottom bar rather than a
+  centred pill. The running app polls for a newer service worker on an interval
+  and on regaining focus, so the prompt appears live rather than only after a
+  restart. Icons and manifest are self-hosted (no external CDN). An in-app
+  **Install** affordance (driven by `beforeinstallprompt`, captured once above
+  the router by `PwaInstallProvider`) offers installation directly, instead of
+  relying solely on the browser's menu — a header button on desktop and an
+  **"Install app" item in the hamburger menu** on mobile, surfaced as a menu
+  entry rather than a toast so it never covers the map. It appears only once the
+  browser reports installability and hides once the app is installed or already
+  running standalone (and never appears on iOS, where install is Safari's Share →
+  Add to Home Screen). [ADR-0028]
 - **FR-W2 (reliable GPX download, incl. installed PWAs).** GPX export saves the
   file via a **service-worker-mediated download**: the client stages the GPX as a
   `Content-Disposition: attachment` response in a cache and a hidden iframe

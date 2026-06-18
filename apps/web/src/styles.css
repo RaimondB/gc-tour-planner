@@ -1884,6 +1884,28 @@ p.error,
   color: #fff;
 }
 
+/* On narrow screens a centered pill crowds its text against the buttons and can
+   overflow. Drop to a full-width bottom bar: text left, actions right, clear of
+   the home-indicator via the safe-area inset. */
+@media (max-width: 768px) {
+  .pwa-update-toast {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    max-width: none;
+    justify-content: space-between;
+    border-radius: var(--radius-2);
+  }
+  .pwa-update-toast > span {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .pwa-update-toast__actions {
+    flex-shrink: 0;
+  }
+}
+
 /* --- GPX "saved to downloads" toast ---------------------------------- */
 
 .gpx-saved-toast {
@@ -1923,56 +1945,8 @@ p.error,
   color: #fff;
 }
 
-/* --- PWA "install app" toast ----------------------------------------- */
-
-.pwa-install-toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--space-4) + 3.25rem);
-  transform: translateX(-50%);
-  z-index: var(--z-drawer);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: max-content;
-  max-width: calc(100vw - 2 * var(--space-3));
-  padding: var(--space-2) var(--space-3);
-  background: #fff;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-2);
-  box-shadow: var(--shadow-2);
-  font-size: 0.85rem;
-}
-
-.pwa-install-toast__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-.pwa-install-toast__install {
-  padding: var(--space-1) var(--space-3);
-  border: none;
-  border-radius: var(--radius-2);
-  background: var(--color-accent);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.pwa-install-toast__install:hover {
-  background: var(--color-accent-strong);
-}
-
-.pwa-install-toast__dismiss {
-  padding: var(--space-1) var(--space-2);
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted, #6b7280);
-  cursor: pointer;
-}
+/* PWA install moved from a bottom toast into the header/hamburger menu (see
+   PwaInstallProvider + App.tsx) so it never covers the map. No toast styles. */
 
 /* Offline fallback for an opened saved tour: its stored map snapshot, shown
    when basemap tiles can't load. Sits above the (tile-less) canvas but below

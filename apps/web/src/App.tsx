@@ -99,6 +99,7 @@ import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
 import { JourneyRail } from "./features/shell/JourneyRail.js";
 import { CommandPanel } from "./features/shell/CommandPanel.js";
 import { AboutDialog } from "./features/shell/AboutDialog.js";
+import { usePwaInstall } from "./features/shell/PwaInstallProvider.js";
 import { AdminToolsPanel } from "./features/shell/AdminToolsPanel.js";
 import { JOURNEY_LABELS, type JourneyStep } from "./features/shell/journey.js";
 import { useAuth } from "./features/auth/AuthProvider.js";
@@ -284,6 +285,8 @@ export default function App(): JSX.Element {
   // Mobile header overflow → collapse the nav actions into a hamburger menu.
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // PWA install (FR-W1): surfaced as a menu/header item, not an intrusive toast.
+  const { canInstall, promptInstall } = usePwaInstall();
   const [selectedLegIndex, setSelectedLegIndex] = useState<number | null>(null);
   // Map-picked start point ([lng, lat]) for startPreference="user-supplied-point".
   // Set by clicking the map; replaces the old "use search center" auto-fill.
@@ -1262,6 +1265,17 @@ export default function App(): JSX.Element {
           <OfflineBadge />
           {/* Desktop: inline actions. Hidden on mobile (collapsed into the menu). */}
           <div className="app-header__actions">
+            {canInstall && (
+              <button
+                type="button"
+                className="app-header__tools"
+                onClick={() => void promptInstall()}
+                title="Install this app to your device"
+              >
+                <Download size={16} aria-hidden="true" />
+                <span className="app-header__tools-label">Install</span>
+              </button>
+            )}
             {isAdmin && (
               <button
                 type="button"
@@ -1343,6 +1357,19 @@ export default function App(): JSX.Element {
                     className="app-header__menu"
                     role="menu"
                   >
+                    {canInstall && (
+                      <button
+                        type="button"
+                        className="app-header__menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void promptInstall();
+                        }}
+                      >
+                        <Download size={16} aria-hidden="true" /> Install app
+                      </button>
+                    )}
                     {isAdmin && (
                       <button
                         type="button"

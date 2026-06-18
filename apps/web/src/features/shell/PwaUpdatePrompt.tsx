@@ -3,6 +3,7 @@
 
 import { type JSX } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
+import { UpdateToast } from "./pwa-update-toast.js";
 
 /**
  * Registers the service worker and surfaces a small "update available" toast
@@ -35,25 +36,9 @@ export function PwaUpdatePrompt(): JSX.Element | null {
   if (!needRefresh) return null;
 
   return (
-    <div className="pwa-update-toast" role="status" aria-live="polite">
-      <span>A new version is available.</span>
-      <div className="pwa-update-toast__actions">
-        <button
-          type="button"
-          className="pwa-update-toast__reload"
-          onClick={() => void updateServiceWorker(true)}
-        >
-          Reload
-        </button>
-        <button
-          type="button"
-          className="pwa-update-toast__dismiss"
-          onClick={() => setNeedRefresh(false)}
-          aria-label="Dismiss update notice"
-        >
-          Later
-        </button>
-      </div>
-    </div>
+    <UpdateToast
+      onReload={() => void updateServiceWorker(true)}
+      onDismiss={() => setNeedRefresh(false)}
+    />
   );
 }
