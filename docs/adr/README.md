@@ -41,3 +41,5 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0029](0029-frontend-offline-resilience-caching-and-state.md) | Frontend offline resilience: caching, SW navigation, state    | Accepted                                      |
 | [0030](0030-cloudflare-web-analytics.md)                      | Cloudflare Web Analytics (cookieless, prod-only beacon)       | Accepted                                      |
 | [0031](0031-per-environment-app-identity-and-icon-split.md)   | Per-environment app identity + split display/maskable icons   | Accepted                                      |
+| [0032](0032-service-worker-mediated-gpx-download.md)          | Service-worker-mediated GPX download in installed PWAs        | Accepted                                      |
+| [0033](0033-machine-ingestion-api.md)                         | Machine ingestion API for external source adapters            | Accepted                                      |

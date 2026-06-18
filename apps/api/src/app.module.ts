@@ -15,6 +15,7 @@ import { CachesModule } from "./caches/caches.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { IngestModule } from "./ingest/ingest.module.js";
 import { LanduseProfilesModule } from "./landuse-profiles/landuse-profiles.module.js";
 import { OsmModule } from "./osm/osm.module.js";
 import { WalkingPrecomputeModule } from "./jobs/walking-precompute/walking-precompute.module.js";
@@ -54,6 +55,7 @@ import { ToursModule } from "./tours/tours.module.js";
     AuthModule,
     HealthModule,
     GpxModule,
+    IngestModule,
     CachesModule,
     OsmModule,
     LanduseProfilesModule,

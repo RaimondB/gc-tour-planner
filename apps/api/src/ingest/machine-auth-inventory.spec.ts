@@ -1,20 +1,25 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Normative MACHINE-auth inventory (FR-I14 / ADR-0033). Sibling of the
+// public-endpoint inventory: machine routes authenticate by bearer token (not
+// a session cookie), so the global session guard steps aside for them. Any
+// change to the live `@MachineAuth()` set must update this expectation in the
+// same PR — the no-session surface cannot drift silently.
 
 import "reflect-metadata";
 import { PATH_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
 import { RequestMethod } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
 
-import { IS_PUBLIC_KEY } from "./public.decorator.js";
+import { IS_MACHINE_KEY } from "../auth/machine-auth.decorator.js";
 
-// Every HTTP controller in the app. Adding a controller here is intentional
-// friction — a new no-auth surface must be a deliberate, reviewed change.
-import { AuthController } from "./auth.controller.js";
+// Every HTTP controller in the app (kept in lockstep with public-inventory).
+import { AuthController } from "../auth/auth.controller.js";
 import { CachesController } from "../caches/caches.controller.js";
 import { GpxController } from "../gpx/gpx.controller.js";
 import { HealthController } from "../health/health.controller.js";
-import { IngestController } from "../ingest/ingest.controller.js";
+import { IngestController } from "./ingest.controller.js";
 import { OsmController } from "../osm/osm.controller.js";
 import { ParkingFacilitiesController } from "../osm/parking-facilities.controller.js";
 import { RoutingController } from "../routing/routing.controller.js";
@@ -43,19 +48,8 @@ const CONTROLLERS: Ctor[] = [
   AdminLanduseController,
 ];
 
-/**
- * The normative public-endpoint inventory (FR-P11 / design §7 / ADR-0021). This
- * is the M6-α set; M6-δ will add `GET /shared/:slug`. Any change to the live
- * `@Public()` set must update this expectation in the same PR — that is the
- * whole point of the test: the no-auth surface cannot drift silently.
- */
-const EXPECTED_PUBLIC = new Set<string>([
-  "POST /auth/register",
-  "POST /auth/login",
-  "GET /auth/google",
-  "GET /auth/google/callback",
-  "GET /health",
-]);
+/** The only route reachable without a browser session (bearer-protected). */
+const EXPECTED_MACHINE = new Set<string>(["POST /ingest/gpx"]);
 
 const METHOD_NAME: Record<number, string> = {
   [RequestMethod.GET]: "GET",
@@ -73,14 +67,14 @@ function joinPath(base: string, sub: string): string {
   return `/${parts.join("/")}`;
 }
 
-/** Walk every controller's route handlers and collect those marked @Public(). */
-function collectPublicRoutes(): Set<string> {
+function collectMachineRoutes(): Set<string> {
   const out = new Set<string>();
 
   for (const Controller of CONTROLLERS) {
     const base =
       (Reflect.getMetadata(PATH_METADATA, Controller) as string) ?? "";
-    const classPublic = Reflect.getMetadata(IS_PUBLIC_KEY, Controller) === true;
+    const classMachine =
+      Reflect.getMetadata(IS_MACHINE_KEY, Controller) === true;
 
     const proto = Controller.prototype as Record<string, unknown>;
     for (const name of Object.getOwnPropertyNames(proto)) {
@@ -93,8 +87,9 @@ function collectPublicRoutes(): Set<string> {
         | undefined;
       if (method === undefined) continue; // not a route handler
 
-      const methodPublic = Reflect.getMetadata(IS_PUBLIC_KEY, handler) === true;
-      if (!classPublic && !methodPublic) continue;
+      const methodMachine =
+        Reflect.getMetadata(IS_MACHINE_KEY, handler) === true;
+      if (!classMachine && !methodMachine) continue;
 
       const sub = (Reflect.getMetadata(PATH_METADATA, handler) as string) ?? "";
       out.add(`${METHOD_NAME[method] ?? method} ${joinPath(base, sub)}`);
@@ -103,10 +98,9 @@ function collectPublicRoutes(): Set<string> {
   return out;
 }
 
-describe("public-endpoint inventory (FR-P11 — normative security contract)", () => {
-  it("the live @Public() set exactly matches the documented inventory", () => {
-    const actual = collectPublicRoutes();
-    // Compare as sorted arrays so a mismatch prints both sides clearly.
-    expect([...actual].sort()).toEqual([...EXPECTED_PUBLIC].sort());
+describe("machine-auth inventory (FR-I14 — normative security contract)", () => {
+  it("the live @MachineAuth() set exactly matches the documented inventory", () => {
+    const actual = collectMachineRoutes();
+    expect([...actual].sort()).toEqual([...EXPECTED_MACHINE].sort());
   });
 });

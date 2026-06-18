@@ -317,6 +317,12 @@ services:
       # Cloudflare Turnstile captcha on /auth/register (FR-P5, Gate 1.4). Unset =
       # open registration; set (with VITE_TURNSTILE_SITE_KEY) before removing Access.
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      # Machine ingestion API (FR-I14, ADR-0033). OFF unless INGEST_API_ENABLED=1;
+      # when on, INGEST_API_KEY + INGEST_OWNER_ID are required (api refuses to boot
+      # otherwise). Real values live in infra/.env, never in the repo.
+      INGEST_API_ENABLED: ${INGEST_API_ENABLED:-}
+      INGEST_API_KEY: ${INGEST_API_KEY:-}
+      INGEST_OWNER_ID: ${INGEST_OWNER_ID:-}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
