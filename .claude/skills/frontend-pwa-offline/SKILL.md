@@ -51,6 +51,24 @@ Each rule below is a real incident that cost UAT round-trips.
   origin log shows zero requests"* → suspect the SW serving from cache. Grab a
   Chrome trace / DevTools → Application → Service Workers.
 
+## Install / update UI + iterating on its layout
+
+- **Install is a menu item, never a toast.** `PwaInstallProvider` captures
+  `beforeinstallprompt` once *above the router* and exposes `usePwaInstall()`
+  (`canInstall`/`promptInstall`); `App.tsx` renders it as a desktop header button
+  and an "Install app" hamburger item so it can't cover the map. Don't bring back
+  a bottom install toast. The "update available" toast stays (lifecycle in
+  `PwaUpdatePrompt`, view split into `pwa-update-toast.tsx`), but on mobile it's a
+  full-width, safe-area-aware bottom bar, not a centred pill.
+- **Validate these layouts by screenshot without the full stack.** The dev visual
+  harness `apps/web/dev/pwa-preview.html` (entry `dev/pwa-preview.tsx`) renders
+  the header/menu + update bar with the real CSS — no API, auth, or SW. Run
+  `pnpm --filter @gctp/web dev`, then
+  `node apps/web/scripts/shoot-pwa-preview.mjs` (override `PREVIEW_URL` if Vite
+  picked another port) to capture mobile (360/390) + desktop PNGs in `/tmp/pwa-shots`.
+  The harness header markup mirrors `App.tsx` — keep it in sync when the header
+  changes. It's dev-only (not a build input), so it never ships.
+
 ## Caching headers (infra/nginx.conf)
 
 - **Stable-named files are never `immutable`.** Only Vite's content-hashed
