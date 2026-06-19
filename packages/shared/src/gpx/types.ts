@@ -37,6 +37,14 @@ export const ParsedCache = z.object({
    * when the parser couldn't extract description text.
    */
   descriptionHints: z.array(z.string()).default([]),
+  /**
+   * Adventure Lab deep-link GUID, parsed from a stage `<wpt>`'s
+   * `<url>https://labs.geocaching.com/goto/<guid></url>`. Shared by every
+   * stage of one Adventure → both a grouping key and the source of the
+   * "open in Adventure Lab" link. `null` for ordinary caches (their `<url>`,
+   * if any, points at a geocaching.com listing, which this never matches).
+   */
+  adventureId: z.string().nullable().default(null),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

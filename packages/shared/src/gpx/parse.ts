@@ -69,7 +69,15 @@ export function parseGpx(xml: string): ParsedGpx {
     const name = textOrNull(wpt.name) ?? "";
 
     if (gsCache) {
-      const cache = toParsedCache(name, lat, lon, gsCache, warnings);
+      const adventureId = extractAdventureId(textOrNull(wpt.url));
+      const cache = toParsedCache(
+        name,
+        lat,
+        lon,
+        gsCache,
+        adventureId,
+        warnings,
+      );
       if (cache) caches.push(cache);
       continue;
     }
@@ -120,7 +128,23 @@ interface GpxWpt {
   cmt?: string;
   sym?: string;
   type?: string;
+  url?: string;
   "groundspeak:cache"?: GroundspeakCache;
+}
+
+/**
+ * Parse the Adventure Lab deep-link GUID out of a stage `<wpt>`'s `<url>`.
+ * Lab2Gpx emits `<url>https://labs.geocaching.com/goto/<guid></url>` per stage;
+ * the GUID is what the `/goto/` endpoint resolves (the AL API's adventure Id does
+ * NOT). Returns null for any other URL (e.g. a normal PQ's geocaching.com listing
+ * link), so ordinary caches are unaffected.
+ */
+function extractAdventureId(url: string | null): string | null {
+  if (!url) return null;
+  const m = url.match(
+    /labs\.geocaching\.com\/goto\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  return m?.[1] ? m[1].toLowerCase() : null;
 }
 
 interface GroundspeakCache {
@@ -179,6 +203,11 @@ function normalizeCacheType(raw: string | undefined): CacheType | null {
   if (lower.startsWith("webcam")) return "Webcam";
   if (lower.startsWith("wherigo")) return "Wherigo";
   if (lower.startsWith("cito")) return "CITO";
+  // Adventure Lab stages. Lab2Gpx exports `<groundspeak:type>Lab Cache</…>` by
+  // default; a synthesized export may use "Adventure Lab" directly. Both map to
+  // our canonical "Adventure Lab" type.
+  if (lower.startsWith("lab") || lower.startsWith("adventure"))
+    return "Adventure Lab";
   for (const t of CACHE_TYPES) if (lower === t.toLowerCase()) return t;
   return "Other";
 }
@@ -188,6 +217,7 @@ function toParsedCache(
   lat: number,
   lon: number,
   gs: GroundspeakCache,
+  adventureId: string | null,
   warnings: string[],
 ): ParsedCache | null {
   const code = name.trim();
@@ -253,6 +283,7 @@ function toParsedCache(
     disabled,
     attributes,
     descriptionHints,
+    adventureId,
   };
 }
 

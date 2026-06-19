@@ -206,6 +206,58 @@ describe("parseGpx", () => {
       </gpx>`;
     expect(parseGpx(named).isMyFinds).toBe(false);
   });
+
+  it("maps Adventure Lab stage types ('Lab Cache' / 'Adventure Lab') to 'Adventure Lab'", () => {
+    // Lab2Gpx exports stages with <groundspeak:type>Lab Cache</…>; a synthesized
+    // export may use "Adventure Lab" directly. Both normalize to our canonical type.
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        <wpt lat="52.0" lon="5.0">
+          <name>LC0001</name>
+          <url>https://labs.geocaching.com/goto/258d5e99-d2c5-4bf5-a088-044a93baafc2</url>
+          <groundspeak:cache id="1" available="True" archived="False">
+            <groundspeak:name>Adventure : S1 First stop</groundspeak:name>
+            <groundspeak:type>Lab Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+        <wpt lat="52.0" lon="5.0">
+          <name>LC0002</name>
+          <url>https://labs.geocaching.com/goto/258d5e99-d2c5-4bf5-a088-044a93baafc2</url>
+          <groundspeak:cache id="2" available="True" archived="False">
+            <groundspeak:name>Adventure : S2 Second stop</groundspeak:name>
+            <groundspeak:type>Adventure Lab</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    const result = parseGpx(xml);
+    const s1 = result.caches.find((c) => c.code === "LC0001");
+    const s2 = result.caches.find((c) => c.code === "LC0002");
+    expect(s1?.type).toBe("Adventure Lab");
+    expect(s2?.type).toBe("Adventure Lab");
+    // Both stages of the same Adventure share the deep-link GUID parsed from
+    // <url> — it groups them and drives the "open in Adventure Lab" link.
+    expect(s1?.adventureId).toBe("258d5e99-d2c5-4bf5-a088-044a93baafc2");
+    expect(s2?.adventureId).toBe("258d5e99-d2c5-4bf5-a088-044a93baafc2");
+  });
+
+  it("leaves adventureId null for ordinary caches (geocaching.com <url> is not a goto link)", () => {
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        <wpt lat="52.0" lon="5.0">
+          <name>GCNORM1</name>
+          <url>https://www.geocaching.com/geocache/GCNORM1</url>
+          <groundspeak:cache id="1" available="True" archived="False">
+            <groundspeak:name>Plain</groundspeak:name>
+            <groundspeak:type>Traditional Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    const cache = parseGpx(xml).caches.find((c) => c.code === "GCNORM1");
+    expect(cache?.type).toBe("Traditional");
+    expect(cache?.adventureId).toBeNull();
+  });
 });
 
 describe("stripHtml", () => {

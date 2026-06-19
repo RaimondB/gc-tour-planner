@@ -80,6 +80,8 @@ interface CacheRow {
    * never re-parsed. Empty array when scanned but nothing matched.
    */
   description_hints: string[] | null;
+  /** Adventure Lab deep-link GUID; null for non-AL caches. */
+  adventure_id: string | null;
 }
 
 @Injectable()
@@ -167,6 +169,7 @@ export class CachesRepository {
           .select(sql<number>`COUNT(*)::int`.as("stage_count"))
           .as("stage_count"),
         "c.description_hints",
+        "c.adventure_id",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -287,6 +290,7 @@ export class CachesRepository {
         // the DB so the admin reprocess flow can spot back-fill
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
+        adventureId: r.adventure_id,
       };
     });
 
@@ -473,6 +477,7 @@ export class CachesRepository {
           .select(sql<number>`COUNT(*)::int`.as("stage_count"))
           .as("stage_count"),
         "c.description_hints",
+        "c.adventure_id",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -516,6 +521,7 @@ export class CachesRepository {
         // the DB so the admin reprocess flow can spot back-fill
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
+        adventureId: r.adventure_id,
       };
     });
   }

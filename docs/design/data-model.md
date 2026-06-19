@@ -54,6 +54,18 @@ CREATE TABLE caches (
   -- wrote this row. NULL = pre-PR2 (provenance unknown, guard treats
   -- as "always allow update").
   source_exported_at TIMESTAMPTZ,
+  -- Adventure Lab metadata (NULL for every non-Adventure-Lab cache). A stage of
+  -- an Adventure enters as type='Adventure Lab'; these three carry the
+  -- adventure-level facts the generic shape can't. adventure_id is the
+  -- DEEP-LINK GUID (path segment of labs.geocaching.com/goto/<id>) — shared by
+  -- all stages of one Adventure, so it groups them AND drives the "open in
+  -- Adventure Lab" link (note: NOT the AL API adventure Id; only the deep-link
+  -- GUID resolves on /goto/). stage_sequence + adventure_sequential are reserved
+  -- for "Stage N of M" display and the planner's sequential-ordering pass
+  -- (populated by the later cluster-enrichment phase).
+  adventure_id         TEXT,
+  stage_sequence       SMALLINT,
+  adventure_sequential BOOLEAN,
   raw          JSONB NOT NULL DEFAULT '{}'::jsonb,
   UNIQUE (source, source_id, owner_id)
 );
@@ -72,6 +84,11 @@ CREATE INDEX caches_owner_active_idx
 CREATE INDEX caches_owner_solved_idx
   ON caches (owner_id)
   WHERE solved;
+-- "All stages of adventure X" lookup (grouping / completion). Partial — only
+-- Adventure Lab rows have a non-NULL adventure_id.
+CREATE INDEX caches_adventure_id_idx
+  ON caches (adventure_id)
+  WHERE adventure_id IS NOT NULL;
 
 CREATE TABLE cache_attributes (
   cache_id BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,

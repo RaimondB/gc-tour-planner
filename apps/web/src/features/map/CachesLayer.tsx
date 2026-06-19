@@ -79,6 +79,7 @@ const TYPE_COLORS: Record<CacheType, string> = {
   Webcam: "#558b2f",
   Wherigo: "#283593",
   CITO: "#2e7d32",
+  "Adventure Lab": "#7b1fa2",
   Other: "#616161",
 };
 
@@ -96,6 +97,8 @@ interface CacheProps {
   solved: number;
   /** FR-SF1 count of `stages` additional waypoints. */
   stageCount: number;
+  /** Adventure Lab deep-link GUID (AL stages only; null otherwise). */
+  adventureId: string | null;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -192,6 +195,7 @@ export function CachesLayer({
         disabled: c.disabled ? 1 : 0,
         solved: c.solved ? 1 : 0,
         stageCount: c.stageCount,
+        adventureId: c.adventureId ?? null,
       },
     }));
 
@@ -431,6 +435,7 @@ export function CachesLayer({
             attributeIds={detail?.attributeIds ?? []}
             descriptionHints={detail?.descriptionHints ?? []}
             stageCount={props.stageCount}
+            adventureId={props.adventureId}
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}
