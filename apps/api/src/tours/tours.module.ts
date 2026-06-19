@@ -15,6 +15,7 @@ import { LanduseProfilesRepository } from "../landuse-profiles/landuse-profiles.
 import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
 import { CarRoadsRepository } from "../osm/car-roads.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
+import { AdventureLabModule } from "../sources/adventure-lab/adventure-lab.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
@@ -120,6 +121,7 @@ const tourPlannerProvider: Provider = {
     RoutingModule,
     OsmModule,
     LanduseProfilesModule,
+    AdventureLabModule,
   ],
   controllers: [ToursController, SavedToursController],
   providers: [

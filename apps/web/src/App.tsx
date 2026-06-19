@@ -156,6 +156,7 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     distanceBudgetMeters: s.distanceBudgetMeters,
     clusteringStrategy: s.clusteringStrategy,
     topNClusters: s.topNClusters,
+    includeAdventureLabs: s.includeAdventureLabs,
     landuseWeight: s.landuseWeight,
     landuseProfileId: s.landuseProfileId ?? null,
     startPreference: s.startPreference,
@@ -508,6 +509,7 @@ export default function App(): JSX.Element {
         startPreference: planSettings.startPreference,
         clusteringStrategy: planSettings.clusteringStrategy,
         topNClusters: planSettings.topNClusters,
+        includeAdventureLabs: planSettings.includeAdventureLabs,
         // Cluster discovery (Pass 1) doesn't use the start point — it's a
         // Pass-2 parking concern — so we no longer send it here. The map-picked
         // start rides only on planLoop.

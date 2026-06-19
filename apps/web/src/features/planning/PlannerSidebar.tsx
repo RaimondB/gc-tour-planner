@@ -102,6 +102,12 @@ export interface PlanSettings {
   osmParkingAccessFilter: readonly ParkingAccessChip[];
   /** OSM-parking fee preference. `"any"` = no preference. */
   osmParkingFeeFilter: ParkingFeeFilter;
+  /**
+   * Opt-in: enrich the planning area with nearby Adventure Lab stages before
+   * clustering (server fetches them from Lab2Gpx and imports them). Also gated
+   * by a server admin flag — when that's off this is a no-op. Default false.
+   */
+  includeAdventureLabs: boolean;
 }
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
@@ -121,6 +127,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
   osmParkingFeeFilter: "any",
+  includeAdventureLabs: false,
 };
 
 const STRATEGY_OPTIONS: ReadonlyArray<
@@ -442,6 +449,19 @@ export function PlannerSidebar({
                 })
               }
             />
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={settings.includeAdventureLabs}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  includeAdventureLabs: e.target.checked,
+                })
+              }
+            />
+            Include Adventure Labs near this area
           </label>
           <label>
             Max gap between caches:{" "}

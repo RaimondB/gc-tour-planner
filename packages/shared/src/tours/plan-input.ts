@@ -146,5 +146,15 @@ export const PlanInput = z.object({
    * The chosen strategy is echoed back in `ClusterDiagnostics.strategyUsed`.
    */
   clusteringStrategy: ClusteringStrategyName.optional(),
+  /**
+   * Opt-in: before clustering, enrich the planning area with nearby Adventure
+   * Lab stages (fetched from Lab2Gpx, upserted as ordinary caches). Default
+   * `false` — not every user wants labs in their tours. Enrichment also requires
+   * the server-side admin flag `ADVENTURE_LAB_ENRICHMENT_ENABLED`; when that's
+   * off this request flag is a silent no-op. Once imported the stages persist
+   * and participate in planning like any other cache (included when they fit the
+   * budget).
+   */
+  includeAdventureLabs: z.boolean().default(false),
 });
 export type PlanInput = z.infer<typeof PlanInput>;

@@ -62,6 +62,8 @@ export async function buildWalkingGraphResponse(
     osmParkingAccessFilter: ["yes", "customers"],
     osmParkingFeeFilter: "any",
     topNClusters: 5,
+    // Debug path renders the existing pool's graph — no external enrichment.
+    includeAdventureLabs: false,
   };
   const ctx = await prepareClusteringContext(ownerId, planInput, {
     caches: deps.caches,

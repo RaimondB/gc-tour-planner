@@ -11,6 +11,7 @@ import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
+import { AdventureLabEnricher } from "../sources/adventure-lab/al-enricher.service.js";
 import { haversineMeters } from "./strategies/greedy/equirectangular.js";
 import { explainSelection } from "./strategies/greedy/clustering/explain.js";
 import {
@@ -38,12 +39,23 @@ export class ToursService {
     private readonly routingRepo: RoutingRepository,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly osrmVersion: OsrmVersionService,
+    private readonly adventureLab: AdventureLabEnricher,
   ) {}
 
   async discoverClusters(
     ownerId: string,
     input: Tours.PlanInput,
   ): Promise<Tours.DiscoverClustersResult> {
+    // Per-tour opt-in (input.includeAdventureLabs) gated by the admin flag
+    // inside the enricher. Awaited so the freshly-imported lab stages are in
+    // the candidate pool before clustering; best-effort (never throws), so a
+    // Lab2Gpx outage degrades to "no labs this run" rather than a failed plan.
+    if (input.includeAdventureLabs && this.adventureLab.enabled) {
+      await this.adventureLab.enrich(ownerId, {
+        center: input.center,
+        radiusM: input.radiusM,
+      });
+    }
     const result = await this.planner.discoverClusters(ownerId, input);
     // Opportunistic warm-up: after Pass 1 returns, kick off /route fetches
     // for the intra-cluster pairs of the top-N candidates. The cells are

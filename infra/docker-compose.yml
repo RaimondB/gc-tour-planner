@@ -323,6 +323,10 @@ services:
       INGEST_API_ENABLED: ${INGEST_API_ENABLED:-}
       INGEST_API_KEY: ${INGEST_API_KEY:-}
       INGEST_OWNER_ID: ${INGEST_OWNER_ID:-}
+      # Adventure Lab cluster enrichment (FR-I15). OFF unless set to 1; when on,
+      # an includeAdventureLabs plan fetches the area's labs from Lab2Gpx.
+      ADVENTURE_LAB_ENRICHMENT_ENABLED: ${ADVENTURE_LAB_ENRICHMENT_ENABLED:-}
+      ADVENTURE_LAB_API_URL: ${ADVENTURE_LAB_API_URL:-}
       TOUR_PLANNER: ${TOUR_PLANNER}
       SOLVER_URL: ${SOLVER_URL:-http://solver:8080}
       LOG_LEVEL: ${LOG_LEVEL}
