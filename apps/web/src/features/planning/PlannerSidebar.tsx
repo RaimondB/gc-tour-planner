@@ -52,6 +52,10 @@ export interface PlanSettings {
   timePerCacheMinutes: number;
   /** Per-stage visit time for Adventure Lab stages (they're quick + clustered). */
   alStageVisitMinutes: number;
+  /** AL solver: include an adventure completely or not at all (no partial ALs). */
+  completeAdventuresOnly: boolean;
+  /** AL solver: allow adventure stages to interleave with other caches (shortest route). */
+  adventureInterleave: boolean;
   /**
    * FR-SF7: extra minutes added per cache that needs equipment
    * (climbing gear, scuba, fishing rod, …). Default 5 min covers
@@ -114,6 +118,8 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   startPreference: "auto",
   timePerCacheMinutes: 5,
   alStageVisitMinutes: 2,
+  completeAdventuresOnly: true,
+  adventureInterleave: true,
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "hdbscan-star",
@@ -1390,6 +1396,32 @@ export function TourSettingsPanel({
               })
             }
           />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.completeAdventuresOnly}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                completeAdventuresOnly: e.target.checked,
+              })
+            }
+          />
+          Adventure Labs: all stages or none
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.adventureInterleave}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                adventureInterleave: e.target.checked,
+              })
+            }
+          />
+          Allow Adventure Lab stages to interleave
         </label>
         <label>
           Extra time for tool caches (min): {settings.toolBonusMinutes}

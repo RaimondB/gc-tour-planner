@@ -538,6 +538,30 @@ export class CachesRepository {
   }
 
   /**
+   * FR-I16: all (non-archived) stages of the given Adventure Labs owned by this
+   * user — used to "pull in" an adventure's missing stages so the solver can
+   * keep adventures complete. Resolves ids via the partial
+   * `caches_adventure_id_idx`, then reuses `findByIds` for the full DTO shape.
+   */
+  async findAdventureStages(
+    userId: string,
+    adventureIds: readonly string[],
+  ): Promise<Caches.CacheDTO[]> {
+    if (adventureIds.length === 0) return [];
+    const rows = await this.db
+      .selectFrom("caches")
+      .select("id")
+      .where("owner_id", "=", userId)
+      .where("adventure_id", "in", adventureIds as unknown as string[])
+      .where("archived", "=", false)
+      .execute();
+    return this.findByIds(
+      userId,
+      rows.map((r) => Number(r.id)),
+    );
+  }
+
+  /**
    * Pass 1 sparse-matrix support: for each origin cache id, return its
    * `k` Haversine-nearest neighbours within `radiusM`, owned by the same user.
    *

@@ -34,7 +34,10 @@ function makeService(opts: {
   } as unknown as CachesRepository;
 
   const svc = new ToursService(
-    null as never, // planner
+    null as never, // planner (TOUR_PLANNER)
+    null as never, // greedy
+    null as never, // solver
+    null as never, // config
     null as never, // caches (CachesService)
     cachesRepo,
     null as never, // cacheLanduse
