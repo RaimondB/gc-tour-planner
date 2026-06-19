@@ -216,6 +216,10 @@ describe("parseGpx", () => {
         <wpt lat="52.0" lon="5.0">
           <name>LC0001</name>
           <url>https://labs.geocaching.com/goto/258d5e99-d2c5-4bf5-a088-044a93baafc2</url>
+          <urlname>S1 First stop</urlname>
+          <lab2gpx:adventureLab xmlns:lab2gpx="https://lab2gpx.gcutils.de/ns/lab2gpx/1">
+            <lab2gpx:stagesTotal>5</lab2gpx:stagesTotal>
+          </lab2gpx:adventureLab>
           <groundspeak:cache id="1" available="True" archived="False">
             <groundspeak:name>Adventure : S1 First stop</groundspeak:name>
             <groundspeak:type>Lab Cache</groundspeak:type>
@@ -239,6 +243,9 @@ describe("parseGpx", () => {
     // <url> — it groups them and drives the "open in Adventure Lab" link.
     expect(s1?.adventureId).toBe("258d5e99-d2c5-4bf5-a088-044a93baafc2");
     expect(s2?.adventureId).toBe("258d5e99-d2c5-4bf5-a088-044a93baafc2");
+    // Stage position from <urlname> "S{n}", total from <lab2gpx:stagesTotal>.
+    expect(s1?.stageSequence).toBe(1);
+    expect(s1?.stageTotal).toBe(5);
   });
 
   it("leaves adventureId null for ordinary caches (geocaching.com <url> is not a goto link)", () => {
@@ -257,6 +264,8 @@ describe("parseGpx", () => {
     const cache = parseGpx(xml).caches.find((c) => c.code === "GCNORM1");
     expect(cache?.type).toBe("Traditional");
     expect(cache?.adventureId).toBeNull();
+    expect(cache?.stageSequence).toBeNull();
+    expect(cache?.stageTotal).toBeNull();
   });
 });
 

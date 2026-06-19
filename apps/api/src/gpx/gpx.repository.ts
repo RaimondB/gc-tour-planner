@@ -219,6 +219,8 @@ export class GpxRepository {
                 source_exported_at: exportedAt,
                 description_hints: c.descriptionHints,
                 adventure_id: c.adventureId,
+                stage_sequence: c.stageSequence,
+                stage_total: c.stageTotal,
                 raw: sql<string>`'{}'::jsonb`,
               })
               .onConflict((oc) =>
@@ -260,8 +262,10 @@ export class GpxRepository {
                 // "scanned, no matches" (`[]`) apart from "never scanned"
                 // (`NULL`, pre-PR3 rows) later when back-filling.
                 description_hints: c.descriptionHints,
-                // Adventure Lab deep-link GUID (null for ordinary caches).
+                // Adventure Lab metadata (null for ordinary caches).
                 adventure_id: c.adventureId,
+                stage_sequence: c.stageSequence,
+                stage_total: c.stageTotal,
                 raw: sql<string>`'{}'::jsonb`,
               })
               .onConflict((oc) =>
@@ -290,6 +294,8 @@ export class GpxRepository {
                     description_hints: (eb) =>
                       eb.ref("excluded.description_hints"),
                     adventure_id: (eb) => eb.ref("excluded.adventure_id"),
+                    stage_sequence: (eb) => eb.ref("excluded.stage_sequence"),
+                    stage_total: (eb) => eb.ref("excluded.stage_total"),
                     last_seen_at: sql<Date>`now()`,
                   }),
               )

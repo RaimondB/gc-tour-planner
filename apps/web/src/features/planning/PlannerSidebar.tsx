@@ -1,19 +1,20 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { type JSX } from "react";
+import { useMemo, type JSX } from "react";
 import { Navigation } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { parkingNavTarget } from "../../lib/maps.js";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
-import type {
-  ClusterCandidate,
-  ClusterDiagnostics,
-  ClusteringStrategyName,
-  PlanResult,
-  StartPreference,
-  TestRouteResponse,
-  WalkingGraphResponse,
+import {
+  summarizeAdventureCompletion,
+  type ClusterCandidate,
+  type ClusterDiagnostics,
+  type ClusteringStrategyName,
+  type PlanResult,
+  type StartPreference,
+  type TestRouteResponse,
+  type WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import {
   PARKING_ACCESS_CHIPS,
@@ -646,6 +647,18 @@ export function PlanResultPanel({
   const visitMin = result.totals.visitMinutes;
   const totalMin = walkingMin + visitMin;
 
+  // Per-Adventure completion: of each Adventure Lab represented in the loop, how
+  // many of its stages are in vs. dropped — answers "can I finish the whole AL?".
+  const adventureCompletion = useMemo(() => {
+    const byId = new Map<number, CacheSummaryDTO>();
+    for (const c of caches ?? []) byId.set(c.id, c);
+    return summarizeAdventureCompletion(
+      result.orderedCacheIds,
+      result.droppedCacheIds,
+      byId,
+    );
+  }, [caches, result.orderedCacheIds, result.droppedCacheIds]);
+
   // Same queryKey as ParkingPreviewLayer → no double fetch. Lets us dump the
   // exact parking-options payload the map is rendering for offline diagnosis
   // of weird-looking preview routes.
@@ -798,6 +811,33 @@ export function PlanResultPanel({
           </a>
         </dd>
       </dl>
+      {adventureCompletion.length > 0 && (
+        <div className="plan-adventures">
+          <h4>Adventure Labs in this tour</h4>
+          <ul className="plan-adventures__list">
+            {adventureCompletion.map((a) => {
+              const complete = a.total != null && a.included >= a.total;
+              return (
+                <li
+                  key={a.adventureId}
+                  className={
+                    complete
+                      ? "plan-adventures__item plan-adventures__item--complete"
+                      : "plan-adventures__item plan-adventures__item--partial"
+                  }
+                >
+                  <span className="plan-adventures__name">{a.name}</span>
+                  <span className="plan-adventures__count">
+                    {complete ? "✓" : "⚠"} {a.included}
+                    {a.total != null ? `/${a.total}` : ""} stages
+                    {a.dropped > 0 ? ` (${a.dropped} dropped)` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       <h4>Score breakdown</h4>
       <ul className="breakdown">
         {Object.entries(result.scoreBreakdown).map(([k, v]) => (

@@ -134,10 +134,20 @@ export interface CachesTable {
     string | null
   >;
   /**
-   * 1-based stage position within an Adventure Lab. Reserved for "Stage N of M"
-   * display + sequential routing. NULL for non-AL caches.
+   * 1-based stage position within an Adventure Lab. "Stage N of M" display +
+   * sequential routing. NULL for non-AL caches.
    */
   stage_sequence: ColumnType<
+    number | null,
+    number | null | undefined,
+    number | null
+  >;
+  /**
+   * Total stages in the Adventure (Lab2Gpx `stagesTotal`). The "M" in
+   * "Stage N of M" and the denominator for tour completion. NULL for non-AL
+   * caches. See migration 1783000000000.
+   */
+  stage_total: ColumnType<
     number | null,
     number | null | undefined,
     number | null

@@ -55,16 +55,18 @@ CREATE TABLE caches (
   -- as "always allow update").
   source_exported_at TIMESTAMPTZ,
   -- Adventure Lab metadata (NULL for every non-Adventure-Lab cache). A stage of
-  -- an Adventure enters as type='Adventure Lab'; these three carry the
-  -- adventure-level facts the generic shape can't. adventure_id is the
-  -- DEEP-LINK GUID (path segment of labs.geocaching.com/goto/<id>) — shared by
-  -- all stages of one Adventure, so it groups them AND drives the "open in
-  -- Adventure Lab" link (note: NOT the AL API adventure Id; only the deep-link
-  -- GUID resolves on /goto/). stage_sequence + adventure_sequential are reserved
-  -- for "Stage N of M" display and the planner's sequential-ordering pass
-  -- (populated by the later cluster-enrichment phase).
+  -- an Adventure enters as type='Adventure Lab'; these carry the adventure-level
+  -- facts the generic shape can't. adventure_id is the DEEP-LINK GUID (path
+  -- segment of labs.geocaching.com/goto/<id>) — shared by all stages of one
+  -- Adventure, so it groups them AND drives the "open in Adventure Lab" link
+  -- (note: NOT the AL API adventure Id; only the deep-link GUID resolves on
+  -- /goto/). stage_sequence (1-based, from <urlname> "S{n}") + stage_total (from
+  -- <lab2gpx:stagesTotal>) drive the numbered "S{n}" map label, the popup
+  -- "Stage N of M", and the per-tour completion check. adventure_sequential
+  -- (IsLinear) is reserved for the planner's sequential-ordering pass.
   adventure_id         TEXT,
   stage_sequence       SMALLINT,
+  stage_total          SMALLINT,
   adventure_sequential BOOLEAN,
   raw          JSONB NOT NULL DEFAULT '{}'::jsonb,
   UNIQUE (source, source_id, owner_id)

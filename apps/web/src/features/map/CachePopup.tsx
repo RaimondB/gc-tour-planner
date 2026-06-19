@@ -27,6 +27,9 @@ export interface CachePopupProps {
    * app instead of the dead per-stage geocaching.com link.
    */
   adventureId?: string | null;
+  /** Adventure Lab stage position (1-based) and total, for "Stage N of M". */
+  stageSequence?: number | null;
+  stageTotal?: number | null;
   /**
    * True when the plotted location is a user-supplied solved/corrected
    * coordinate (Mystery solution or Multi final). Shows a pill + the
@@ -63,6 +66,8 @@ export function CachePopup({
   descriptionHints = [],
   stageCount = 0,
   adventureId = null,
+  stageSequence = null,
+  stageTotal = null,
   solved = false,
   onClearSolved,
   loadingDetail = false,
@@ -131,6 +136,13 @@ export function CachePopup({
       {multiLabel && (
         <div className="cache-popup__meta cache-popup__meta--muted">
           {multiLabel}
+        </div>
+      )}
+      {isAdventureLab && stageSequence != null && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          {stageTotal != null
+            ? `Stage ${stageSequence} of ${stageTotal}`
+            : `Stage ${stageSequence}`}
         </div>
       )}
       {loadingDetail ? (

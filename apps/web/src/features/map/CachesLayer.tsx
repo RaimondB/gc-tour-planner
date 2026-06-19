@@ -24,6 +24,7 @@ const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
+const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
 /** addImage id for the canvas-drawn solved checkmark badge. */
 const SOLVED_BADGE_ICON = "gctp-solved-check";
 
@@ -99,6 +100,10 @@ interface CacheProps {
   stageCount: number;
   /** Adventure Lab deep-link GUID (AL stages only; null otherwise). */
   adventureId: string | null;
+  /** AL stage position; 0 for non-AL (MapLibre filter expressions dislike null). */
+  stageSequence: number;
+  /** AL total stage count; 0 for non-AL. */
+  stageTotal: number;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -196,6 +201,8 @@ export function CachesLayer({
         solved: c.solved ? 1 : 0,
         stageCount: c.stageCount,
         adventureId: c.adventureId ?? null,
+        stageSequence: c.stageSequence ?? 0,
+        stageTotal: c.stageTotal ?? 0,
       },
     }));
 
@@ -293,6 +300,37 @@ export function CachesLayer({
           "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
+        },
+      });
+    }
+    // Adventure Lab stage number, drawn ON the marker as "S1", "S2", … . The
+    // "S" prefix is deliberate: the tour overlay (TourLayer) labels routed stops
+    // with bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being
+    // read as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both
+    // scopes this to lab stages and skips AL rows imported before stage metadata.
+    if (!map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
+      map.addLayer({
+        id: CACHES_AL_STAGE_LABEL_LAYER,
+        type: "symbol",
+        source: CACHES_SOURCE,
+        minzoom: 11,
+        filter: [">", ["get", "stageSequence"], 0],
+        layout: {
+          "text-field": [
+            "concat",
+            "S",
+            ["to-string", ["get", "stageSequence"]],
+          ],
+          "text-font": ["Noto Sans Bold"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 13],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+          "text-anchor": "center",
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "#7b1fa2",
+          "text-halo-width": 1.8,
         },
       });
     }
@@ -436,6 +474,8 @@ export function CachesLayer({
             descriptionHints={detail?.descriptionHints ?? []}
             stageCount={props.stageCount}
             adventureId={props.adventureId}
+            stageSequence={props.stageSequence || null}
+            stageTotal={props.stageTotal || null}
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}

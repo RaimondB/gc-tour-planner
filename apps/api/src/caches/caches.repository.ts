@@ -82,6 +82,9 @@ interface CacheRow {
   description_hints: string[] | null;
   /** Adventure Lab deep-link GUID; null for non-AL caches. */
   adventure_id: string | null;
+  /** Adventure Lab stage position + total; null for non-AL caches. */
+  stage_sequence: number | null;
+  stage_total: number | null;
 }
 
 @Injectable()
@@ -170,6 +173,8 @@ export class CachesRepository {
           .as("stage_count"),
         "c.description_hints",
         "c.adventure_id",
+        "c.stage_sequence",
+        "c.stage_total",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -291,6 +296,8 @@ export class CachesRepository {
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
         adventureId: r.adventure_id,
+        stageSequence: r.stage_sequence,
+        stageTotal: r.stage_total,
       };
     });
 
@@ -478,6 +485,8 @@ export class CachesRepository {
           .as("stage_count"),
         "c.description_hints",
         "c.adventure_id",
+        "c.stage_sequence",
+        "c.stage_total",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -522,6 +531,8 @@ export class CachesRepository {
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
         adventureId: r.adventure_id,
+        stageSequence: r.stage_sequence,
+        stageTotal: r.stage_total,
       };
     });
   }

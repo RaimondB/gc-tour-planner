@@ -70,12 +70,13 @@ export function parseGpx(xml: string): ParsedGpx {
 
     if (gsCache) {
       const adventureId = extractAdventureId(textOrNull(wpt.url));
+      const { stageSequence, stageTotal } = extractStageInfo(wpt);
       const cache = toParsedCache(
         name,
         lat,
         lon,
         gsCache,
-        adventureId,
+        { adventureId, stageSequence, stageTotal },
         warnings,
       );
       if (cache) caches.push(cache);
@@ -129,7 +130,28 @@ interface GpxWpt {
   sym?: string;
   type?: string;
   url?: string;
+  urlname?: string;
+  "lab2gpx:adventureLab"?: { "lab2gpx:stagesTotal"?: string | number };
   "groundspeak:cache"?: GroundspeakCache;
+}
+
+/**
+ * Adventure Lab stage position + total, parsed from a Lab2Gpx stage `<wpt>`.
+ * The 1-based sequence is the `S{n}` prefix of `<urlname>` (e.g.
+ * `S2 Adventure Title`); the total is the `<lab2gpx:stagesTotal>` extension.
+ * Both null for ordinary caches (no `urlname` S-prefix, no lab2gpx extension).
+ */
+function extractStageInfo(wpt: GpxWpt): {
+  stageSequence: number | null;
+  stageTotal: number | null;
+} {
+  const urlname = textOrNull(wpt.urlname);
+  const seqMatch = urlname?.match(/^\s*S(\d+)\b/i);
+  const stageSequence = seqMatch?.[1] ? Number(seqMatch[1]) : null;
+  const stageTotal = numOrNull(
+    wpt["lab2gpx:adventureLab"]?.["lab2gpx:stagesTotal"],
+  );
+  return { stageSequence, stageTotal };
 }
 
 /**
@@ -217,7 +239,11 @@ function toParsedCache(
   lat: number,
   lon: number,
   gs: GroundspeakCache,
-  adventureId: string | null,
+  adventure: {
+    adventureId: string | null;
+    stageSequence: number | null;
+    stageTotal: number | null;
+  },
   warnings: string[],
 ): ParsedCache | null {
   const code = name.trim();
@@ -283,7 +309,9 @@ function toParsedCache(
     disabled,
     attributes,
     descriptionHints,
-    adventureId,
+    adventureId: adventure.adventureId,
+    stageSequence: adventure.stageSequence,
+    stageTotal: adventure.stageTotal,
   };
 }
 

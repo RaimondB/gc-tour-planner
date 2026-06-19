@@ -45,6 +45,18 @@ export const ParsedCache = z.object({
    * if any, points at a geocaching.com listing, which this never matches).
    */
   adventureId: z.string().nullable().default(null),
+  /**
+   * 1-based stage position within the Adventure (Lab2Gpx `<urlname>` `S{n}`
+   * prefix). `null` for ordinary caches. Drives "Stage N of M" + the numbered
+   * map label.
+   */
+  stageSequence: z.number().int().positive().nullable().default(null),
+  /**
+   * Total stages in the Adventure (Lab2Gpx `<lab2gpx:stagesTotal>`). The "M" in
+   * "Stage N of M" and the denominator for tour completion. `null` for ordinary
+   * caches.
+   */
+  stageTotal: z.number().int().positive().nullable().default(null),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 
