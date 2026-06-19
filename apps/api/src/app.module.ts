@@ -4,6 +4,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
+import { AdminAdventureLabsModule } from "./admin/adventure-labs/admin-adventure-labs.module.js";
 import { AdminLanduseModule } from "./admin/landuse/admin-landuse.module.js";
 import { AdminPrecomputeModule } from "./admin/precompute/admin-precompute.module.js";
 import { AdminUploadsModule } from "./admin/uploads/admin-uploads.module.js";
@@ -18,6 +19,7 @@ import { HealthModule } from "./health/health.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { LanduseProfilesModule } from "./landuse-profiles/landuse-profiles.module.js";
 import { OsmModule } from "./osm/osm.module.js";
+import { AdventureLabImportModule } from "./jobs/adventure-lab-import/adventure-lab-import.module.js";
 import { WalkingPrecomputeModule } from "./jobs/walking-precompute/walking-precompute.module.js";
 import { PrecomputeStateModule } from "./precompute-state/precompute-state.module.js";
 import { QueueModule } from "./queues/queue.module.js";
@@ -62,9 +64,11 @@ import { ToursModule } from "./tours/tours.module.js";
     RoutingModule,
     ToursModule,
     WalkingPrecomputeModule,
+    AdventureLabImportModule,
     AdminPrecomputeModule,
     AdminLanduseModule,
     AdminUploadsModule,
+    AdminAdventureLabsModule,
   ],
 })
 export class AppModule {}

@@ -33,6 +33,8 @@ import {
   ClusterCandidatesResponse,
   type ExplainClusterInput,
   ExplainClusterResponse,
+  type AugmentClusterInput,
+  AugmentClusterResult,
   type ParkingOptionsInput,
   ParkingOptionsResponse,
   type PlanInput,
@@ -319,6 +321,15 @@ export async function planLoop(input: PlanLoopInput) {
     body: JSON.stringify(input),
   });
   return PlanResult.parse(raw);
+}
+
+export async function augmentClusterLabs(input: AugmentClusterInput) {
+  const raw = await request<unknown>("/tours/clusters/augment-labs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return AugmentClusterResult.parse(raw);
 }
 
 export async function fetchParkingOptions(input: ParkingOptionsInput) {

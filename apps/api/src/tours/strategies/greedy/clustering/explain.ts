@@ -59,9 +59,6 @@ export async function explainSelection(
     osmParkingFeeFilter: "any",
     topNClusters: 5,
     clusteringStrategy: input.clusteringStrategy,
-    // Debug/analytic path operates on the existing pool — never triggers
-    // external enrichment.
-    includeAdventureLabs: false,
   };
 
   const ctx = await prepareClusteringContext(ownerId, planInput, {

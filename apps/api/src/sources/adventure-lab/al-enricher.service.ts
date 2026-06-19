@@ -16,16 +16,23 @@ export interface EnrichResult {
   importedCaches: number;
 }
 
+/** Extra km fetched beyond the requested radius so edge adventures aren't clipped. */
+const DEFAULT_BUFFER_KM = 1;
 /**
- * Fetch the area beyond the planning radius so an Adventure whose stages
- * straddle the edge isn't clipped (the planner discards out-of-radius caches
- * anyway, so over-fetching is harmless).
+ * Default cap on **adventures** (Lab2Gpx `limit` counts adventures, not stages —
+ * each yields ~5-10 stages). Small by design: the cluster-augment path passes a
+ * tiny value; the bulk background import passes a large one.
  */
-const ENRICH_BUFFER_KM = 1;
-/** Upper bound on stages fetched per area (Lab2Gpx `take`). */
-const ENRICH_LIMIT = 500;
-/** Abort the Lab2Gpx call after this so a slow upstream can't stall a plan. */
-const FETCH_TIMEOUT_MS = 15_000;
+const DEFAULT_LIMIT_ADVENTURES = 50;
+/** Abort the Lab2Gpx call after this so a slow upstream can't stall the caller. */
+const FETCH_TIMEOUT_MS = 30_000;
+
+export interface EnrichOptions {
+  /** Max adventures to fetch (Lab2Gpx `limit`). Small for augment, large for bulk. */
+  limitAdventures?: number;
+  /** Extra km beyond `radiusM`. Defaults to 1 km. */
+  bufferKm?: number;
+}
 
 /**
  * Server-side Adventure Lab cluster enrichment.
@@ -62,10 +69,11 @@ export class AdventureLabEnricher {
   async enrich(
     ownerId: string,
     area: EnrichArea,
+    opts: EnrichOptions = {},
   ): Promise<EnrichResult | null> {
     if (!this.config.enabled) return null;
     try {
-      const gpx = await this.fetchAreaGpx(area);
+      const gpx = await this.fetchAreaGpx(area, opts);
       if (!gpx) return null;
       const result = await this.gpx.ingest(
         ownerId,
@@ -94,15 +102,19 @@ export class AdventureLabEnricher {
    * response / empty body. The request shape matches the documented Lab2Gpx
    * `/download` API (https://github.com/mirsch/lab2gpx/wiki/Api).
    */
-  private async fetchAreaGpx(area: EnrichArea): Promise<string | null> {
+  private async fetchAreaGpx(
+    area: EnrichArea,
+    opts: EnrichOptions,
+  ): Promise<string | null> {
     const [lng, lat] = area.center;
-    const radiusKm = Math.ceil(area.radiusM / 1000) + ENRICH_BUFFER_KM;
+    const radiusKm =
+      Math.ceil(area.radiusM / 1000) + (opts.bufferKm ?? DEFAULT_BUFFER_KM);
     const body = {
       version: 2,
       locale: "en",
       radius: radiusKm,
       coordinates: { lat, lon: lng },
-      limit: ENRICH_LIMIT,
+      limit: opts.limitAdventures ?? DEFAULT_LIMIT_ADVENTURES,
       cacheType: "Lab Cache",
       // "default" keeps every stage's posted coordinate; we don't need the
       // [L]-prefix marking (sequential ordering is a later phase).

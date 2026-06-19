@@ -25,6 +25,13 @@ const PREFETCH_PROFILE = "foot" as const;
 /** Top-N clusters whose intra-cluster pairs we warm after Pass 1. */
 const PREFETCH_TOP_N = 5;
 
+/** Cluster-augment (FR-I15): metres added beyond the cluster's own extent. */
+const AUGMENT_BUFFER_M = 500;
+/** Cluster-augment: adventures to fetch from Lab2Gpx — small + fast by design. */
+const AUGMENT_LIMIT_ADVENTURES = 25;
+/** Hard cap on the augmented id set (mirrors the planner's MAX_LOOP_CACHES). */
+const AUGMENT_MAX_CACHES = 50;
+
 @Injectable()
 export class ToursService {
   private readonly logger = new Logger(ToursService.name);
@@ -46,16 +53,11 @@ export class ToursService {
     ownerId: string,
     input: Tours.PlanInput,
   ): Promise<Tours.DiscoverClustersResult> {
-    // Per-tour opt-in (input.includeAdventureLabs) gated by the admin flag
-    // inside the enricher. Awaited so the freshly-imported lab stages are in
-    // the candidate pool before clustering; best-effort (never throws), so a
-    // Lab2Gpx outage degrades to "no labs this run" rather than a failed plan.
-    if (input.includeAdventureLabs && this.adventureLab.enabled) {
-      await this.adventureLab.enrich(ownerId, {
-        center: input.center,
-        radiusM: input.radiusM,
-      });
-    }
+    // Clustering operates on the existing pool only — Adventure Lab stages
+    // already in the DB participate like any other cache (the type filter
+    // governs whether they're included). Fetching more labs is an explicit,
+    // per-cluster action (`augmentClusterWithLabs`) and a manual admin bulk
+    // import, never an inline whole-area fetch (too heavy — see FR-I15).
     const result = await this.planner.discoverClusters(ownerId, input);
     // Opportunistic warm-up: after Pass 1 returns, kick off /route fetches
     // for the intra-cluster pairs of the top-N candidates. The cells are
@@ -80,6 +82,69 @@ export class ToursService {
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
     return this.planner.planLoop(ownerId, input);
+  }
+
+  /**
+   * FR-I15 cluster augmentation: pull nearby Adventure Lab stages into a chosen
+   * cluster. Does a *small* Lab2Gpx fetch around the cluster's own extent
+   * (+buffer), imports the stages via the GPX path, then returns the cluster's
+   * ids expanded with nearby labs (existing + freshly imported), nearest-first,
+   * capped at the loop max. No-op (returns the input unchanged) when the admin
+   * flag is off. Best-effort: a Lab2Gpx failure still returns whatever labs are
+   * already local, never throws.
+   */
+  async augmentClusterWithLabs(
+    ownerId: string,
+    input: Tours.AugmentClusterInput,
+  ): Promise<Tours.AugmentClusterResult> {
+    const cacheIds = Array.from(new Set(input.cacheIds));
+    if (!this.adventureLab.enabled) return { cacheIds, added: 0 };
+
+    const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
+    if (rows.length === 0) return { cacheIds, added: 0 };
+
+    const coords = rows.map((c) => c.location.coordinates as [number, number]);
+    const centroid: [number, number] = [
+      coords.reduce((s, c) => s + c[0], 0) / coords.length,
+      coords.reduce((s, c) => s + c[1], 0) / coords.length,
+    ];
+    const clusterRadiusM = coords.reduce(
+      (max, c) => Math.max(max, haversineMeters(centroid, c)),
+      0,
+    );
+    const fetchRadiusM = Math.round(clusterRadiusM) + AUGMENT_BUFFER_M;
+
+    // Import nearby labs (best-effort — null on flag-off/outage); we then read
+    // them back from the DB alongside any that were already local.
+    await this.adventureLab.enrich(
+      ownerId,
+      { center: centroid, radiusM: fetchRadiusM },
+      { limitAdventures: AUGMENT_LIMIT_ADVENTURES },
+    );
+
+    const nearby = await this.cachesRepo.find({
+      ownerId,
+      center: centroid,
+      radiusM: fetchRadiusM,
+      types: ["Adventure Lab"],
+      excludeFound: true,
+    });
+
+    const have = new Set(cacheIds);
+    const labsByDistance = nearby
+      .filter((c) => !have.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        d: haversineMeters(
+          centroid,
+          c.location.coordinates as [number, number],
+        ),
+      }))
+      .sort((a, b) => a.d - b.d);
+
+    const room = Math.max(0, AUGMENT_MAX_CACHES - cacheIds.length);
+    const addedIds = labsByDistance.slice(0, room).map((l) => l.id);
+    return { cacheIds: [...cacheIds, ...addedIds], added: addedIds.length };
   }
 
   /**
