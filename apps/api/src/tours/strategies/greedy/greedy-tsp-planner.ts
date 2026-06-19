@@ -24,12 +24,9 @@ import {
   prepareClusteringContext,
   resolveClusteringStrategy,
 } from "./clustering/index.js";
-import {
-  distanceMeters,
-  haversineMeters,
-  makeEquirectangular,
-} from "./equirectangular.js";
+import { haversineMeters } from "./equirectangular.js";
 import { collapseColocated } from "./colocate.js";
+import { expandColocatedRoute } from "./expand-colocated.js";
 import {
   COMPUTE_POOL,
   type ComputePool,
@@ -52,8 +49,6 @@ const DEFAULT_TOP_N_CLUSTERS = 5;
 const MAX_LOOP_CACHES = 50;
 /** Default walking-metre radius for collapsing co-located stops (`PLANNER_COLOCATE_M`). */
 const DEFAULT_COLOCATE_M = 40;
-/** Walking speed (m/s, ~5 km/h) for synthesizing the tiny legs between co-located stops. */
-const WALKING_MPS = 1.4;
 
 /**
  * Co-location threshold in metres (caches within this walking distance collapse
@@ -594,63 +589,20 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       );
     }
 
-    // Expand co-located groups back to their member stops. Pass-2 ran on one
-    // representative per group; here each group becomes its real members
-    // (contiguous, in visit order) with a tiny synthesized leg between
-    // consecutive co-located members and the real OSRM legs between groups. This
-    // preserves the wire invariant `legs.length === orderedCacheIds.length + 1`,
-    // so TourLayer / completion / GPX export are unaffected.
-    const coordOf = (id: number): [number, number] =>
-      byId.get(id)!.location.coordinates as [number, number];
+    // Expand co-located groups back to their member stops (Pass-2 ran on one
+    // representative per group). Each group becomes its members — contiguous, in
+    // visit order — with real OSRM legs between groups and tiny synthesized legs
+    // between co-located members. Preserves the wire invariant
+    // `legs.length === orderedCacheIds.length + 1`, so TourLayer / completion /
+    // GPX export are unaffected.
     const membersOf = (repId: number): number[] =>
       groupMembers.get(repId) ?? [repId];
-    const zeroLeg = (from: number, to: number): LegWithAlternatives => {
-      const a = coordOf(from);
-      const b = coordOf(to);
-      // A few metres between co-located stops — the cheap local equirectangular
-      // projection is more than accurate enough (no haversine trig needed).
-      const proj = makeEquirectangular(a[0], a[1]);
-      const m = distanceMeters({ x: 0, y: 0 }, proj.project(b[0], b[1]));
-      return {
-        fromCacheId: from,
-        toCacheId: to,
-        profile: PROFILE,
-        meters: m,
-        seconds: m / WALKING_MPS,
-        geometry: { type: "LineString", coordinates: [a, b] },
-        alternatives: [],
-        selectedIndex: 0,
-      };
-    };
-
-    const orderedIdsFinal: number[] = [];
-    const allLegs: LegWithAlternatives[] = [];
-    const reps = currentOrderedIds;
-    for (let gi = 0; gi < reps.length; gi += 1) {
-      const members = membersOf(reps[gi]!);
-      // Leg arriving at this group's first member: parking for the first group,
-      // otherwise the real inter-group leg relabelled from the previous group's
-      // last member.
-      if (gi === 0) {
-        allLegs.push({ ...parkingToFirst, toCacheId: members[0]! });
-      } else {
-        const prev = membersOf(reps[gi - 1]!);
-        allLegs.push({
-          ...interCacheLegs[gi - 1]!,
-          fromCacheId: prev[prev.length - 1]!,
-          toCacheId: members[0]!,
-        });
-      }
-      for (let mi = 0; mi < members.length; mi += 1) {
-        orderedIdsFinal.push(members[mi]!);
-        if (mi > 0) allLegs.push(zeroLeg(members[mi - 1]!, members[mi]!));
-      }
-    }
-    const lastMembers = membersOf(reps[reps.length - 1]!);
-    allLegs.push({
-      ...lastToParking,
-      fromCacheId: lastMembers[lastMembers.length - 1]!,
-    });
+    const { orderedIds: orderedIdsFinal, allLegs } = expandColocatedRoute(
+      currentOrderedIds,
+      membersOf,
+      (id) => byId.get(id)!.location.coordinates as [number, number],
+      { parkingToFirst, interCacheLegs, lastToParking },
+    );
 
     // A dropped representative drops all of its members.
     const droppedExpanded = [...droppedCacheIds, ...postTrimDropped].flatMap(
