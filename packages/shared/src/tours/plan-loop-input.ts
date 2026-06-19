@@ -26,6 +26,13 @@ export const PlanLoopInput = z.object({
   /** Per-cache visit time used in time-budget math. Default per FR-T3 = 5. */
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
   /**
+   * Per-stage visit time for Adventure Lab stages, used instead of
+   * `timePerCacheMinutes` for `type==='Adventure Lab'` stops. Labs are quick
+   * (answer a question on your phone) and several often sit at one spot, so a
+   * separate, smaller default (2 min) keeps tour-time estimates realistic.
+   */
+  alStageVisitMinutes: z.number().int().nonnegative().max(120).default(2),
+  /**
    * FR-SF7: extra minutes added per cache that needs a tool (climbing
    * gear, scuba, fishing rod, etc. — see `hasToolRequirement` in
    * `packages/shared/src/caches/attributes.ts`). Default 5 min covers

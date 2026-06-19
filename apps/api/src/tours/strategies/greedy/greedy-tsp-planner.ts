@@ -575,15 +575,22 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // matches together (see `hasToolRequirement`). Only affects the
     // returned `totals.visitMinutes` — distance budget, parking
     // selection, and leg picking still use the flat per-cache time.
+    // Adventure Lab stages use their own (smaller) per-stage visit time
+    // (`alStageVisitMinutes`) instead of the regular `timePerCacheMinutes` —
+    // labs are quick and often clustered at one spot.
     let toolStopCount = 0;
+    let alStageCount = 0;
     for (const id of orderedIdsFinal) {
       const c = byId.get(id);
       if (!c) continue;
+      if (c.type === "Adventure Lab") alStageCount += 1;
       if (hasToolRequirement(c.attributeIds, c.descriptionHints))
         toolStopCount += 1;
     }
+    const regularStops = orderedIdsFinal.length - alStageCount;
     const visitMinutes =
-      input.timePerCacheMinutes * orderedIdsFinal.length +
+      input.timePerCacheMinutes * regularStops +
+      input.alStageVisitMinutes * alStageCount +
       input.toolBonusMinutes * toolStopCount;
 
     // Project the in-memory legs into the wire shape PlanResult.legs[]

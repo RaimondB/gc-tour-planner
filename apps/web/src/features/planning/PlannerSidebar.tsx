@@ -50,6 +50,8 @@ export interface PlanSettings {
   startPreference: StartPreference;
   /** Per-cache visit time used in time totals. */
   timePerCacheMinutes: number;
+  /** Per-stage visit time for Adventure Lab stages (they're quick + clustered). */
+  alStageVisitMinutes: number;
   /**
    * FR-SF7: extra minutes added per cache that needs equipment
    * (climbing gear, scuba, fishing rod, …). Default 5 min covers
@@ -111,6 +113,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   maxLinkMeters: 1_500,
   startPreference: "auto",
   timePerCacheMinutes: 5,
+  alStageVisitMinutes: 2,
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "hdbscan-star",
@@ -1367,6 +1370,23 @@ export function TourSettingsPanel({
               onSettingsChange({
                 ...settings,
                 timePerCacheMinutes: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label>
+          Visit time per Adventure Lab stage (min):{" "}
+          {settings.alStageVisitMinutes}
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={settings.alStageVisitMinutes}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                alStageVisitMinutes: Number(e.target.value),
               })
             }
           />

@@ -119,6 +119,7 @@ function planLoopSettingsKey(
   return JSON.stringify({
     distanceBudgetMeters: s.distanceBudgetMeters,
     timePerCacheMinutes: s.timePerCacheMinutes,
+    alStageVisitMinutes: s.alStageVisitMinutes,
     toolBonusMinutes: s.toolBonusMinutes,
     startPreference: s.startPreference,
     maxLinkMeters: s.maxLinkMeters,
@@ -359,6 +360,7 @@ export default function App(): JSX.Element {
         cacheIds: cluster.cacheIds,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
         timePerCacheMinutes: planSettings.timePerCacheMinutes,
+        alStageVisitMinutes: planSettings.alStageVisitMinutes,
         toolBonusMinutes: planSettings.toolBonusMinutes,
         startPreference: planSettings.startPreference,
         maxLinkMeters: planSettings.maxLinkMeters,
