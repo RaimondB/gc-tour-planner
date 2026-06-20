@@ -424,7 +424,10 @@ export default function App(): JSX.Element {
   // new stages render on the map before the user plans.
   const augmentMutation = useMutation({
     mutationFn: async (cluster: ClusterCandidate) =>
-      augmentClusterLabs({ cacheIds: [...cluster.cacheIds] }),
+      augmentClusterLabs({
+        cacheIds: [...cluster.cacheIds],
+        maxLinkMeters: planSettings.maxLinkMeters,
+      }),
     onSuccess: (res, cluster) => {
       setClusters((prev) =>
         prev
@@ -1167,6 +1170,15 @@ export default function App(): JSX.Element {
                       ? "Finding Adventure Labs…"
                       : "Add nearby Adventure Labs"}
                   </button>
+                  {augmentMutation.data && !augmentMutation.isPending && (
+                    <span className="muted">
+                      {augmentMutation.data.added > 0
+                        ? `Added ${augmentMutation.data.added} stage${augmentMutation.data.added === 1 ? "" : "s"}.`
+                        : "No nearby labs added."}
+                      {augmentMutation.data.skipped > 0 &&
+                        ` ${augmentMutation.data.skipped} nearby adventure${augmentMutation.data.skipped === 1 ? "" : "s"} didn't connect to this cluster.`}
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="secondary"
