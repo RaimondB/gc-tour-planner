@@ -6,6 +6,7 @@ import type maplibregl from "maplibre-gl";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
+import { clusterByPixelProximity } from "./pixel-cluster.js";
 import { useMap } from "./MapContext.js";
 
 const TOUR_SOURCE = "gctp-tour";
@@ -561,25 +562,16 @@ export function TourLayer({
         setData(STOP_COLLAPSED_SOURCE, []);
         return;
       }
-      const px = stops.map((s) => map.project(s.coord));
-      const used = new Array<boolean>(stops.length).fill(false);
+      const clusters = clusterByPixelProximity(
+        stops.map((s) => ({ lng: s.coord[0], lat: s.coord[1], item: s })),
+        (lngLat) => map.project(lngLat),
+        COLLAPSE_PX,
+      );
       const singles: GeoJSON.Feature[] = [];
       const groups: GeoJSON.Feature[] = [];
-      for (let i = 0; i < stops.length; i += 1) {
-        if (used[i]) continue;
-        const members = [i];
-        used[i] = true;
-        for (let j = i + 1; j < stops.length; j += 1) {
-          if (used[j]) continue;
-          if (
-            Math.hypot(px[i]!.x - px[j]!.x, px[i]!.y - px[j]!.y) <= COLLAPSE_PX
-          ) {
-            members.push(j);
-            used[j] = true;
-          }
-        }
-        if (members.length === 1) {
-          const s = stops[i]!;
+      for (const { members: ms, center } of clusters) {
+        if (ms.length === 1) {
+          const s = ms[0]!;
           singles.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: s.coord },
@@ -591,23 +583,13 @@ export function TourLayer({
             },
           });
         } else {
-          const ms = members.map((k) => stops[k]!);
-          let lng = 0;
-          let lat = 0;
-          for (const m of ms) {
-            lng += m.coord[0];
-            lat += m.coord[1];
-          }
           const orders = ms.map((m) => m.order).sort((a, b) => a - b);
           const min = orders[0]!;
           const max = orders[orders.length - 1]!;
           const contiguous = max - min + 1 === orders.length;
           groups.push({
             type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: [lng / ms.length, lat / ms.length],
-            },
+            geometry: { type: "Point", coordinates: center },
             properties: {
               count: ms.length,
               // Contiguous run → "3–7"; otherwise a plain count "×4".

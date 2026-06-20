@@ -15,6 +15,7 @@ import {
   type ListCachesParams,
 } from "../../lib/api.js";
 import { mergeCachesById } from "../planning/halo-caches.js";
+import { clusterByPixelProximity, OVERLAP_PX } from "./pixel-cluster.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
 import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
@@ -27,14 +28,16 @@ const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
 const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
 const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
-// Collapsed Adventure Labs: one pin per adventure (at its stage centroid) shown
-// below AL_EXPLODE_ZOOM; at/above it the pin gives way to the individual stages,
-// so a multi-stage adventure reads as a single place when browsing — matching
-// the single pin geocaching.com shows — and only "explodes" when zoomed in
-// (FR-I17). The threshold is shared with parking so they pop in together.
+// Collapsed Adventure Labs (FR-I17): AL stages that overlap on screen collapse
+// into one pin (the same pixel-proximity logic the planned tour uses — see
+// ./pixel-cluster) and separate back into individual stages as the user zooms in.
+// Non-AL caches are never collapsed, so density/cluster patterns stay readable.
 const AL_ADVENTURES_SOURCE = "gctp-al-adventures";
 const AL_ADVENTURE_CIRCLE_LAYER = "gctp-al-adventure-circle";
 const AL_ADVENTURE_COUNT_LAYER = "gctp-al-adventure-count";
+/** Below this zoom an S{n} stage label / collapsed-pin count is illegible. */
+const AL_STAGE_LABEL_MINZOOM = PARKING_MIN_ZOOM;
+/** Zoom a collapsed-pin click jumps to, to separate its overlapping stages. */
 const AL_EXPLODE_ZOOM = PARKING_MIN_ZOOM;
 /** addImage id for the canvas-drawn solved checkmark badge. */
 const SOLVED_BADGE_ICON = "gctp-solved-check";
@@ -141,12 +144,16 @@ interface CacheProps {
   stageSequence: number;
   /** AL total stage count; 0 for non-AL. */
   stageTotal: number;
+  /** 1 when this AL stage is part of an on-screen overlap cluster (rendered as
+   *  the collapsed pin instead); 0 otherwise and for every non-AL cache. */
+  alHidden: number;
 }
 
-/** Props for a collapsed Adventure Lab pin (one per adventure, below AL_EXPLODE_ZOOM). */
+/** Props for a collapsed Adventure Lab pin (one per on-screen overlap cluster). */
 interface AlAdventureProps {
+  /** Representative adventure id (the cluster's first member); "" if absent. */
   adventureId: string;
-  /** Stage count present in the current pool (shown as the pin badge). */
+  /** Number of stages merged into this pin (shown as the badge). */
   count: number;
   /** 1 when any member stage is in the Cluster-Lab selection. */
   selected: number;
@@ -232,66 +239,7 @@ export function CachesLayer({
     // query data winning on id collisions (it carries the full live fields).
     const caches = mergeCachesById(query.data?.caches, extraCaches) ?? [];
 
-    const cachesFeatures = caches.map<
-      GeoJSON.Feature<GeoJSON.Point, CacheProps>
-    >((c) => ({
-      type: "Feature",
-      id: c.id,
-      geometry: c.location,
-      properties: {
-        id: c.id,
-        code: c.code,
-        name: c.name,
-        type: c.type,
-        color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
-        foundByMe: c.foundByMe ? 1 : 0,
-        selected: selectedCacheIds?.has(c.id) ? 1 : 0,
-        disabled: c.disabled ? 1 : 0,
-        solved: c.solved ? 1 : 0,
-        stageCount: c.stageCount,
-        adventureId: c.adventureId ?? null,
-        stageSequence: c.stageSequence ?? 0,
-        stageTotal: c.stageTotal ?? 0,
-      },
-    }));
-
-    // Collapsed Adventure Lab pins (FR-I17): one feature per adventure at the
-    // centroid of its stages, shown only below AL_EXPLODE_ZOOM. `selected` is 1
-    // when any member stage is in the Cluster-Lab selection; `memberIds` lets a
-    // modifier-click toggle the whole adventure at once.
-    const advGroups = new Map<string, CacheSummaryDTO[]>();
-    for (const c of caches) {
-      if (c.type === "Adventure Lab" && c.adventureId) {
-        const arr = advGroups.get(c.adventureId);
-        if (arr) arr.push(c);
-        else advGroups.set(c.adventureId, [c]);
-      }
-    }
-    const adventureFeatures = [...advGroups.values()].map<
-      GeoJSON.Feature<GeoJSON.Point, AlAdventureProps>
-    >((members) => {
-      let sumLng = 0;
-      let sumLat = 0;
-      for (const m of members) {
-        sumLng += m.location.coordinates[0]!;
-        sumLat += m.location.coordinates[1]!;
-      }
-      return {
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [sumLng / members.length, sumLat / members.length],
-        },
-        properties: {
-          adventureId: members[0]!.adventureId!,
-          count: members.length,
-          selected: members.some((m) => selectedCacheIds?.has(m.id)) ? 1 : 0,
-          memberIds: members.map((m) => m.id).join(","),
-          color: TYPE_COLORS["Adventure Lab"],
-        },
-      };
-    });
-
+    // Parking waypoints (static; not zoom-dependent).
     const parkingFeatures: GeoJSON.Feature<
       GeoJSON.Point,
       { cacheCode: string; cacheId: number }
@@ -305,32 +253,40 @@ export function CachesLayer({
         });
       }
     }
-
-    upsertGeoJsonSource(map, CACHES_SOURCE, cachesFeatures);
-    upsertGeoJsonSource(map, AL_ADVENTURES_SOURCE, adventureFeatures);
     upsertGeoJsonSource(map, PARKING_SOURCE, parkingFeatures);
+    // The cache + collapsed-AL sources are (re)populated by renderCaches() below
+    // — it recomputes the AL pixel-collapse for the current zoom. Seed them empty
+    // so the layers can attach before the first render.
+    if (!map.getSource(CACHES_SOURCE))
+      upsertGeoJsonSource(map, CACHES_SOURCE, []);
+    if (!map.getSource(AL_ADVENTURES_SOURCE))
+      upsertGeoJsonSource(map, AL_ADVENTURES_SOURCE, []);
 
     if (!map.getLayer(CACHES_CIRCLE_LAYER)) {
       map.addLayer({
         id: CACHES_CIRCLE_LAYER,
         type: "circle",
         source: CACHES_SOURCE,
-        // Non-AL caches only; Adventure Lab stages render via the collapsed pin
-        // below AL_EXPLODE_ZOOM and CACHES_AL_CIRCLE_LAYER at/above it (FR-I17).
+        // Non-AL caches only; Adventure Lab stages render via CACHES_AL_CIRCLE_LAYER
+        // (un-collapsed stages) or the collapsed AL pin (FR-I17).
         filter: ["==", ["get", "stageSequence"], 0],
         paint: CACHE_CIRCLE_PAINT,
       });
     }
-    // Individual Adventure Lab stage circles — only once zoomed past
-    // AL_EXPLODE_ZOOM, where they no longer overlap into a blob. Same paint as
-    // regular caches (purple via the `color` prop).
+    // Individual Adventure Lab stage circles. `alHidden` is set per-render by
+    // renderCaches() for stages that are part of an on-screen overlap cluster
+    // (shown as the collapsed pin instead); the rest render like regular caches
+    // (purple via the `color` prop) and separate out as the user zooms in.
     if (!map.getLayer(CACHES_AL_CIRCLE_LAYER)) {
       map.addLayer({
         id: CACHES_AL_CIRCLE_LAYER,
         type: "circle",
         source: CACHES_SOURCE,
-        minzoom: AL_EXPLODE_ZOOM,
-        filter: [">", ["get", "stageSequence"], 0],
+        filter: [
+          "all",
+          [">", ["get", "stageSequence"], 0],
+          ["==", ["get", "alHidden"], 0],
+        ],
         paint: CACHE_CIRCLE_PAINT,
       });
     }
@@ -344,7 +300,12 @@ export function CachesLayer({
         type: "symbol",
         source: CACHES_SOURCE,
         minzoom: 11,
-        filter: ["==", ["get", "disabled"], 1],
+        // Skip AL stages collapsed into a pin (their circle is hidden).
+        filter: [
+          "all",
+          ["==", ["get", "disabled"], 1],
+          ["!=", ["get", "alHidden"], 1],
+        ],
         layout: {
           "text-field": "Z",
           "text-font": ["Noto Sans Bold"],
@@ -374,7 +335,11 @@ export function CachesLayer({
         id: CACHES_SOLVED_BADGE_LAYER,
         type: "symbol",
         source: CACHES_SOURCE,
-        filter: ["==", ["get", "solved"], 1],
+        filter: [
+          "all",
+          ["==", ["get", "solved"], 1],
+          ["!=", ["get", "alHidden"], 1],
+        ],
         layout: {
           "icon-image": SOLVED_BADGE_ICON,
           // upper-right of the marker; offset is in the 24px icon space and
@@ -396,10 +361,14 @@ export function CachesLayer({
         id: CACHES_AL_STAGE_LABEL_LAYER,
         type: "symbol",
         source: CACHES_SOURCE,
-        // Stages (and their S{n} labels) only appear once the adventure has
-        // exploded — below AL_EXPLODE_ZOOM there's a single collapsed pin.
-        minzoom: AL_EXPLODE_ZOOM,
-        filter: [">", ["get", "stageSequence"], 0],
+        // The S{n} label is only legible once zoomed in; keep a floor so it
+        // doesn't clutter at low zoom, and skip stages collapsed into a pin.
+        minzoom: AL_STAGE_LABEL_MINZOOM,
+        filter: [
+          "all",
+          [">", ["get", "stageSequence"], 0],
+          ["==", ["get", "alHidden"], 0],
+        ],
         layout: {
           "text-field": [
             "concat",
@@ -419,18 +388,19 @@ export function CachesLayer({
         },
       });
     }
-    // Collapsed Adventure Lab pin — one purple disc per adventure, shown only
-    // below AL_EXPLODE_ZOOM (the stages take over above it). A red ring marks an
-    // adventure with any selected stage (mirrors SELECTED_LAYER).
+    // Collapsed Adventure Lab pin — one purple disc per on-screen overlap
+    // cluster of stages (populated by renderCaches). A red ring marks a cluster
+    // with any selected stage (mirrors SELECTED_LAYER).
     if (!map.getLayer(AL_ADVENTURE_CIRCLE_LAYER)) {
       map.addLayer({
         id: AL_ADVENTURE_CIRCLE_LAYER,
         type: "circle",
         source: AL_ADVENTURES_SOURCE,
-        maxzoom: AL_EXPLODE_ZOOM,
         paint: {
-          // Slightly larger than a single cache so it reads as a group.
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 11, 9],
+          // Slightly SMALLER than a regular cache (which is z9→4, z14→9) so a
+          // collapsed adventure reads as "a cache, plus more behind it" rather
+          // than dominating the overview.
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 8],
           "circle-color": ["get", "color"],
           "circle-stroke-color": [
             "case",
@@ -454,11 +424,13 @@ export function CachesLayer({
         id: AL_ADVENTURE_COUNT_LAYER,
         type: "symbol",
         source: AL_ADVENTURES_SOURCE,
-        maxzoom: AL_EXPLODE_ZOOM,
+        // Only legible once the pin is big enough; below that the purple disc
+        // alone signals "Adventure Lab here".
+        minzoom: AL_STAGE_LABEL_MINZOOM,
         layout: {
           "text-field": ["to-string", ["get", "count"]],
           "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 9, 9, 11, 12],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 11],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-anchor": "center",
@@ -510,9 +482,9 @@ export function CachesLayer({
       });
     }
     // Halo ring for any cache shift-clicked into the Cluster Lab selection.
-    // Non-AL only — a selected AL stage is collapsed below AL_EXPLODE_ZOOM (its
-    // ring would float over a hidden circle), so it gets the dedicated
-    // minzoom-gated ring below, while the collapsed pin shows the ring meanwhile.
+    // Non-AL only — a selected AL stage that's collapsed into a pin would ring a
+    // hidden circle, so AL gets the dedicated `alHidden`-gated ring below, while
+    // the collapsed pin shows its own ring when any member is selected.
     if (!map.getLayer(SELECTED_LAYER)) {
       map.addLayer({
         id: SELECTED_LAYER,
@@ -531,17 +503,18 @@ export function CachesLayer({
         },
       });
     }
-    // Selection ring for individual AL stages — only once exploded.
+    // Selection ring for individual (un-collapsed) AL stages. Collapsed ones
+    // show their selection via the pin's ring instead.
     if (!map.getLayer(SELECTED_AL_STAGE_LAYER)) {
       map.addLayer({
         id: SELECTED_AL_STAGE_LAYER,
         type: "circle",
         source: CACHES_SOURCE,
-        minzoom: AL_EXPLODE_ZOOM,
         filter: [
           "all",
           ["==", ["get", "selected"], 1],
           [">", ["get", "stageSequence"], 0],
+          ["==", ["get", "alHidden"], 0],
         ],
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 8, 14, 14],
@@ -552,14 +525,79 @@ export function CachesLayer({
       });
     }
 
-    // Some MapLibre builds don't schedule a redraw after addLayer + setData on
-    // an otherwise-idle map, so a fresh result (or the first render after the
-    // style loads) can leave markers unpainted until the next interaction —
-    // the "caches only appear after I click the map" symptom. Force a repaint,
-    // matching TourLayer / MapView.
-    map.triggerRepaint();
+    // Build the cache features for the current zoom and (re)populate the sources.
+    // Adventure Lab stages that overlap on screen collapse into one pin (the same
+    // pixel-proximity logic the planned tour uses); non-AL caches are NEVER
+    // collapsed, so density/cluster patterns stay readable. Recomputed on zoom so
+    // overlapping stages separate as you zoom in. Non-AL never sets alHidden.
+    const renderCaches = (): void => {
+      const alClusters = clusterByPixelProximity(
+        caches
+          .filter((c) => c.type === "Adventure Lab")
+          .map((c) => ({
+            lng: c.location.coordinates[0]!,
+            lat: c.location.coordinates[1]!,
+            item: c,
+          })),
+        (lngLat) => map.project(lngLat),
+        OVERLAP_PX,
+      );
+      const hidden = new Set<number>();
+      const adventureFeatures: GeoJSON.Feature<
+        GeoJSON.Point,
+        AlAdventureProps
+      >[] = [];
+      for (const { members, center } of alClusters) {
+        if (members.length < 2) continue; // a lone stage renders individually
+        for (const m of members) hidden.add(m.id);
+        adventureFeatures.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: center },
+          properties: {
+            adventureId: members[0]!.adventureId ?? "",
+            count: members.length,
+            selected: members.some((m) => selectedCacheIds?.has(m.id)) ? 1 : 0,
+            memberIds: members.map((m) => m.id).join(","),
+            color: TYPE_COLORS["Adventure Lab"],
+          },
+        });
+      }
+      const cachesFeatures = caches.map<
+        GeoJSON.Feature<GeoJSON.Point, CacheProps>
+      >((c) => ({
+        type: "Feature",
+        id: c.id,
+        geometry: c.location,
+        properties: {
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          type: c.type,
+          color: TYPE_COLORS[c.type] ?? TYPE_COLORS.Other,
+          foundByMe: c.foundByMe ? 1 : 0,
+          selected: selectedCacheIds?.has(c.id) ? 1 : 0,
+          disabled: c.disabled ? 1 : 0,
+          solved: c.solved ? 1 : 0,
+          stageCount: c.stageCount,
+          adventureId: c.adventureId ?? null,
+          stageSequence: c.stageSequence ?? 0,
+          stageTotal: c.stageTotal ?? 0,
+          alHidden: hidden.has(c.id) ? 1 : 0,
+        },
+      }));
+      upsertGeoJsonSource(map, CACHES_SOURCE, cachesFeatures);
+      upsertGeoJsonSource(map, AL_ADVENTURES_SOURCE, adventureFeatures);
+      // Some MapLibre builds don't schedule a redraw after setData on an
+      // otherwise-idle map (the "caches only appear after I click" symptom).
+      map.triggerRepaint();
+    };
 
-    return undefined;
+    renderCaches();
+    // Recompute the AL collapse after a zoom settles (cheap; AL subset only).
+    map.on("zoomend", renderCaches);
+    return () => {
+      map.off("zoomend", renderCaches);
+    };
   }, [map, ready, query.data, extraCaches, selectedCacheIds]);
 
   // Click handler — bound once. Reads from current source data, not the
