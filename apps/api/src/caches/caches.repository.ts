@@ -652,6 +652,28 @@ export class CachesRepository {
   }
 
   /**
+   * FR-I17 backfill: same as {@link setAdventureIdIfMissing} but matched by cache
+   * `id` — used when the stored stage's `code` doesn't match the fresh Lab2Gpx
+   * fetch (a different code scheme) and we resolved its id by coordinate instead.
+   */
+  async setAdventureIdByIdIfMissing(
+    userId: string,
+    id: number,
+    adventureId: string,
+  ): Promise<number> {
+    const res = await this.db
+      .updateTable("caches")
+      .set({ adventure_id: adventureId })
+      .where("owner_id", "=", userId)
+      .where("id", "=", id)
+      .where((eb) =>
+        eb.or([eb("adventure_id", "is", null), eb("adventure_id", "=", "")]),
+      )
+      .executeTakeFirst();
+    return Number(res.numUpdatedRows ?? 0n);
+  }
+
+  /**
    * Pass 1 sparse-matrix support: for each origin cache id, return its
    * `k` Haversine-nearest neighbours within `radiusM`, owned by the same user.
    *

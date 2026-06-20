@@ -3,6 +3,7 @@
 
 /** An Adventure Lab stage that's missing its `adventure_id` (FR-I17 backfill). */
 export interface MissingIdStage {
+  id: number;
   code: string;
   name: string;
   lng: number;
@@ -17,8 +18,8 @@ export interface BackfillGroup {
   center: [number, number];
   /** Fetch radius (m): the farthest stage from the centre, plus a buffer. */
   radiusM: number;
-  /** LC codes of the member stages — the match key against the fresh GPX. */
-  codes: string[];
+  /** The member stages — matched against the fresh GPX by code, then coordinate. */
+  members: MissingIdStage[];
 }
 
 /** Default extra radius (m) beyond the farthest stage, so the re-fetch isn't tight. */
@@ -29,6 +30,15 @@ const MIN_RADIUS_M = 800;
 /** Strip the `: S{n} …` stage suffix to recover the shared adventure title. */
 export function adventureTitleOf(name: string): string {
   return name.replace(/\s*:\s*S\d+\b.*$/i, "").trim();
+}
+
+/**
+ * Round a coordinate to a ~1 m grid key for matching a stored stage against the
+ * fresh Lab2Gpx fetch when their `code`s differ (the same stage imported under
+ * two code schemes). Both sets come from Lab2Gpx, so 5 decimals align.
+ */
+export function coordKey(lng: number, lat: number): string {
+  return `${lng.toFixed(5)},${lat.toFixed(5)}`;
 }
 
 function haversineMeters(
@@ -84,7 +94,7 @@ export function groupStagesForBackfill(
       title,
       center,
       radiusM: Math.max(MIN_RADIUS_M, Math.ceil(maxDist) + RADIUS_BUFFER_M),
-      codes: members.map((m) => m.code),
+      members,
     });
   }
   return groups;

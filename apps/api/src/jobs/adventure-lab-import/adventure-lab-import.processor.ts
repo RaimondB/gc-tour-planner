@@ -8,7 +8,7 @@ import type { Job } from "bullmq";
 import { CachesRepository } from "../../caches/caches.repository.js";
 import { QUEUE_ADVENTURE_LAB_IMPORT } from "../../queues/queue.tokens.js";
 import { AdventureLabEnricher } from "../../sources/adventure-lab/al-enricher.service.js";
-import { groupStagesForBackfill } from "./adventure-lab-backfill.js";
+import { coordKey, groupStagesForBackfill } from "./adventure-lab-backfill.js";
 import type {
   AdventureLabBackfillJobData,
   AdventureLabBackfillJobResult,
@@ -105,25 +105,29 @@ export class AdventureLabImportProcessor extends WorkerHost {
         continue;
       }
       if (!gpx) continue;
-      let idByCode: Map<string, string>;
+      // Index the fresh stages by both code and coordinate. Code is the primary
+      // key; coordinate is the fallback for stages stored under a different code
+      // scheme (the hyphenated "LC…-1" legacy import) than the current fetch.
+      const byCode = new Map<string, string>();
+      const byCoord = new Map<string, string>();
       try {
-        idByCode = new Map(
-          parseGpx(gpx)
-            .caches.filter((c) => c.adventureId)
-            .map((c) => [c.code, c.adventureId!]),
-        );
+        for (const c of parseGpx(gpx).caches) {
+          if (!c.adventureId) continue;
+          byCode.set(c.code, c.adventureId);
+          byCoord.set(coordKey(c.location[0], c.location[1]), c.adventureId);
+        }
       } catch (err) {
         this.logger.warn(
           `backfill: GPX parse failed for "${g.title}": ${(err as Error).message}`,
         );
         continue;
       }
-      for (const code of g.codes) {
-        const advId = idByCode.get(code);
+      for (const m of g.members) {
+        const advId = byCode.get(m.code) ?? byCoord.get(coordKey(m.lng, m.lat));
         if (advId)
-          fixed += await this.cachesRepo.setAdventureIdIfMissing(
+          fixed += await this.cachesRepo.setAdventureIdByIdIfMissing(
             ownerId,
-            code,
+            m.id,
             advId,
           );
       }
