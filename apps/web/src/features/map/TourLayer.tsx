@@ -32,6 +32,21 @@ const OFFSET_PX: [number, number] = [14, -14];
 const STOP_SOURCE = "gctp-tour-stops";
 const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
 const STOP_LABEL_LAYER = "gctp-tour-stops-label";
+// Collapsed-stop overlay: stops whose markers overlap on screen at the current
+// zoom merge into one "stacked" node (shadow + disc + range/count label) until
+// the user zooms in far enough that they separate. Pixel-based (recomputed on
+// zoom), so truly-coincident stops stay merged at every zoom while merely-near
+// ones pop apart as you zoom. Mirrors the parking-collision pattern below.
+const STOP_COLLAPSED_SOURCE = "gctp-tour-stops-collapsed";
+const STOP_COLLAPSED_SHADOW_LAYER = "gctp-tour-stops-collapsed-shadow";
+const STOP_COLLAPSED_CIRCLE_LAYER = "gctp-tour-stops-collapsed-circle";
+const STOP_COLLAPSED_LABEL_LAYER = "gctp-tour-stops-collapsed-label";
+/** Centre-to-centre screen distance under which two ~12px-radius stops overlap. */
+const COLLAPSE_PX = 20;
+/** Adventure Lab stop colour (matches CachesLayer's TYPE_COLORS["Adventure Lab"]). */
+const AL_STOP_COLOR = "#7b1fa2";
+/** Default routed-stop colour. */
+const STOP_COLOR = "#d84315";
 /**
  * FR-SF5: small "T" badge rendered on the upper-right of a stop
  * circle when the cache needs equipment (`hasToolRequirement` true).
@@ -157,35 +172,12 @@ export function TourLayer({
         }
       : { type: "FeatureCollection", features: [] };
 
-    // Numbered visit-order stops. Look up each ordered cache's coordinates
-    // from the caches list (same array CachesLayer paints) — without this
-    // we'd need a separate fetch just to get coordinates the page already
-    // has. If `caches` hasn't loaded yet we render an empty FC and the
-    // layer simply has nothing to draw.
+    // Numbered visit-order stops are built + grouped (co-located collapse) in
+    // the zoom-reactive effect below; here we just ensure the two stop sources
+    // exist so the layers can attach. Look up coordinates from the caches list
+    // (same array CachesLayer paints) — no separate fetch needed.
     const cacheById = new Map<number, CacheSummaryDTO>();
     for (const c of caches ?? []) cacheById.set(c.id, c);
-    const stopsFc: GeoJSON.FeatureCollection = result
-      ? {
-          type: "FeatureCollection",
-          features: result.orderedCacheIds
-            .map<GeoJSON.Feature | null>((id, i) => {
-              const cache = cacheById.get(id);
-              if (!cache) return null;
-              return {
-                type: "Feature",
-                geometry: cache.location,
-                properties: {
-                  order: i + 1,
-                  code: cache.code,
-                  // FR-SF5 0/1 flag drives the STOP_TOOL_LAYER filter.
-                  // `requiresTool` is computed server-side (= hasToolRequirement).
-                  hasTool: cache.requiresTool ? 1 : 0,
-                },
-              };
-            })
-            .filter((f): f is GeoJSON.Feature => f !== null),
-        }
-      : { type: "FeatureCollection", features: [] };
 
     // Dropped-by-trim caches. The planner's marginal-cost trim
     // intentionally skips caches whose inclusion would force a long
@@ -218,7 +210,18 @@ export function TourLayer({
       type: "FeatureCollection",
       features: [],
     });
-    upsertGeoJsonSource(map, STOP_SOURCE, stopsFc);
+    // Seed empty; the collapse effect populates STOP_SOURCE (singletons) and
+    // STOP_COLLAPSED_SOURCE (merged groups) based on the current zoom.
+    if (!map.getSource(STOP_SOURCE))
+      upsertGeoJsonSource(map, STOP_SOURCE, {
+        type: "FeatureCollection",
+        features: [],
+      });
+    if (!map.getSource(STOP_COLLAPSED_SOURCE))
+      upsertGeoJsonSource(map, STOP_COLLAPSED_SOURCE, {
+        type: "FeatureCollection",
+        features: [],
+      });
     upsertGeoJsonSource(map, DROPPED_SOURCE, droppedFc);
 
     // Each layer is wrapped so a single MapLibre throw (font/glyph not
@@ -356,7 +359,9 @@ export function TourLayer({
       source: STOP_SOURCE,
       paint: {
         "circle-radius": 12,
-        "circle-color": "#d84315",
+        // Adventure Lab stops render purple to flag their type; everything
+        // else keeps the routed-stop red. Colour rides on the feature prop.
+        "circle-color": ["get", "color"],
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2,
       },
@@ -399,6 +404,47 @@ export function TourLayer({
         "text-color": "#ffffff",
         "text-halo-color": "#1b5e20",
         "text-halo-width": 2,
+      },
+    });
+    // Collapsed stop node — drawn when several stops overlap on screen. A
+    // translucent offset "shadow" disc behind the main disc gives a stacked
+    // look (the visual indication that it's a group), and the label shows the
+    // covered stop range (e.g. "3–7") or "×N" when non-contiguous.
+    addLayerSafe(STOP_COLLAPSED_SHADOW_LAYER, {
+      id: STOP_COLLAPSED_SHADOW_LAYER,
+      type: "circle",
+      source: STOP_COLLAPSED_SOURCE,
+      paint: {
+        "circle-radius": 13,
+        "circle-color": ["get", "color"],
+        "circle-opacity": 0.45,
+        "circle-translate": [4, 4],
+      },
+    });
+    addLayerSafe(STOP_COLLAPSED_CIRCLE_LAYER, {
+      id: STOP_COLLAPSED_CIRCLE_LAYER,
+      type: "circle",
+      source: STOP_COLLAPSED_SOURCE,
+      paint: {
+        "circle-radius": 14,
+        "circle-color": ["get", "color"],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 2,
+      },
+    });
+    addLayerSafe(STOP_COLLAPSED_LABEL_LAYER, {
+      id: STOP_COLLAPSED_LABEL_LAYER,
+      type: "symbol",
+      source: STOP_COLLAPSED_SOURCE,
+      layout: {
+        "text-field": ["get", "label"],
+        "text-font": SYMBOL_FONT,
+        "text-size": 12,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
       },
     });
     // Trimmed-by-planner caches. Gray fill with a bright stroke
@@ -463,6 +509,125 @@ export function TourLayer({
     // plan response lands.
     map.triggerRepaint();
   }, [map, ready, result, caches, editMode, legPicks, selectedLegIndex]);
+
+  // Co-located stop collapse. Stops whose markers overlap on screen at the
+  // current zoom merge into a single stacked node; they pop apart as the user
+  // zooms in (recomputed on every zoom). Pixel-based so truly-coincident stops
+  // (e.g. an adventure's stages at one spot) stay merged at every zoom, while
+  // merely-near stops separate. Numbered singletons live in STOP_SOURCE;
+  // merged groups in STOP_COLLAPSED_SOURCE.
+  useEffect(() => {
+    if (!ready) return;
+    const byId = new Map<number, CacheSummaryDTO>();
+    for (const c of caches ?? []) byId.set(c.id, c);
+    interface Stop {
+      order: number;
+      code: string;
+      hasTool: number;
+      isAL: boolean;
+      color: string;
+      coord: [number, number];
+    }
+    const stops: Stop[] = result
+      ? result.orderedCacheIds
+          .map<Stop | null>((id, i) => {
+            const cache = byId.get(id);
+            if (!cache) return null;
+            const isAL = cache.type === "Adventure Lab";
+            return {
+              order: i + 1,
+              code: cache.code,
+              hasTool: cache.requiresTool ? 1 : 0,
+              isAL,
+              color: isAL ? AL_STOP_COLOR : STOP_COLOR,
+              coord: cache.location.coordinates as [number, number],
+            };
+          })
+          .filter((s): s is Stop => s !== null)
+      : [];
+
+    const setData = (id: string, features: GeoJSON.Feature[]): void => {
+      const src = map.getSource(id);
+      if (src && "setData" in src)
+        (src as maplibregl.GeoJSONSource).setData({
+          type: "FeatureCollection",
+          features,
+        });
+    };
+
+    const recompute = (): void => {
+      if (stops.length === 0) {
+        setData(STOP_SOURCE, []);
+        setData(STOP_COLLAPSED_SOURCE, []);
+        return;
+      }
+      const px = stops.map((s) => map.project(s.coord));
+      const used = new Array<boolean>(stops.length).fill(false);
+      const singles: GeoJSON.Feature[] = [];
+      const groups: GeoJSON.Feature[] = [];
+      for (let i = 0; i < stops.length; i += 1) {
+        if (used[i]) continue;
+        const members = [i];
+        used[i] = true;
+        for (let j = i + 1; j < stops.length; j += 1) {
+          if (used[j]) continue;
+          if (
+            Math.hypot(px[i]!.x - px[j]!.x, px[i]!.y - px[j]!.y) <= COLLAPSE_PX
+          ) {
+            members.push(j);
+            used[j] = true;
+          }
+        }
+        if (members.length === 1) {
+          const s = stops[i]!;
+          singles.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: s.coord },
+            properties: {
+              order: s.order,
+              code: s.code,
+              hasTool: s.hasTool,
+              color: s.color,
+            },
+          });
+        } else {
+          const ms = members.map((k) => stops[k]!);
+          let lng = 0;
+          let lat = 0;
+          for (const m of ms) {
+            lng += m.coord[0];
+            lat += m.coord[1];
+          }
+          const orders = ms.map((m) => m.order).sort((a, b) => a - b);
+          const min = orders[0]!;
+          const max = orders[orders.length - 1]!;
+          const contiguous = max - min + 1 === orders.length;
+          groups.push({
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [lng / ms.length, lat / ms.length],
+            },
+            properties: {
+              count: ms.length,
+              // Contiguous run → "3–7"; otherwise a plain count "×4".
+              label: contiguous ? `${min}–${max}` : `×${ms.length}`,
+              color: ms.every((m) => m.isAL) ? AL_STOP_COLOR : STOP_COLOR,
+            },
+          });
+        }
+      }
+      setData(STOP_SOURCE, singles);
+      setData(STOP_COLLAPSED_SOURCE, groups);
+      map.triggerRepaint();
+    };
+
+    recompute();
+    map.on("zoom", recompute);
+    return () => {
+      map.off("zoom", recompute);
+    };
+  }, [map, ready, result, caches]);
 
   // Keep the parking "P" marker legible when it sits on top of a stop: offset
   // it a few pixels and draw a short leader line back to its true location.
