@@ -601,6 +601,35 @@ export class CachesRepository {
   }
 
   /**
+   * FR-I17 dedup: remove duplicate Adventure Lab stage rows for one owner — the
+   * same adventure imported under two Lab2Gpx code schemes (separator vs not)
+   * leaves two rows per `(adventure_id, stage_sequence)`. Keep one (prefer the
+   * non-hyphenated code = the enricher's current scheme, then lowest id). Mirror
+   * of migration 1784 but owner-scoped, run at the end of the backfill so the
+   * stages whose `adventure_id` it just filled get deduped too. FKs cascade.
+   * Returns the number of rows deleted.
+   */
+  async dedupAdventureStages(userId: string): Promise<number> {
+    const res = await sql`
+      DELETE FROM caches c
+      USING (
+        SELECT id,
+               row_number() OVER (
+                 PARTITION BY owner_id, adventure_id, stage_sequence
+                 ORDER BY (code ~ '-[0-9]+$') ASC, id ASC
+               ) AS rn
+        FROM caches
+        WHERE owner_id = ${userId}
+          AND type = 'Adventure Lab'
+          AND adventure_id IS NOT NULL AND adventure_id <> ''
+          AND stage_sequence IS NOT NULL
+      ) dup
+      WHERE c.id = dup.id AND dup.rn > 1
+    `.execute(this.db);
+    return Number(res.numAffectedRows ?? 0n);
+  }
+
+  /**
    * FR-I17 backfill: set `adventure_id` on a cache only when it's currently
    * missing, matched by owner + LC `code`. Returns the number of rows updated
    * (0 or 1), so a re-fetch that doesn't resolve a code is a safe no-op.

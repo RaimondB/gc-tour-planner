@@ -80,7 +80,12 @@ export class AdventureLabImportProcessor extends WorkerHost {
       this.logger.warn(
         "adventure_id backfill skipped — Adventure Lab enrichment disabled.",
       );
-      return { adventuresTargeted: 0, stagesFixed: 0, stagesRemaining: 0 };
+      return {
+        adventuresTargeted: 0,
+        stagesFixed: 0,
+        dupesRemoved: 0,
+        stagesRemaining: 0,
+      };
     }
     const affected =
       await this.cachesRepo.findAlStagesMissingAdventureId(ownerId);
@@ -123,16 +128,21 @@ export class AdventureLabImportProcessor extends WorkerHost {
           );
       }
     }
+    // Filling adventure_id can expose duplicates (the same adventure imported
+    // under two code schemes) that were invisible while the id was null — dedup
+    // them now so the freshly-grouped adventures don't show double their stages.
+    const dupesRemoved = await this.cachesRepo.dedupAdventureStages(ownerId);
     const stagesRemaining = (
       await this.cachesRepo.findAlStagesMissingAdventureId(ownerId)
     ).length;
     this.logger.log(
       `adventure_id backfill (owner=${ownerId}): ${groups.length} adventure(s) targeted, ` +
-        `${fixed} stage(s) fixed, ${stagesRemaining} still missing`,
+        `${fixed} stage(s) fixed, ${dupesRemoved} duplicate(s) removed, ${stagesRemaining} still missing`,
     );
     return {
       adventuresTargeted: groups.length,
       stagesFixed: fixed,
+      dupesRemoved,
       stagesRemaining,
     };
   }

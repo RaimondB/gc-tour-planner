@@ -155,18 +155,29 @@ function extractStageInfo(wpt: GpxWpt): {
 }
 
 /**
- * Parse the Adventure Lab deep-link GUID out of a stage `<wpt>`'s `<url>`.
- * Lab2Gpx emits `<url>https://labs.geocaching.com/goto/<guid></url>` per stage;
- * the GUID is what the `/goto/` endpoint resolves (the AL API's adventure Id does
- * NOT). Returns null for any other URL (e.g. a normal PQ's geocaching.com listing
- * link), so ordinary caches are unaffected.
+ * Parse the Adventure Lab deep-link id out of a stage `<wpt>`'s `<url>`.
+ * Lab2Gpx emits `<url>https://labs.geocaching.com/goto/<id></url>` per stage,
+ * where `<id>` is the value the `/goto/` endpoint resolves — either a GUID
+ * (`…/goto/0f5c…`) or a human slug the adventure owner set
+ * (`…/goto/MooieMonumenten`). Both forms are identical across an adventure's
+ * stages, so either groups them correctly, and `goto/<id>` is a working deep
+ * link in both cases. We grab the whole path segment rather than insisting on a
+ * GUID — older imports whose adventures use a slug were silently left without an
+ * id otherwise. Canonical GUIDs are lower-cased (Lab2Gpx already emits them so);
+ * a slug keeps its original case so the deep link still resolves. Returns null
+ * for any non-AL URL (e.g. a normal PQ listing link), so ordinary caches are
+ * unaffected.
  */
 function extractAdventureId(url: string | null): string | null {
   if (!url) return null;
-  const m = url.match(
-    /labs\.geocaching\.com\/goto\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
-  );
-  return m?.[1] ? m[1].toLowerCase() : null;
+  const m = url.match(/labs\.geocaching\.com\/goto\/([^\s/?#<>"']+)/i);
+  const seg = m?.[1];
+  if (!seg) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    seg,
+  )
+    ? seg.toLowerCase()
+    : seg;
 }
 
 interface GroundspeakCache {

@@ -29,6 +29,8 @@ export interface AdventureLabBackfillJobResult {
   adventuresTargeted: number;
   /** Stages whose `adventure_id` was filled. */
   stagesFixed: number;
+  /** Duplicate stage rows removed after filling (same code imported twice). */
+  dupesRemoved: number;
   /** Stages still missing an `adventure_id` after the run (no Lab2Gpx match). */
   stagesRemaining: number;
 }

@@ -248,6 +248,36 @@ describe("parseGpx", () => {
     expect(s1?.stageTotal).toBe(5);
   });
 
+  it("extracts a slug-form goto deep-link as the adventureId (not just GUIDs)", () => {
+    // Some adventures' goto link is a human slug, not a GUID
+    // (…/goto/MooieMonumenten). It's still shared across stages, so it groups
+    // them; the GUID-only parser used to drop it, leaving these ungroupable.
+    const stage = (n: number) => `
+        <wpt lat="52.0" lon="5.00${n}">
+          <name>LCSLUG${n}</name>
+          <url>https://labs.geocaching.com/goto/MooieMonumenten</url>
+          <urlname>S${n} Stage ${n}</urlname>
+          <lab2gpx:adventureLab xmlns:lab2gpx="https://lab2gpx.gcutils.de/ns/lab2gpx/1">
+            <lab2gpx:stagesTotal>5</lab2gpx:stagesTotal>
+          </lab2gpx:adventureLab>
+          <groundspeak:cache id="${n}" available="True" archived="False">
+            <groundspeak:name>Mooie Mo(nu)menten : S${n} Stage ${n}</groundspeak:name>
+            <groundspeak:type>Lab Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>`;
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        ${stage(1)}${stage(2)}
+      </gpx>`;
+    const caches = parseGpx(xml).caches;
+    const s1 = caches.find((c) => c.code === "LCSLUG1");
+    const s2 = caches.find((c) => c.code === "LCSLUG2");
+    // Slug preserved (original case) and shared across stages → groups them.
+    expect(s1?.adventureId).toBe("MooieMonumenten");
+    expect(s2?.adventureId).toBe("MooieMonumenten");
+  });
+
   it("leaves adventureId null for ordinary caches (geocaching.com <url> is not a goto link)", () => {
     const xml = `<?xml version="1.0"?>
       <gpx xmlns="http://www.topografix.com/GPX/1/0"

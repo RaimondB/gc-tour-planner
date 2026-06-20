@@ -200,4 +200,34 @@ describe("CachesRepository.findAdventureStages (FR-I16)", () => {
     const stillMissing = await repo.findAlStagesMissingAdventureId(ownerId);
     expect(stillMissing.some((m) => m.code === "MISS-1")).toBe(false);
   });
+
+  it("dedupAdventureStages removes the duplicate row, keeping the non-hyphenated code", async () => {
+    // Same logical stage imported under two code schemes (separator vs not).
+    const keep = await seedStage({
+      owner: ownerId,
+      code: "LCDUP1",
+      adventureId: "ADV-DUP",
+      stageSequence: 1,
+    });
+    await seedStage({
+      owner: ownerId,
+      code: "LCDUP-1", // hyphenated twin — should be removed
+      adventureId: "ADV-DUP",
+      stageSequence: 1,
+    });
+    // A non-duplicated stage of the same adventure must survive untouched.
+    const solo = await seedStage({
+      owner: ownerId,
+      code: "LCDUP2",
+      adventureId: "ADV-DUP",
+      stageSequence: 2,
+    });
+
+    const removed = await repo.dedupAdventureStages(ownerId);
+    expect(removed).toBe(1);
+
+    const survivors = await repo.findAdventureStages(ownerId, ["ADV-DUP"]);
+    const ids = survivors.map((s) => s.id).sort((a, b) => a - b);
+    expect(ids).toEqual([keep, solo].sort((a, b) => a - b));
+  });
 });
