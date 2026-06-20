@@ -124,6 +124,18 @@ const CACHE_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
   ],
 };
 
+/**
+ * Adventure Lab circle paint — identical to {@link CACHE_CIRCLE_PAINT} but a
+ * touch smaller (z9→3, z14→8 vs the regular z9→4, z14→9). Used for BOTH the
+ * individual AL stage and the collapsed pin so AL markers are uniformly slightly
+ * smaller than a regular cache, and a collapsed pin never looks smaller than the
+ * single stages it stands in for.
+ */
+const AL_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
+  ...CACHE_CIRCLE_PAINT,
+  "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 8],
+};
+
 interface CacheProps {
   id: CacheDTO["id"];
   code: string;
@@ -287,7 +299,7 @@ export function CachesLayer({
           [">", ["get", "stageSequence"], 0],
           ["==", ["get", "alHidden"], 0],
         ],
-        paint: CACHE_CIRCLE_PAINT,
+        paint: AL_CIRCLE_PAINT,
       });
     }
     // "Z" overlay on disabled caches — matches the visual language
@@ -428,7 +440,8 @@ export function CachesLayer({
         // alone signals "Adventure Lab here".
         minzoom: AL_STAGE_LABEL_MINZOOM,
         layout: {
-          "text-field": ["to-string", ["get", "count"]],
+          // "×N" — matches the planned tour's collapsed-stop label.
+          "text-field": ["concat", "×", ["to-string", ["get", "count"]]],
           "text-font": ["Noto Sans Bold"],
           "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 11],
           "text-allow-overlap": true,
