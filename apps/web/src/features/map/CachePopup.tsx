@@ -4,7 +4,37 @@
 import { useState, type JSX } from "react";
 import { classifyMulti } from "@gctp/shared/caches";
 import type { CacheType } from "@gctp/shared/caches";
+import type { Tours } from "@gctp/shared";
 import { AttributeChips } from "../caches/AttributeChips.js";
+
+/**
+ * Human copy for why a cache was left out of the current tour. `null` when the
+ * cache is in the tour (no block rendered). The budget hint is only meaningful
+ * for `budget`/`outlier`, where `neededBudgetMeters` is set.
+ */
+function dropReasonCopy(
+  reason: Tours.DropReason,
+  neededBudgetMeters?: number | null,
+): string {
+  const bump =
+    neededBudgetMeters != null && neededBudgetMeters > 0
+      ? ` (raising your budget by ~${Math.round(neededBudgetMeters)} m would fit it)`
+      : "";
+  switch (reason) {
+    case "budget":
+      return `Skipped to stay within your distance budget${bump}.`;
+    case "outlier":
+      return `Skipped — a long detour on foot (behind a barrier)${bump}.`;
+    case "fringe":
+      return "Skipped — an out-and-back spur the route already passes nearby.";
+    case "unreachable":
+      return "Skipped — no walking route to the rest of the set.";
+    case "adventure-incomplete":
+      return "Skipped — part of an adventure that didn't fully fit (kept whole).";
+    case "candidate-cap":
+      return "Skipped — the adventure didn't fit the candidate cap for this tour.";
+  }
+}
 
 export interface CachePopupProps {
   code: string;
@@ -52,6 +82,15 @@ export interface CachePopupProps {
    * buttons disable and explain why. Defaults to true.
    */
   online?: boolean;
+  /**
+   * When this cache was dropped from the current tour, the reason — renders a
+   * muted "Skipped from this tour" block. Null/undefined for caches that are in
+   * the tour (the common case). The single popup shows cache details AND the
+   * drop reason, so the gray "×" marker needs no competing click handler.
+   */
+  dropReason?: Tours.DropReason | null;
+  /** Extra walking metres this cache adds — budget hint for `budget`/`outlier`. */
+  neededBudgetMeters?: number | null;
 }
 
 export function CachePopup({
@@ -72,6 +111,8 @@ export function CachePopup({
   onClearSolved,
   loadingDetail = false,
   online = true,
+  dropReason = null,
+  neededBudgetMeters = null,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [clearingSolved, setClearingSolved] = useState(false);
@@ -128,6 +169,11 @@ export function CachePopup({
         {foundByMe && <span className="cache-popup__found-pill">Found</span>}
         {solved && <span className="cache-popup__found-pill">Solved</span>}
       </div>
+      {dropReason && (
+        <div className="cache-popup__meta cache-popup__drop-reason">
+          {dropReasonCopy(dropReason, neededBudgetMeters)}
+        </div>
+      )}
       {solved && (
         <div className="cache-popup__meta cache-popup__meta--muted">
           Plotted at your solved coordinate.

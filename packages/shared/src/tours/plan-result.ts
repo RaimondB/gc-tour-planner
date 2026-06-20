@@ -84,6 +84,47 @@ export const PlanLeg = z.object({
 });
 export type PlanLeg = z.infer<typeof PlanLeg>;
 
+/**
+ * Why a cache that was in the planning candidate set isn't in the routed loop.
+ * Surfaced per-cache so the UI can answer "why was this removed?" on click.
+ *
+ *  - `budget`               — over the distance budget, or (solver) the solver
+ *                             chose not to visit it in the count-vs-length
+ *                             trade-off. Carries `neededBudgetMeters`.
+ *  - `outlier`              — behind-barrier detour dropped even within budget
+ *                             (marginal-trim outlier floor). Carries the marginal.
+ *  - `fringe`               — out-and-back spur the route already passes
+ *                             (greedy post-leg-pick overlap trim).
+ *  - `unreachable`          — OSRM has no foot route to the rest of the set
+ *                             (greedy `filterConnected`; solver sentinel parking legs).
+ *  - `adventure-incomplete` — solver AL-aware orphan trim: dropped to keep an
+ *                             Adventure Lab whole (FR-I16).
+ *  - `candidate-cap`        — a whole adventure / trailing cache cut BEFORE
+ *                             planning because the candidate set hit its cap
+ *                             (`AUGMENT_MAX_CACHES` / `MAX_LOOP_CACHES`).
+ */
+export const DropReason = z.enum([
+  "budget",
+  "outlier",
+  "fringe",
+  "unreachable",
+  "adventure-incomplete",
+  "candidate-cap",
+]);
+export type DropReason = z.infer<typeof DropReason>;
+
+export const DroppedCache = z.object({
+  id: z.number().int().positive(),
+  reason: DropReason,
+  /**
+   * For `budget`/`outlier`: the extra walking metres this cache adds to the
+   * loop. Lets the UI suggest "raise your budget by ~X to keep it". Absent for
+   * reasons where a budget bump wouldn't help (unreachable, candidate-cap, …).
+   */
+  neededBudgetMeters: z.number().nonnegative().optional(),
+});
+export type DroppedCache = z.infer<typeof DroppedCache>;
+
 export const PlanResult = z.object({
   orderedCacheIds: z.array(z.number().int().positive()),
   /**
@@ -93,8 +134,18 @@ export const PlanResult = z.object({
    * Empty when no cache was trimmed. Surfaced so the UI can show "skipped
    * for tour quality" alongside the routed loop, rather than silently
    * shrinking the cluster.
+   *
+   * Kept as a flat id list for back-compat (persisted in `StoredPlan` JSONB,
+   * read by `summarizeAdventureCompletion` and the dropped-marker source).
+   * The structured per-cache reasons live in `droppedCaches`; the two stay in
+   * lock-step (`droppedCacheIds === droppedCaches.map(d => d.id)`).
    */
   droppedCacheIds: z.array(z.number().int().positive()).default([]),
+  /**
+   * Per-cache drop reasons (FR — "why was this removed?"). Additive over
+   * `droppedCacheIds`; `.default([])` so old persisted plans keep parsing.
+   */
+  droppedCaches: z.array(DroppedCache).default([]),
   polyline: GeoJsonLineString,
   totals: PlanTotals,
   parking: ParkingChoice,

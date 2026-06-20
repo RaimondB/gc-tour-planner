@@ -120,23 +120,55 @@ export class ToursService {
 
     // Pull in any missing stages of adventures already in the selection so the
     // solver can keep them complete (FR-I16). Atomicity itself is enforced in the
-    // solver's constraints.
-    const cacheIds = await this.expandForCompleteAdventures(
+    // solver's constraints. Adventures that won't fit the candidate cap are
+    // skipped whole — their stage ids come back as `cappedStageIds` so we can
+    // surface them as `candidate-cap` drops rather than letting them vanish.
+    const { cacheIds, cappedStageIds } = await this.expandForCompleteAdventures(
       ownerId,
       input.cacheIds,
     );
     const solverInput: Tours.PlanLoopInput = { ...input, cacheIds };
+    let result: Tours.PlanResult;
     try {
-      return await this.solver.planLoop(ownerId, solverInput);
+      result = await this.solver.planLoop(ownerId, solverInput);
     } catch (err) {
       if (err instanceof ServiceUnavailableException) {
         this.logger.warn(
           `Solver unavailable (${err.message}); falling back to greedy for this plan.`,
         );
-        return this.greedy.planLoop(ownerId, solverInput);
+        result = await this.greedy.planLoop(ownerId, solverInput);
+      } else {
+        throw err;
       }
-      throw err;
     }
+    return this.withCandidateCapDrops(result, cappedStageIds);
+  }
+
+  /**
+   * Append the adventure stages that never reached the planner (skipped whole
+   * because they'd overflow the candidate cap) to a plan result as
+   * `candidate-cap` drops. Additive + back-compat: a result without
+   * `droppedCaches` (shouldn't happen post-FR) still merges cleanly. Keeps
+   * `droppedCacheIds` and `droppedCaches` in lock-step.
+   */
+  private withCandidateCapDrops(
+    result: Tours.PlanResult,
+    cappedStageIds: readonly number[],
+  ): Tours.PlanResult {
+    if (cappedStageIds.length === 0) return result;
+    const droppedCacheIds = result.droppedCacheIds ?? [];
+    const droppedCaches = result.droppedCaches ?? [];
+    const already = new Set(droppedCacheIds);
+    const fresh = cappedStageIds.filter((id) => !already.has(id));
+    if (fresh.length === 0) return result;
+    return {
+      ...result,
+      droppedCacheIds: [...droppedCacheIds, ...fresh],
+      droppedCaches: [
+        ...droppedCaches,
+        ...fresh.map((id) => ({ id, reason: "candidate-cap" as const })),
+      ],
+    };
   }
 
   /**
@@ -148,7 +180,7 @@ export class ToursService {
   private async expandForCompleteAdventures(
     ownerId: string,
     cacheIds: readonly number[],
-  ): Promise<number[]> {
+  ): Promise<{ cacheIds: number[]; cappedStageIds: number[] }> {
     const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
     const adventureIds = [
       ...new Set(
@@ -157,7 +189,8 @@ export class ToursService {
           .filter((x): x is string => x != null && x.length > 0),
       ),
     ];
-    if (adventureIds.length === 0) return [...new Set(cacheIds)];
+    if (adventureIds.length === 0)
+      return { cacheIds: [...new Set(cacheIds)], cappedStageIds: [] };
 
     const stages = await this.cachesRepo.findAdventureStages(
       ownerId,
@@ -175,20 +208,22 @@ export class ToursService {
     const result = new Set<number>(
       rows.filter((r) => r.adventureId == null).map((r) => r.id),
     );
-    let dropped = 0;
+    // Stages of adventures skipped at the cap — surfaced as `candidate-cap`.
+    const cappedStageIds: number[] = [];
     for (const ids of byAdventure.values()) {
       if (result.size + ids.length > AUGMENT_MAX_CACHES) {
-        dropped += 1; // whole-or-none: skip an adventure that won't fit the cap
+        // whole-or-none: skip an adventure that won't fit the cap
+        cappedStageIds.push(...ids);
         continue;
       }
       for (const id of ids) result.add(id);
     }
-    if (dropped > 0) {
+    if (cappedStageIds.length > 0) {
       this.logger.debug(
-        `expandForCompleteAdventures: candidate cap ${AUGMENT_MAX_CACHES} skipped ${dropped} whole adventure(s)`,
+        `expandForCompleteAdventures: candidate cap ${AUGMENT_MAX_CACHES} skipped ${cappedStageIds.length} stage(s) across whole adventure(s)`,
       );
     }
-    return [...result];
+    return { cacheIds: [...result], cappedStageIds };
   }
 
   /**

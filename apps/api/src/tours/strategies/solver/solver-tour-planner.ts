@@ -115,9 +115,13 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     ownerId: string,
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
-    const ids = Array.from(new Set(input.cacheIds))
-      .sort((a, b) => a - b)
-      .slice(0, MAX_LOOP_CACHES);
+    const dedupedIds = Array.from(new Set(input.cacheIds)).sort(
+      (a, b) => a - b,
+    );
+    const ids = dedupedIds.slice(0, MAX_LOOP_CACHES);
+    // Candidates trimmed by the loop-size cap never reach the solver; surface
+    // them as `candidate-cap` so they're not silently absent.
+    const capTruncatedIds = dedupedIds.slice(MAX_LOOP_CACHES);
 
     const cacheRows = await this.caches.findByIds(ownerId, ids);
     if (cacheRows.length !== ids.length) {
@@ -286,7 +290,16 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         : {}),
     });
     let orderedIds = trim.orderedIds;
-    let droppedCacheIds = trim.droppedIds;
+    // Per-rep drop reasons; expanded to members + emitted as droppedCaches below.
+    const repDrops: {
+      id: number;
+      reason: Tours.DropReason;
+      neededBudgetMeters?: number;
+    }[] = trim.drops.map((d) => ({
+      id: d.id,
+      reason: d.reason,
+      neededBudgetMeters: round2(d.marginalMeters),
+    }));
 
     // AL-aware trim (FR-I16): the solver keeps adventures whole (hard
     // atomicity constraint), but the marginal trim above drops individual reps
@@ -322,7 +335,8 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         // Keep the loop viable (≥2 stops); otherwise leave the trim as-is.
         if (next.length >= 2) {
           orderedIds = next;
-          droppedCacheIds = [...droppedCacheIds, ...orphanDrops];
+          for (const r of orphanDrops)
+            repDrops.push({ id: r, reason: "adventure-incomplete" });
           this.logger.debug(
             `AL-aware trim: dropped ${orphanDrops.size} rep(s) to keep adventures whole`,
           );
@@ -330,10 +344,41 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       }
     }
 
-    if (droppedCacheIds.length > 0) {
+    if (repDrops.length > 0) {
       this.logger.debug(
-        `marginal trim: dropped ${droppedCacheIds.length} rep(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
+        `marginal trim: dropped ${repDrops.length} rep(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${repDrops.map((d) => d.id).join(", ")}]`,
       );
+    }
+
+    // Solver-omitted reps: candidates the solver never put in its visit order
+    // (count-vs-length trade-off, or forced out by a sentinel/unreachable leg)
+    // are otherwise silently absent. Classify each: `unreachable` when its
+    // parking legs were the sentinel or it has no finite matrix neighbour,
+    // else `budget` (the solver chose not to visit it).
+    {
+      const repIndex = new Map(repIds.map((id, i) => [id, i]));
+      const inOrder = new Set(orderedIds);
+      const accounted = new Set(repDrops.map((d) => d.id));
+      const solverPicked = new Set(solverOrderedIds);
+      const hasFiniteNeighbour = (idx: number): boolean =>
+        repMatrixMeters[idx]?.some(
+          (v, j) => j !== idx && v != null && Number.isFinite(v),
+        ) ?? false;
+      for (const repId of repIds) {
+        if (inOrder.has(repId) || accounted.has(repId)) continue;
+        // Only reps the solver itself omitted reach here (trim drops are
+        // already accounted). Defensive: skip anything still in the solved set.
+        if (solverPicked.has(repId)) continue;
+        const idx = repIndex.get(repId)!;
+        const unreachable =
+          parkingToCacheMeters[idx]! >= PARK_UNREACHABLE_SENTINEL ||
+          cacheToParkingMeters[idx]! >= PARK_UNREACHABLE_SENTINEL ||
+          !hasFiniteNeighbour(idx);
+        repDrops.push({
+          id: repId,
+          reason: unreachable ? "unreachable" : "budget",
+        });
+      }
     }
 
     // Loop-aware polyline assembly. The solver order is fixed, but each leg
@@ -443,8 +488,25 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       coordOf,
       { parkingToFirst, interCacheLegs, lastToParking },
     );
-    // A dropped representative drops all of its members.
-    const droppedExpanded = droppedCacheIds.flatMap((id) => membersOf(id));
+    // Structured drop reasons (PlanResult.droppedCaches). A dropped
+    // representative drops all of its members, each inheriting the rep's reason.
+    // Cap-truncated ids never entered the rep set, so they're added directly.
+    const droppedCaches: Tours.DroppedCache[] = [
+      ...repDrops.flatMap((d) =>
+        membersOf(d.id).map((id) => ({
+          id,
+          reason: d.reason,
+          ...(d.neededBudgetMeters != null
+            ? { neededBudgetMeters: d.neededBudgetMeters }
+            : {}),
+        })),
+      ),
+      ...capTruncatedIds.map((id) => ({
+        id,
+        reason: "candidate-cap" as const,
+      })),
+    ];
+    const droppedExpanded = droppedCaches.map((d) => d.id);
 
     const polyline = concatLineStrings(allLegs.map((l) => l.geometry));
     const meters = sum(allLegs.map((l) => l.meters));
@@ -492,6 +554,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     return {
       orderedCacheIds: orderedIdsFinal,
       droppedCacheIds: droppedExpanded,
+      droppedCaches,
       polyline,
       totals: {
         meters: round2(meters),

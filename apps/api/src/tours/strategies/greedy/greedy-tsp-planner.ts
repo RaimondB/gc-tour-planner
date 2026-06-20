@@ -213,8 +213,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const byId = new Map(cacheRows.map((c) => [c.id, c]));
 
     const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
-    const { connectedIds: connectedIdsRaw, distances: distancesRaw } =
-      filterConnected(ids, matrix);
+    const {
+      connectedIds: connectedIdsRaw,
+      distances: distancesRaw,
+      unreachableIds,
+    } = filterConnected(ids, matrix);
     if (connectedIdsRaw.length < 2) {
       throw new NotFoundException(
         "Selected caches are not mutually reachable on foot — pick a different cluster.",
@@ -328,10 +331,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       solve: (d, s) => this.computePool.solveTwoOpt(d, s),
     });
     const orderedIds = trim.orderedIds;
-    const droppedCacheIds = trim.droppedIds;
-    if (droppedCacheIds.length > 0) {
+    const marginalDrops = trim.drops;
+    if (trim.droppedIds.length > 0) {
       this.logger.debug(
-        `marginal trim: dropped ${droppedCacheIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
+        `marginal trim: dropped ${trim.droppedIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${trim.droppedIds.join(", ")}]`,
       );
     }
 
@@ -399,7 +402,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     let parkingToFirst!: LegWithAlternatives;
     let interCacheLegs!: LegWithAlternatives[];
     let lastToParking!: LegWithAlternatives;
-    const postTrimDropped: number[] = [];
+    const postTrimDropped: { id: number; redundantMeters: number }[] = [];
 
     for (let trimIter = 0; trimIter <= POST_TRIM_MAX_ITERS; trimIter += 1) {
       // Rebuild legs from scratch every iteration — the overlap grid
@@ -563,7 +566,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           worstMarginal,
         )}m of overlap between leg-in/leg-out > fringeTrimMeters ${input.fringeTrimMeters}m); rebuilding legs`,
       );
-      postTrimDropped.push(worstId);
+      postTrimDropped.push({ id: worstId, redundantMeters: worstRedundant });
       const survivingIds = currentOrderedIds.filter((id) => id !== worstId);
       const survivingIdxs = survivingIds
         .map((id) => connectedIdToIdx.get(id))
@@ -604,10 +607,29 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       { parkingToFirst, interCacheLegs, lastToParking },
     );
 
-    // A dropped representative drops all of its members.
-    const droppedExpanded = [...droppedCacheIds, ...postTrimDropped].flatMap(
-      (id) => membersOf(id),
-    );
+    // Structured drop reasons (PlanResult.droppedCaches). A dropped
+    // representative drops all of its members, each inheriting the rep's reason.
+    // Unreachable caches were filtered out before collapse, so they're already
+    // individual ids (membersOf falls back to [id]).
+    const droppedCaches: Tours.DroppedCache[] = [
+      ...unreachableIds.map((id) => ({ id, reason: "unreachable" as const })),
+      ...marginalDrops.flatMap((d) =>
+        membersOf(d.id).map((id) => ({
+          id,
+          reason: d.reason,
+          neededBudgetMeters: round2(d.marginalMeters),
+        })),
+      ),
+      ...postTrimDropped.flatMap((d) =>
+        membersOf(d.id).map((id) => ({
+          id,
+          reason: "fringe" as const,
+          neededBudgetMeters: round2(d.redundantMeters),
+        })),
+      ),
+    ];
+    // Flat id list stays in lock-step with the structured list.
+    const droppedExpanded = droppedCaches.map((d) => d.id);
 
     const polyline = concatLineStrings(allLegs.map((l) => l.geometry));
     const meters = sum(allLegs.map((l) => l.meters));
@@ -657,6 +679,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     return {
       orderedCacheIds: orderedIdsFinal,
       droppedCacheIds: droppedExpanded,
+      droppedCaches,
       polyline,
       totals: {
         meters: round2(meters),
@@ -1170,8 +1193,14 @@ function nearestCacheIndexTo(
 function filterConnected(
   ids: readonly number[],
   matrix: Routing.Matrix,
-): { connectedIds: number[]; distances: (number | null)[][] } {
+): {
+  connectedIds: number[];
+  distances: (number | null)[][];
+  /** Ids with no walking route to any other cache — surfaced as `unreachable`. */
+  unreachableIds: number[];
+} {
   const keep: number[] = [];
+  const unreachableIds: number[] = [];
   for (let i = 0; i < ids.length; i += 1) {
     let reachable = 0;
     for (let j = 0; j < ids.length; j += 1) {
@@ -1179,12 +1208,13 @@ function filterConnected(
       if (matrix.legs[i]?.[j]) reachable += 1;
     }
     if (reachable > 0) keep.push(i);
+    else unreachableIds.push(ids[i]!);
   }
   const connectedIds = keep.map((i) => ids[i]!);
   const distances = keep.map((i) =>
     keep.map((j) => (i === j ? 0 : (matrix.legs[i]?.[j]?.meters ?? null))),
   );
-  return { connectedIds, distances };
+  return { connectedIds, distances, unreachableIds };
 }
 
 function concatLineStrings(

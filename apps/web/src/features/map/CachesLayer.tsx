@@ -6,6 +6,7 @@ import maplibregl from "maplibre-gl";
 import { createRoot } from "react-dom/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CacheDTO, CacheSummaryDTO, CacheType } from "@gctp/shared/caches";
+import type { Tours } from "@gctp/shared";
 import {
   clearSolvedCoordinates,
   fetchCacheDetail,
@@ -213,6 +214,12 @@ export interface CachesLayerProps {
    * readable from that long-lived closure.
    */
   online?: boolean;
+  /**
+   * When a plan is shown, why each dropped cache was left out — keyed by cache
+   * id. Threaded into the single cache popup so a click shows cache details AND
+   * the drop reason (no separate popup competes for the gray "×" marker).
+   */
+  droppedById?: ReadonlyMap<number, Tours.DroppedCache>;
 }
 
 export function CachesLayer({
@@ -222,6 +229,7 @@ export function CachesLayer({
   onSelectionChange,
   onParkingSelect,
   online = true,
+  droppedById,
 }: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
@@ -229,6 +237,10 @@ export function CachesLayer({
   // always sees the current value without rebinding the whole layer effect.
   const onlineRef = useRef(online);
   onlineRef.current = online;
+  // Same rationale: the popup is built in a long-lived handler closure, so read
+  // the live drop-reason map through a ref instead of rebinding the layer.
+  const droppedByIdRef = useRef(droppedById);
+  droppedByIdRef.current = droppedById;
   // Screen point of the last pointer-down, used to tell a tap from a pan so a
   // pan that happens to end on a marker doesn't open its popup. See the click
   // handlers below and ./pointer-drag.
@@ -675,6 +687,7 @@ export function CachesLayer({
       let found = props.foundByMe === 1;
       let solved = props.solved === 1;
       const renderPopup = () => {
+        const drop = droppedByIdRef.current?.get(id) ?? null;
         root.render(
           <CachePopup
             code={props.code}
@@ -692,6 +705,8 @@ export function CachesLayer({
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}
+            dropReason={drop?.reason ?? null}
+            neededBudgetMeters={drop?.neededBudgetMeters ?? null}
             onToggleFound={async () => {
               if (!onlineRef.current) return;
               try {

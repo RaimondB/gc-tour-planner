@@ -121,11 +121,31 @@ export interface MarginalTrimInput {
   ) => Promise<{ order: number[] }>;
 }
 
+/** Why the marginal trim removed a given cache. */
+export type MarginalDropReason = "budget" | "outlier";
+
+export interface MarginalDrop {
+  id: number;
+  /** The cache's marginal cost (extra walking metres) at the moment it was dropped. */
+  marginalMeters: number;
+  /**
+   * `budget` when the loop was over the distance budget and this cache was cut
+   * to fit; `outlier` when the loop was already within budget (or legacy
+   * fixed-threshold mode) and the cache was a behind-barrier outlier.
+   */
+  reason: MarginalDropReason;
+}
+
 export interface MarginalTrimResult {
   /** New TSP order over the surviving caches (cache ids, not indices). */
   orderedIds: number[];
   /** Cache ids that were dropped, in the order they were trimmed. */
   droppedIds: number[];
+  /**
+   * Per-drop detail (id + marginal + reason), parallel to `droppedIds`. Lets the
+   * planner surface "why removed" with a budget hint (see PlanResult.droppedCaches).
+   */
+  drops: MarginalDrop[];
   /** Sum of the marginal costs of the dropped caches. */
   savedMeters: number;
 }
@@ -161,6 +181,7 @@ export async function trimMarginalCaches(
     return {
       orderedIds: input.orderedIds.slice(),
       droppedIds: [],
+      drops: [],
       savedMeters: 0,
     };
   }
@@ -216,6 +237,7 @@ export async function trimMarginalCaches(
 
   let surviving = input.orderedIds.slice();
   const droppedIds: number[] = [];
+  const drops: MarginalDrop[] = [];
   let savedMeters = 0;
 
   for (let iter = 0; iter < maxIterations; iter += 1) {
@@ -294,24 +316,32 @@ export async function trimMarginalCaches(
 
     if (worstIdx < 0) break; // no droppable candidate (e.g. all legs unroutable)
 
-    // Mode-specific drop rule.
+    // Mode-specific drop rule. `reason` records WHY for the per-drop channel:
+    // `budget` only when the loop was over budget and we cut to fit; otherwise
+    // the cache was a behind-barrier outlier (within-budget cut or legacy mode).
     let shouldDrop: boolean;
+    let reason: MarginalDropReason;
     if (budgetMode) {
       if (loopLength(surviving) > input.budgetMeters!) {
         // Over budget: drop the worst-marginal cache as long as removing it
         // actually shortens the loop. If even the worst marginal is ~0 the
         // loop is irreducibly long — stop rather than spin.
         shouldDrop = worstMarginal > 0;
+        reason = "budget";
       } else {
         // Within budget: keep normal caches, only cut genuine outliers.
         shouldDrop = worstMarginal > outlierThreshold;
+        reason = "outlier";
       }
     } else {
       shouldDrop = worstMarginal > thresholdMeters;
+      reason = "outlier";
     }
     if (!shouldDrop) break;
 
-    droppedIds.push(surviving[worstIdx]!);
+    const droppedId = surviving[worstIdx]!;
+    droppedIds.push(droppedId);
+    drops.push({ id: droppedId, marginalMeters: worstMarginal, reason });
     savedMeters += worstMarginal;
     surviving = surviving.filter((_, i) => i !== worstIdx);
 
@@ -338,6 +368,7 @@ export async function trimMarginalCaches(
   return {
     orderedIds: surviving,
     droppedIds,
+    drops,
     savedMeters,
   };
 }
