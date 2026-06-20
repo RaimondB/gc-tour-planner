@@ -61,6 +61,13 @@ export interface CachePopupProps {
   stageSequence?: number | null;
   stageTotal?: number | null;
   /**
+   * Adventure-level completion rollup (FR-I19): how many of this adventure's
+   * stages the user has found, and how many it has. Drives the "not started /
+   * partly done / completed" line. Both 0 for non-AL caches.
+   */
+  adventureFoundCount?: number;
+  adventureStageCount?: number;
+  /**
    * True when the plotted location is a user-supplied solved/corrected
    * coordinate (Mystery solution or Multi final). Shows a pill + the
    * "remove solved coordinates" action.
@@ -107,6 +114,8 @@ export function CachePopup({
   adventureId = null,
   stageSequence = null,
   stageTotal = null,
+  adventureFoundCount = 0,
+  adventureStageCount = 0,
   solved = false,
   onClearSolved,
   loadingDetail = false,
@@ -189,6 +198,15 @@ export function CachePopup({
           {stageTotal != null
             ? `Stage ${stageSequence} of ${stageTotal}`
             : `Stage ${stageSequence}`}
+        </div>
+      )}
+      {isAdventureLab && adventureStageCount > 0 && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          {adventureFoundCount === 0
+            ? "Adventure: not started"
+            : adventureFoundCount >= adventureStageCount
+              ? "Adventure: completed ✓"
+              : `Adventure: ${adventureFoundCount} of ${adventureStageCount} stages done`}
         </div>
       )}
       {loadingDetail ? (

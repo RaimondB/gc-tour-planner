@@ -51,6 +51,10 @@
       "types": "./dist/admin/index.d.ts",
       "import": "./dist/admin/index.js"
     },
+    "./adventure-labs": {
+      "types": "./dist/adventure-labs/index.d.ts",
+      "import": "./dist/adventure-labs/index.js"
+    },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
       "import": "./dist/auth/index.js"

@@ -72,3 +72,37 @@ export const AuthUser = z.object({
   isAdmin: z.boolean(),
 });
 export type AuthUser = z.infer<typeof AuthUser>;
+
+/**
+ * Editable per-user profile settings (FR-I19). Today just the public Geocaching
+ * account GUID that Lab2Gpx accepts as `userGuid` to return Adventure Lab
+ * completion. Kept out of {@link AuthUser}/the session (which is identity only)
+ * — it's a stored setting read fresh from the DB, so updating it is never stale.
+ */
+export const ProfileResponse = z.object({
+  /** Public GC account GUID (UUID form), or null when the user hasn't set one. */
+  gcUserGuid: z.string().nullable(),
+});
+export type ProfileResponse = z.infer<typeof ProfileResponse>;
+
+/**
+ * Update the signed-in user's profile. `gcUserGuid` is trimmed; an empty string
+ * clears it (→ null). A non-empty value must be a Geocaching account GUID (the
+ * UUID that appears in the user's profile URL), lower-cased for consistency.
+ */
+export const UpdateProfileInput = z.object({
+  gcUserGuid: z
+    .string()
+    .trim()
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v.toLowerCase() : null))
+    .refine(
+      (v) =>
+        v === null ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+          v,
+        ),
+      { message: "Must be a Geocaching account GUID (UUID form), or empty" },
+    ),
+});
+export type UpdateProfileInput = z.infer<typeof UpdateProfileInput>;

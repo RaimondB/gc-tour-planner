@@ -40,6 +40,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import type { SearchParams } from "../../lib/search-params.js";
 import { AdvancedSection } from "../shell/AdvancedSection.js";
+import { AdventureLabSyncButton } from "./AdventureLabSyncButton.js";
 
 export interface PlanSettings {
   distanceBudgetMeters: number;
@@ -529,6 +530,12 @@ export function PlannerSidebar({
           Export JSON
         </button>
       </div>
+
+      <AdventureLabSyncButton
+        center={search.center}
+        radiusM={search.radiusM}
+        online={online}
+      />
 
       {discoverError && (
         <div className="planner-error">{discoverError.message}</div>

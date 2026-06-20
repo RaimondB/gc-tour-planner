@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { parseGpx } from "@gctp/shared/gpx";
+import { UsersRepository } from "../../auth/users.repository.js";
+import { CachesRepository } from "../../caches/caches.repository.js";
 import { GpxService } from "../../gpx/gpx.service.js";
 import { ADVENTURE_LAB_CONFIG, type AdventureLabConfig } from "./al.config.js";
 
@@ -14,6 +17,8 @@ export interface EnrichArea {
 export interface EnrichResult {
   /** Stages upserted into the caller's caches (new + updated). */
   importedCaches: number;
+  /** Completed AL stages crossed off (FR-I19); 0 when no GC GUID is set. */
+  crossedOff: number;
 }
 
 /** Extra km fetched beyond the requested radius so edge adventures aren't clipped. */
@@ -32,6 +37,12 @@ export interface EnrichOptions {
   limitAdventures?: number;
   /** Extra km beyond `radiusM`. Defaults to 1 km. */
   bufferKm?: number;
+  /**
+   * The user's public Geocaching account GUID (FR-I19). When set, Lab2Gpx
+   * returns per-stage completion (`<sym>…Found</sym>`) so the caller can cross
+   * off finished stages. Null/undefined ⇒ no completion data (today's behaviour).
+   */
+  userGuid?: string | null;
 }
 
 /**
@@ -59,6 +70,8 @@ export class AdventureLabEnricher {
     @Inject(ADVENTURE_LAB_CONFIG)
     private readonly config: AdventureLabConfig,
     private readonly gpx: GpxService,
+    private readonly users: UsersRepository,
+    private readonly caches: CachesRepository,
   ) {}
 
   /** Whether the admin flag is on (the request flag alone isn't enough). */
@@ -70,23 +83,43 @@ export class AdventureLabEnricher {
     ownerId: string,
     area: EnrichArea,
     opts: EnrichOptions = {},
+    onPhase?: (phase: "fetching" | "importing" | "completion") => void,
   ): Promise<EnrichResult | null> {
     if (!this.config.enabled) return null;
     try {
-      const gpx = await this.fetchAreaGpx(area, opts);
+      // FR-I19: pass the owner's GC GUID so Lab2Gpx returns per-stage
+      // completion. Caller-supplied userGuid (e.g. a dedicated sync) wins;
+      // otherwise fall back to the stored profile setting.
+      const gcUserGuid =
+        opts.userGuid ??
+        (await this.users.findById(ownerId))?.gcUserGuid ??
+        null;
+      onPhase?.("fetching");
+      const gpx = await this.fetchAreaGpx(area, {
+        ...opts,
+        userGuid: gcUserGuid,
+      });
       if (!gpx) return null;
+      onPhase?.("importing");
       const result = await this.gpx.ingest(
         ownerId,
         "adventure-lab-enrichment.gpx",
         gpx,
         {},
       );
+      if (gcUserGuid) onPhase?.("completion");
+      const crossedOff = gcUserGuid
+        ? await this.crossOffCompletedStages(ownerId, gpx)
+        : 0;
       this.logger.log(
         `Adventure Lab enrichment for owner=${ownerId}: ` +
           `${result.cachesUpserted} stage(s) upserted` +
+          (crossedOff > 0
+            ? `, ${crossedOff} completed stage(s) crossed off`
+            : "") +
           (result.duplicate ? " (unchanged — dedup skip)" : ""),
       );
-      return { importedCaches: result.cachesUpserted };
+      return { importedCaches: result.cachesUpserted, crossedOff };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(
@@ -94,6 +127,33 @@ export class AdventureLabEnricher {
           `Planning continues without lab stages.`,
       );
       return null;
+    }
+  }
+
+  /**
+   * FR-I19: cross off the user's completed Adventure Lab stages. Re-parses the
+   * just-ingested GPX, takes every AL stage Lab2Gpx flagged `<sym>…Found</sym>`
+   * (the per-stage ground truth — completion is not necessarily in sequence),
+   * and marks those caches found for the owner. Additive (never un-finds), so a
+   * fully-completed adventure ends up all-found → excluded from clustering and
+   * dimmed exactly like any found cache; a partial adventure has only its done
+   * stages crossed off. Best-effort: a parse error logs and returns 0.
+   */
+  private async crossOffCompletedStages(
+    ownerId: string,
+    gpx: string,
+  ): Promise<number> {
+    try {
+      const foundCodes = parseGpx(gpx)
+        .caches.filter((c) => c.found && c.adventureId !== null)
+        .map((c) => c.code);
+      return await this.caches.markFoundByCodes(ownerId, foundCodes);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Adventure Lab completion cross-off failed for owner=${ownerId}: ${message}`,
+      );
+      return 0;
     }
   }
 
@@ -124,7 +184,9 @@ export class AdventureLabEnricher {
       prefix: "LC",
       stageSeparator: false,
       customCodeTemplate: null,
-      userGuid: null,
+      // FR-I19: when set, Lab2Gpx annotates each stage with the user's
+      // completion (`<sym>…Found</sym>`) so we can cross off finished stages.
+      userGuid: opts.userGuid ?? null,
       completionStatuses: ["0", "1", "2"],
       includeQuestion: false,
       includeWaypointDescription: false,

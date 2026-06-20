@@ -57,6 +57,14 @@ export const ParsedCache = z.object({
    * caches.
    */
   stageTotal: z.number().int().positive().nullable().default(null),
+  /**
+   * True when the source GPX marked this cache as found — `<sym>…Found</sym>`.
+   * For Adventure Lab stages this is Lab2Gpx's per-stage completion (only when
+   * fetched with a userGuid); the AL enrichment path crosses these off (FR-I19).
+   * The ordinary upload path ignores it (it uses the My-Finds / markAsFound
+   * flow), so this never changes regular-PQ behaviour. Defaults to false.
+   */
+  found: z.boolean().default(false),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

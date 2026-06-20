@@ -21,6 +21,16 @@ export interface UsersTable {
   display_name: string;
   password_hash: string | null;
   is_admin: Generated<boolean>;
+  /**
+   * Public Geocaching account GUID (migration 1785000000000), passed to Lab2Gpx
+   * as `userGuid` so Adventure Lab enrichment can fetch completion and cross off
+   * finished adventures (FR-I19). NULL when unset. Not a credential.
+   */
+  gc_user_guid: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   created_at: Generated<Date>;
 }
 

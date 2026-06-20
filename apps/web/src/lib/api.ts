@@ -10,10 +10,17 @@ import {
   StaleCacheListResponse,
 } from "@gctp/shared/admin";
 import {
+  type AdventureLabSyncRequest,
+  AdventureLabSyncResponse,
+  AdventureLabSyncStatus,
+} from "@gctp/shared/adventure-labs";
+import {
   AuthUser,
   type LoginInput,
+  ProfileResponse,
   type RegisterInput,
   type SetPasswordInput,
+  type UpdateProfileInput,
 } from "@gctp/shared/auth";
 import {
   CacheDTO,
@@ -588,4 +595,42 @@ export async function fetchMe(): Promise<AuthUser | null> {
     if (err instanceof ApiError && err.status === 401) return null;
     throw err;
   }
+}
+
+/** Enqueue an Adventure Lab sync for an area (FR-I19); returns the job id to poll. */
+export async function syncAdventureLabs(
+  input: AdventureLabSyncRequest,
+): Promise<AdventureLabSyncResponse> {
+  const raw = await request<unknown>("/adventure-labs/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return AdventureLabSyncResponse.parse(raw);
+}
+
+/** Poll an Adventure Lab sync job's progress (FR-I19). */
+export async function getAdventureLabSyncStatus(
+  jobId: string,
+): Promise<AdventureLabSyncStatus> {
+  const raw = await request<unknown>(`/adventure-labs/sync/${jobId}`);
+  return AdventureLabSyncStatus.parse(raw);
+}
+
+/** The signed-in user's editable profile settings (FR-I19). */
+export async function fetchProfile(): Promise<ProfileResponse> {
+  const raw = await request<unknown>("/auth/profile");
+  return ProfileResponse.parse(raw);
+}
+
+/** Update the signed-in user's profile (Geocaching account GUID). */
+export async function updateProfile(
+  input: UpdateProfileInput,
+): Promise<ProfileResponse> {
+  const raw = await request<unknown>("/auth/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return ProfileResponse.parse(raw);
 }

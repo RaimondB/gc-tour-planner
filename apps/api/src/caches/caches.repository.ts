@@ -346,6 +346,34 @@ export class CachesRepository {
   }
 
   /**
+   * Idempotently mark the user's caches with the given `code`s as found
+   * (FR-I19 Adventure Lab completion cross-off). Owner-scoped — resolves codes
+   * to the caller's own cache rows only — and additive: it never removes a find
+   * (so a manual find is preserved). Returns the number of new finds inserted.
+   */
+  async markFoundByCodes(
+    userId: string,
+    codes: readonly string[],
+    source = "adventure-lab",
+  ): Promise<number> {
+    if (codes.length === 0) return 0;
+    const ids = await this.db
+      .selectFrom("caches")
+      .select("id")
+      .where("owner_id", "=", userId)
+      .where("code", "in", codes as string[])
+      .execute();
+    if (ids.length === 0) return 0;
+    const rows = await this.db
+      .insertInto("cache_finds")
+      .values(ids.map((r) => ({ cache_id: r.id, user_id: userId, source })))
+      .onConflict((oc) => oc.columns(["cache_id", "user_id"]).doNothing())
+      .returning("cache_id")
+      .execute();
+    return rows.length;
+  }
+
+  /**
    * Remove a cache's solved coordinate: revert `location` to the posted coord
    * (`COALESCE(published_location, location)` — when the cache was first seen
    * via a solved upload there's no posted coord to fall back to, so `location`

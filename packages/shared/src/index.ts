@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 export * as Admin from "./admin/index.js";
+export * as AdventureLabs from "./adventure-labs/index.js";
 export * as Auth from "./auth/index.js";
 export * as Caches from "./caches/index.js";
 export * as Geo from "./geo/index.js";

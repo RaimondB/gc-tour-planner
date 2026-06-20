@@ -241,6 +241,10 @@ export function CachesLayer({
   // the live drop-reason map through a ref instead of rebinding the layer.
   const droppedByIdRef = useRef(droppedById);
   droppedByIdRef.current = droppedById;
+
+  // Latest rendered caches, for the popup's Adventure-Lab completion rollup
+  // (FR-I19) — the click handler can't see `renderCaches`'s local `caches`.
+  const cachesRef = useRef<readonly CacheSummaryDTO[]>([]);
   // Screen point of the last pointer-down, used to tell a tap from a pan so a
   // pan that happens to end on a marker doesn't open its popup. See the click
   // handlers below and ./pointer-drag.
@@ -262,6 +266,7 @@ export function CachesLayer({
     // Union the radius query with any explicit extras (saved-tour snapshots),
     // query data winning on id collisions (it carries the full live fields).
     const caches = mergeCachesById(query.data?.caches, extraCaches) ?? [];
+    cachesRef.current = caches;
 
     // Parking waypoints (static; not zoom-dependent).
     const parkingFeatures: GeoJSON.Feature<
@@ -686,6 +691,16 @@ export function CachesLayer({
       let detail: CacheDTO | null = null;
       let found = props.foundByMe === 1;
       let solved = props.solved === 1;
+      // Adventure-Lab completion rollup (FR-I19): how many of this adventure's
+      // stages the user has found, for the "not started / partly / done" badge.
+      const advId = props.adventureId;
+      const advStages = advId
+        ? cachesRef.current.filter((c) => c.adventureId === advId)
+        : [];
+      const adventureStageCount = advId
+        ? props.stageTotal || advStages.length
+        : 0;
+      const adventureFoundCount = advStages.filter((c) => c.foundByMe).length;
       const renderPopup = () => {
         const drop = droppedByIdRef.current?.get(id) ?? null;
         root.render(
@@ -702,6 +717,8 @@ export function CachesLayer({
             adventureId={props.adventureId}
             stageSequence={props.stageSequence || null}
             stageTotal={props.stageTotal || null}
+            adventureFoundCount={adventureFoundCount}
+            adventureStageCount={adventureStageCount}
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}

@@ -296,6 +296,31 @@ describe("parseGpx", () => {
     expect(cache?.adventureId).toBeNull();
     expect(cache?.stageSequence).toBeNull();
     expect(cache?.stageTotal).toBeNull();
+    expect(cache?.found).toBe(false);
+  });
+
+  it("reads per-stage completion from <sym>…Found</sym> (FR-I19 cross-off)", () => {
+    // Lab2Gpx (fetched with a userGuid) marks each completed stage Found; the
+    // marked stages need not be the first N — completion is not in sequence.
+    const stage = (n: number, found: boolean) => `
+        <wpt lat="52.0" lon="5.00${n}">
+          <name>LCDONE${n}</name>
+          <url>https://labs.geocaching.com/goto/adv-guid</url>
+          <urlname>S${n} Adventure</urlname>
+          <sym>Geocache${found ? " Found" : ""}</sym>
+          <groundspeak:cache id="${n}" available="True" archived="False">
+            <groundspeak:name>Adventure : S${n} Stage ${n}</groundspeak:name>
+            <groundspeak:type>Lab Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>`;
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        ${stage(1, false)}${stage(2, true)}
+      </gpx>`;
+    const caches = parseGpx(xml).caches;
+    expect(caches.find((c) => c.code === "LCDONE1")?.found).toBe(false);
+    expect(caches.find((c) => c.code === "LCDONE2")?.found).toBe(true);
   });
 });
 

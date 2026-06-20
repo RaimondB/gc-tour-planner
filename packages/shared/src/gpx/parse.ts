@@ -71,12 +71,17 @@ export function parseGpx(xml: string): ParsedGpx {
     if (gsCache) {
       const adventureId = extractAdventureId(textOrNull(wpt.url));
       const { stageSequence, stageTotal } = extractStageInfo(wpt);
+      // Lab2Gpx (fetched with a userGuid) stamps `<sym>Geocache Found</sym>` on
+      // each stage the user has completed — the per-stage ground truth for
+      // crossing off Adventure Lab progress (FR-I19). Completion is per stage,
+      // not in sequence, so the sym is authoritative (not a count inference).
+      const found = (sym ?? "").toLowerCase().includes("found");
       const cache = toParsedCache(
         name,
         lat,
         lon,
         gsCache,
-        { adventureId, stageSequence, stageTotal },
+        { adventureId, stageSequence, stageTotal, found },
         warnings,
       );
       if (cache) caches.push(cache);
@@ -254,6 +259,7 @@ function toParsedCache(
     adventureId: string | null;
     stageSequence: number | null;
     stageTotal: number | null;
+    found: boolean;
   },
   warnings: string[],
 ): ParsedCache | null {
@@ -323,6 +329,7 @@ function toParsedCache(
     adventureId: adventure.adventureId,
     stageSequence: adventure.stageSequence,
     stageTotal: adventure.stageTotal,
+    found: adventure.found,
   };
 }
 
