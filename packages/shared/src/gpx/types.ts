@@ -57,6 +57,14 @@ export const ParsedCache = z.object({
    * caches.
    */
   stageTotal: z.number().int().positive().nullable().default(null),
+  /**
+   * True when this stage belongs to a *linear* Adventure Lab — one whose stages
+   * must be completed in `stageSequence` order. Parsed from the `[L] ` prefix
+   * Lab2Gpx's `mark` mode prepends to a linear adventure's `<groundspeak:name>`
+   * (the GC `IsLinear` flag). `false` for a random-order AL stage, `null` for
+   * ordinary caches. Drives the solver's stage-ordering constraint.
+   */
+  adventureSequential: z.boolean().nullable().default(null),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

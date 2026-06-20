@@ -81,6 +81,10 @@ const FEATURES: readonly { title: string; body: string }[] = [
     body: "Automatically detects dense clusters of caches that admit a closed walking loop within your budget, or hand-pick a set on the map and plan it. When a cache is left out, the planner tells you why.",
   },
   {
+    title: "Adventure Lab aware",
+    body: "Folds Adventure Labs into your loop — kept whole, and linear adventures routed stage-by-stage in the right order, with normal caches in between. Choose whether labs join cluster discovery at all.",
+  },
+  {
     title: "Parking-aware loops",
     body: "Frames each loop around real parking — GPX parking waypoints, OSM parking facilities, or the nearest routable road.",
   },

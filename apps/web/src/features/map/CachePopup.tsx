@@ -61,6 +61,11 @@ export interface CachePopupProps {
   stageSequence?: number | null;
   stageTotal?: number | null;
   /**
+   * True for a *linear* Adventure Lab stage (stages must be done in order).
+   * Adds a "Linear" hint so the user knows the tour routes them in sequence.
+   */
+  adventureSequential?: boolean | null;
+  /**
    * True when the plotted location is a user-supplied solved/corrected
    * coordinate (Mystery solution or Multi final). Shows a pill + the
    * "remove solved coordinates" action.
@@ -107,6 +112,7 @@ export function CachePopup({
   adventureId = null,
   stageSequence = null,
   stageTotal = null,
+  adventureSequential = null,
   solved = false,
   onClearSolved,
   loadingDetail = false,
@@ -189,6 +195,7 @@ export function CachePopup({
           {stageTotal != null
             ? `Stage ${stageSequence} of ${stageTotal}`
             : `Stage ${stageSequence}`}
+          {adventureSequential ? " · Linear (visited in order)" : ""}
         </div>
       )}
       {loadingDetail ? (

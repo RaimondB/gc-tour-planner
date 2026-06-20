@@ -41,13 +41,18 @@ public record PlanRequest(
         @JsonProperty("adventureInterleave") Boolean adventureInterleave,
         Weights weights
 ) {
-    /** {@code adventureId} is null for a plain cache; non-null groups Adventure Lab stages. */
+    /**
+     * {@code adventureId} is null for a plain cache; non-null groups Adventure
+     * Lab stages. {@code adventureSequential} is true for a *linear* adventure's
+     * stages (must be visited in {@code stageSequence} order).
+     */
     public record CacheInput(
             long id,
             double lng,
             double lat,
             @JsonProperty("adventureId") String adventureId,
-            @JsonProperty("stageSequence") Integer stageSequence) {}
+            @JsonProperty("stageSequence") Integer stageSequence,
+            @JsonProperty("adventureSequential") Boolean adventureSequential) {}
 
     public record Weights(
             @JsonProperty("visitedCount") Long visitedCount,

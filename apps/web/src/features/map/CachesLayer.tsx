@@ -157,6 +157,8 @@ interface CacheProps {
   stageSequence: number;
   /** AL total stage count; 0 for non-AL. */
   stageTotal: number;
+  /** 1 when this is a linear AL stage (visited in order); 0 otherwise/non-AL. */
+  adventureSequential: number;
   /** 1 when this AL stage is part of an on-screen overlap cluster (rendered as
    *  the collapsed pin instead); 0 otherwise and for every non-AL cache. */
   alHidden: number;
@@ -607,6 +609,7 @@ export function CachesLayer({
           adventureId: c.adventureId ?? null,
           stageSequence: c.stageSequence ?? 0,
           stageTotal: c.stageTotal ?? 0,
+          adventureSequential: c.adventureSequential ? 1 : 0,
           alHidden: hidden.has(c.id) ? 1 : 0,
         },
       }));
@@ -702,6 +705,7 @@ export function CachesLayer({
             adventureId={props.adventureId}
             stageSequence={props.stageSequence || null}
             stageTotal={props.stageTotal || null}
+            adventureSequential={props.adventureSequential === 1}
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}

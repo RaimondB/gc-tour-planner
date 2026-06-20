@@ -159,6 +159,7 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     maxLinkMeters: s.maxLinkMeters,
     distanceBudgetMeters: s.distanceBudgetMeters,
     clusteringStrategy: s.clusteringStrategy,
+    includeAdventuresInClustering: s.includeAdventuresInClustering,
     topNClusters: s.topNClusters,
     landuseWeight: s.landuseWeight,
     landuseProfileId: s.landuseProfileId ?? null,
@@ -564,6 +565,8 @@ export default function App(): JSX.Element {
         },
         startPreference: planSettings.startPreference,
         clusteringStrategy: planSettings.clusteringStrategy,
+        includeAdventuresInClustering:
+          planSettings.includeAdventuresInClustering,
         topNClusters: planSettings.topNClusters,
         // Cluster discovery (Pass 1) doesn't use the start point — it's a
         // Pass-2 parking concern — so we no longer send it here. The map-picked

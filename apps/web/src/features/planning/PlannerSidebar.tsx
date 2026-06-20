@@ -74,6 +74,12 @@ export interface PlanSettings {
    */
   clusteringStrategy: ClusteringStrategyName;
   /**
+   * Whether Adventure Labs take part in Pass-1 cluster forming (default true,
+   * collapsed per FR-I17). Off drops ALs from the candidate pool entirely, so
+   * clusters form from ordinary caches only.
+   */
+  includeAdventuresInClustering: boolean;
+  /**
    * How many ranked candidate clusters to ask the planner for. Default 5.
    * Larger area + sparser caches → bump it to surface lower-scoring
    * alternatives the planner would otherwise hide.
@@ -123,6 +129,7 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "hdbscan-star",
+  includeAdventuresInClustering: true,
   topNClusters: 5,
   fringeTrimMeters: 500,
   landuseProfileId: undefined,
@@ -492,6 +499,23 @@ export function PlannerSidebar({
             </label>
           ))}
         </fieldset>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.includeAdventuresInClustering}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                includeAdventuresInClustering: e.target.checked,
+              })
+            }
+          />
+          Include Adventure Labs in clusters
+          <small className="muted">
+            Off plans loops from ordinary caches only — add adventures by hand.
+          </small>
+        </label>
       </AdvancedSection>
 
       {!hideDebugOverlays && (

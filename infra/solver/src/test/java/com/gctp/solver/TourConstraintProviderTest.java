@@ -150,6 +150,15 @@ class TourConstraintProviderTest {
         return c;
     }
 
+    /** A stage of *linear* adventure "A" at the given 1-based sequence. */
+    private static Cache linCache(long id, int idx, int seq) {
+        Cache c = new Cache(id, idx, 0.01 * idx, 0.0);
+        c.setAdventureId("A");
+        c.setStageSequence(seq);
+        c.setAdventureSequential(true);
+        return c;
+    }
+
     @Test
     void adventureAtomicityPenalisesPartialInclusion() {
         Cache a = advCache(1L, 0);
@@ -200,6 +209,38 @@ class TourConstraintProviderTest {
         interleaved.setAdventureInterleave(true);
         verifier.verifyThat(TourConstraintProvider::adventureContiguity)
                 .given(interleaved, a, b, c)
+                .penalizesBy(0L);
+    }
+
+    @Test
+    void adventureOrderingEnforcesLinearStageSequence() {
+        Cache s1 = linCache(1L, 0, 1);
+        Cache s2 = linCache(2L, 1, 2);
+        Cache s3 = linCache(3L, 2, 3);
+        Cache plain = new Cache(9L, 1, 0.02, 0.0); // foreign cache, no adventure
+
+        // In sequence 1→2→3 ⇒ no penalty.
+        verifier.verifyThat(TourConstraintProvider::adventureOrdering)
+                .given(adventureTour(List.of(s1, s2, s3)), s1, s2, s3)
+                .penalizesBy(0L);
+
+        // Out of sequence 1→3→2 ⇒ penalty.
+        verifier.verifyThat(TourConstraintProvider::adventureOrdering)
+                .given(adventureTour(List.of(s1, s3, s2)), s1, s2, s3)
+                .penalizesByMoreThan(0L);
+
+        // Interleaved but still ascending 1→plain→2→3 ⇒ no penalty.
+        verifier.verifyThat(TourConstraintProvider::adventureOrdering)
+                .given(adventureTour(List.of(s1, plain, s2, s3)), s1, s2, s3, plain)
+                .penalizesBy(0L);
+
+        // Random-order AL (not flagged sequential) ⇒ never penalised, even reversed.
+        Cache r1 = advCache(1L, 0);
+        Cache r2 = advCache(2L, 1);
+        r1.setStageSequence(1);
+        r2.setStageSequence(2);
+        verifier.verifyThat(TourConstraintProvider::adventureOrdering)
+                .given(adventureTour(List.of(r2, r1)), r1, r2)
                 .penalizesBy(0L);
     }
 }
