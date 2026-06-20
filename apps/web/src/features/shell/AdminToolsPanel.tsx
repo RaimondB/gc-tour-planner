@@ -74,6 +74,12 @@ export function AdminToolsPanel({
           </button>
         </header>
         <div className="tools-drawer__body">
+          <p className="muted">
+            Queue dashboard (pause / retry / clean failed, all queues):{" "}
+            <a href="/api/admin/queues" target="_blank" rel="noreferrer">
+              Bull-Board →
+            </a>
+          </p>
           <AdminPrecomputePanel />
           <AdventureLabBackfillPanel />
           <DebugOverlaysPanel
@@ -129,11 +135,8 @@ function AdventureLabBackfillPanel(): JSX.Element {
         </button>
         {mutation.isSuccess ? (
           <p className="muted">
-            Job <code>{mutation.data.jobId}</code> enqueued — watch{" "}
-            <a href="/api/admin/queues" target="_blank" rel="noreferrer">
-              the queue
-            </a>
-            .
+            Job <code>{mutation.data.jobId}</code> enqueued — watch it in
+            Bull-Board (link at the top).
           </p>
         ) : null}
         {mutation.isError ? (

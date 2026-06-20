@@ -60,12 +60,8 @@ function AdminBody(): JSX.Element {
               health. */}
         </>
       )}
-      <p className="muted">
-        Queue-level ops (pause / retry / clean failed):{" "}
-        <a href="/admin/queues" target="_blank" rel="noreferrer">
-          /admin/queues →
-        </a>
-      </p>
+      {/* Queue-level ops (bull-board) link moved to the always-visible header of
+          the Admin tools drawer — see AdminToolsPanel. */}
     </div>
   );
 }
