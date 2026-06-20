@@ -3,6 +3,7 @@
 
 import { Module } from "@nestjs/common";
 import { AdventureLabModule } from "../../sources/adventure-lab/adventure-lab.module.js";
+import { CachesModule } from "../../caches/caches.module.js";
 import { AdventureLabImportProcessor } from "./adventure-lab-import.processor.js";
 
 /**
@@ -11,7 +12,7 @@ import { AdventureLabImportProcessor } from "./adventure-lab-import.processor.js
  * container today, the jobs container under its own entrypoint).
  */
 @Module({
-  imports: [AdventureLabModule],
+  imports: [AdventureLabModule, CachesModule],
   providers: [AdventureLabImportProcessor],
 })
 export class AdventureLabImportModule {}

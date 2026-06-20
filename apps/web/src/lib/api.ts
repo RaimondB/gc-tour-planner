@@ -510,6 +510,16 @@ export async function retriggerStale(input: RetriggerStaleRequest) {
   return RetriggerStaleResponse.parse(raw);
 }
 
+/**
+ * FR-I17: enqueue the Adventure Lab `adventure_id` backfill — re-fetches every
+ * AL stage missing its id from Lab2Gpx. Admin-only; returns the job id.
+ */
+export async function backfillAdventureLabIds(): Promise<{ jobId: string }> {
+  return request<{ jobId: string }>("/admin/adventure-labs/backfill-ids", {
+    method: "POST",
+  });
+}
+
 export async function retriggerOne(input: RetriggerOneRequest) {
   return request<{ jobId: string }>("/admin/precompute/retrigger-one", {
     method: "POST",

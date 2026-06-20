@@ -100,9 +100,11 @@ export class AdventureLabEnricher {
   /**
    * POST the area to Lab2Gpx and return the GPX body, or null on a non-OK
    * response / empty body. The request shape matches the documented Lab2Gpx
-   * `/download` API (https://github.com/mirsch/lab2gpx/wiki/Api).
+   * `/download` API (https://github.com/mirsch/lab2gpx/wiki/Api). Public so the
+   * adventure_id backfill (FR-I17) can re-fetch an adventure's area and read the
+   * fresh `goto/<guid>` deep-links without going through the full ingest path.
    */
-  private async fetchAreaGpx(
+  async fetchAreaGpx(
     area: EnrichArea,
     opts: EnrichOptions,
   ): Promise<string | null> {

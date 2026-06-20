@@ -135,4 +135,69 @@ describe("CachesRepository.findAdventureStages (FR-I16)", () => {
     const stages = await repo.findAdventureStages(otherOwnerId, ["ADV-B"]);
     expect(stages).toEqual([]);
   });
+
+  // FR-I17 backfill helpers: find AL stages missing adventure_id, and fill it.
+  it("findAlStagesMissingAdventureId returns only AL stages with stage metadata and no id, owner-scoped", async () => {
+    const m1 = await seedStage({
+      owner: ownerId,
+      code: "MISS-1",
+      adventureId: null,
+      stageSequence: 1,
+      lng: 6.1,
+      lat: 52.1,
+    });
+    const m2 = await seedStage({
+      owner: ownerId,
+      code: "MISS-2",
+      adventureId: "", // empty counts as missing too
+      stageSequence: 2,
+      lng: 6.1,
+      lat: 52.1,
+    });
+    // Has an id → excluded; no stage metadata → excluded; other owner → excluded.
+    await seedStage({
+      owner: ownerId,
+      code: "HAS-ID",
+      adventureId: "ADV-X",
+      stageSequence: 1,
+    });
+    await seedStage({
+      owner: ownerId,
+      code: "NO-STAGE",
+      adventureId: null,
+      stageSequence: null,
+    });
+    await seedStage({
+      owner: otherOwnerId,
+      code: "OTHER-MISS",
+      adventureId: null,
+      stageSequence: 1,
+    });
+
+    const missing = await repo.findAlStagesMissingAdventureId(ownerId);
+    expect(missing.map((m) => m.id).sort((a, b) => a - b)).toEqual(
+      [m1, m2].sort((a, b) => a - b),
+    );
+    expect(missing.find((m) => m.id === m1)?.code).toBe("MISS-1");
+    expect(missing.find((m) => m.id === m1)?.lng).toBeCloseTo(6.1, 5);
+  });
+
+  it("setAdventureIdIfMissing fills only when missing and is owner-scoped + idempotent", async () => {
+    const first = await repo.setAdventureIdIfMissing(
+      ownerId,
+      "MISS-1",
+      "ADV-FILLED",
+    );
+    expect(first).toBe(1);
+    // Second call is a no-op now that the id is set.
+    const second = await repo.setAdventureIdIfMissing(
+      ownerId,
+      "MISS-1",
+      "ADV-OTHER",
+    );
+    expect(second).toBe(0);
+    // No longer reported as missing; the id stuck at the first value.
+    const stillMissing = await repo.findAlStagesMissingAdventureId(ownerId);
+    expect(stillMissing.some((m) => m.code === "MISS-1")).toBe(false);
+  });
 });

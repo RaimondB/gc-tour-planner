@@ -44,4 +44,19 @@ export class AdminAdventureLabsController {
     }
     return this.service.enqueueImport(user.id, parsed.data);
   }
+
+  @Post("backfill-ids")
+  @ApiOperation({
+    summary:
+      "Backfill missing Adventure Lab adventure_id from Lab2Gpx (background job)",
+  })
+  @ApiResponse({
+    status: 201,
+    description: "Job enqueued; returns the job id.",
+  })
+  async backfillIds(
+    @CurrentUser() user: AuthUser,
+  ): Promise<Admin.AdventureLabImportResponse> {
+    return this.service.enqueueBackfill(user.id);
+  }
 }

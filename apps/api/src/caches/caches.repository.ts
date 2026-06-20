@@ -562,6 +562,67 @@ export class CachesRepository {
   }
 
   /**
+   * FR-I17: Adventure Lab stages that carry stage metadata (so they were
+   * imported as AL stages) but have no `adventure_id` — typically older uploads
+   * from a Lab2Gpx GPX whose `<url>` lacked the `goto/<guid>` deep-link, leaving
+   * the planner unable to group them as one adventure. Returns just what the
+   * backfill needs: id + code (the LC source code, our match key against a fresh
+   * Lab2Gpx fetch), the human name (its `<title> : S{n} …` prefix groups stages
+   * of one adventure), and coordinates (to centre the re-fetch).
+   */
+  async findAlStagesMissingAdventureId(
+    userId: string,
+  ): Promise<
+    Array<{ id: number; code: string; name: string; lng: number; lat: number }>
+  > {
+    const rows = await sql<{
+      id: string;
+      code: string;
+      name: string;
+      lng: number;
+      lat: number;
+    }>`
+      SELECT id, code, name,
+             ST_X(location::geometry) AS lng,
+             ST_Y(location::geometry) AS lat
+      FROM caches
+      WHERE owner_id = ${userId}
+        AND type = 'Adventure Lab'
+        AND stage_sequence IS NOT NULL
+        AND (adventure_id IS NULL OR adventure_id = '')
+    `.execute(this.db);
+    return rows.rows.map((r) => ({
+      id: Number(r.id),
+      code: r.code,
+      name: r.name,
+      lng: Number(r.lng),
+      lat: Number(r.lat),
+    }));
+  }
+
+  /**
+   * FR-I17 backfill: set `adventure_id` on a cache only when it's currently
+   * missing, matched by owner + LC `code`. Returns the number of rows updated
+   * (0 or 1), so a re-fetch that doesn't resolve a code is a safe no-op.
+   */
+  async setAdventureIdIfMissing(
+    userId: string,
+    code: string,
+    adventureId: string,
+  ): Promise<number> {
+    const res = await this.db
+      .updateTable("caches")
+      .set({ adventure_id: adventureId })
+      .where("owner_id", "=", userId)
+      .where("code", "=", code)
+      .where((eb) =>
+        eb.or([eb("adventure_id", "is", null), eb("adventure_id", "=", "")]),
+      )
+      .executeTakeFirst();
+    return Number(res.numUpdatedRows ?? 0n);
+  }
+
+  /**
    * Pass 1 sparse-matrix support: for each origin cache id, return its
    * `k` Haversine-nearest neighbours within `radiusM`, owned by the same user.
    *

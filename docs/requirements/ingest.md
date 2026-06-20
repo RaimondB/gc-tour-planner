@@ -44,6 +44,8 @@ How caches enter the system. Cross-references: [design/data-model.md](../design/
   - **The caches map** shows one purple pin per adventure (with a stage-count badge) below the explode zoom (z12, shared with parking); at/above it the pin gives way to the individual stage circles + `S{n}` labels. A click on a collapsed pin zooms in to explode it; a modifier-click toggles the whole adventure in/out of the Cluster-Lab selection.
   - **The planned-tour view** renders Adventure Lab stops **purple** (vs. the routed-stop red) to flag their type, and **collapses stops that overlap on screen** into one stacked node (labelled with the covered stop range, e.g. "3–7") until the user zooms in far enough that they separate. The collapse is pixel-based (recomputed on zoom), so an adventure's co-located stages stay merged at every zoom while merely-near stops pop apart as you zoom.
 
+  **adventure_id backfill (older uploads).** AL stages imported from a GPX whose `<url>` lacked the `labs.geocaching.com/goto/<guid>` deep-link have no `adventure_id`, so the grouping above (atomicity, collapse) can't see them as one adventure. The admin action `POST /admin/adventure-labs/backfill-ids` (also a button in the admin tools panel) enqueues a background job that, for each affected adventure (grouped by the shared `<title> : S{n}` name), re-fetches its area from Lab2Gpx and fills `adventure_id` from the fresh deep-link — matched by LC `code`, touching only the missing field. Best-effort and idempotent; gated by `ADVENTURE_LAB_ENRICHMENT_ENABLED`.
+
 ## Environment knobs
 
 Machine ingestion API (FR-I14) + Adventure Lab enrichment (FR-I15). Env-only, no DB; real prod values stay in the gitignored prod `infra/.env`, never tracked.
