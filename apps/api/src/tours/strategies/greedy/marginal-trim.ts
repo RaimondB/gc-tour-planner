@@ -150,6 +150,30 @@ export interface MarginalTrimResult {
   savedMeters: number;
 }
 
+/**
+ * Closed-loop metres over a cache/rep order: the inter-cache legs plus the
+ * parking closure (`parking → first` + `last → parking`). `distAt`,
+ * `parkingToCache`, `cacheToParking` look up metres by cache/rep id and should
+ * return `+Infinity` for unroutable/missing pairs (so a disconnected order reads
+ * as infinitely long). Single source of truth shared by the marginal trim and
+ * the solver's budget-fill re-add (FR-T13). Returns 0 for an empty order.
+ */
+export function closedLoopMeters(
+  order: readonly number[],
+  distAt: (a: number, b: number) => number,
+  parkingToCache: (id: number) => number,
+  cacheToParking: (id: number) => number,
+): number {
+  if (order.length === 0) return 0;
+  let total = 0;
+  for (let i = 0; i < order.length - 1; i += 1) {
+    total += distAt(order[i]!, order[i + 1]!);
+  }
+  total += parkingToCache(order[0]!);
+  total += cacheToParking(order[order.length - 1]!);
+  return total;
+}
+
 export async function trimMarginalCaches(
   input: MarginalTrimInput,
 ): Promise<MarginalTrimResult> {
@@ -222,18 +246,15 @@ export async function trimMarginalCaches(
   // Routed loop length over a cache order: the inter-cache legs plus the
   // parking closure (parking → first, last → parking) when parking distances
   // are available. An unroutable leg makes the loop "infinitely long", which
-  // budget mode reads as over-budget and tries to repair by trimming.
-  const loopLength = (order: readonly number[]): number => {
-    let total = 0;
-    for (let i = 0; i < order.length - 1; i += 1) {
-      total += distAt(order[i]!, order[i + 1]!);
-    }
-    if (endpointsEligible && order.length > 0) {
-      total += parkingToCache(order[0]!);
-      total += cacheToParking(order[order.length - 1]!);
-    }
-    return total;
-  };
+  // budget mode reads as over-budget and tries to repair by trimming. When no
+  // parking arrays are supplied the closure terms contribute 0 (open path).
+  const loopLength = (order: readonly number[]): number =>
+    closedLoopMeters(
+      order,
+      distAt,
+      endpointsEligible ? parkingToCache : () => 0,
+      endpointsEligible ? cacheToParking : () => 0,
+    );
 
   let surviving = input.orderedIds.slice();
   const droppedIds: number[] = [];

@@ -3,6 +3,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
+import { Tsp } from "@gctp/shared";
 import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { RoutingService } from "../../../routing/routing.service.js";
@@ -15,6 +16,7 @@ import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.rep
 import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
 import { pickBestPqParking } from "../pick-pq-parking.js";
+import { largestConnectedComponent } from "../../adventure-cohesion.js";
 import { collapseColocated } from "../greedy/colocate.js";
 import { expandColocatedRoute } from "../greedy/expand-colocated.js";
 import {
@@ -23,6 +25,7 @@ import {
   readLoopOptionsFromEnv,
 } from "../greedy/loop-aware-legs.js";
 import {
+  closedLoopMeters,
   resolveMarginalTrimConfig,
   trimMarginalCaches,
 } from "../greedy/marginal-trim.js";
@@ -118,42 +121,56 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     const dedupedIds = Array.from(new Set(input.cacheIds)).sort(
       (a, b) => a - b,
     );
-    const ids = dedupedIds.slice(0, MAX_LOOP_CACHES);
+    const allIds = dedupedIds.slice(0, MAX_LOOP_CACHES);
     // Candidates trimmed by the loop-size cap never reach the solver; surface
     // them as `candidate-cap` so they're not silently absent.
     const capTruncatedIds = dedupedIds.slice(MAX_LOOP_CACHES);
 
-    const cacheRows = await this.caches.findByIds(ownerId, ids);
-    if (cacheRows.length !== ids.length) {
-      const missing = ids.filter((id) => !cacheRows.some((c) => c.id === id));
+    const allRows = await this.caches.findByIds(ownerId, allIds);
+    if (allRows.length !== allIds.length) {
+      const missing = allIds.filter((id) => !allRows.some((c) => c.id === id));
       throw new NotFoundException(
         `Caches not found for this user: ${missing.join(", ")}`,
       );
     }
-    const byId = new Map(cacheRows.map((c) => [c.id, c]));
 
     // OD matrix (one OSRM /table call).
-    const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
+    const matrix = await this.routing.getMatrix(ownerId, allIds, PROFILE);
+    const metersFull = matrix.legs.map((row) =>
+      row.map((cell) => (cell ? cell.meters : null)),
+    );
+    const secondsFull = matrix.legs.map((row) =>
+      row.map((cell) => (cell ? cell.seconds : null)),
+    );
 
-    // Reject straight away if we have fewer than two reachable nodes — the
-    // solver would happily return an empty visitOrder and we'd surface a
-    // confusing 200 with no polyline.
-    const reachableCount = ids
-      .map((_, i) =>
-        ids.some((_b, j) => i !== j && matrix.legs[i]?.[j] != null) ? 1 : 0,
-      )
-      .reduce<number>((a, b) => a + b, 0);
-    if (reachableCount < 2) {
+    // Connected-component pre-filter: keep the largest walk-connected component
+    // so the solver never receives a set it can't route into one foot loop. A
+    // disconnected minority (across a barrier) would otherwise force a `null`
+    // leg → ∞ tour length → runaway over-trim. The minority drops as
+    // `unreachable` (FR-T13). Replaces the old "≥2 reachable" guard.
+    const { keptIds: ids, droppedIds: componentDropIds } =
+      largestConnectedComponent(allIds, metersFull, input.maxLinkMeters);
+    if (ids.length < 2) {
       throw new NotFoundException(
         "Selected caches are not mutually reachable on foot — pick a different cluster.",
       );
     }
+    if (componentDropIds.length > 0) {
+      this.logger.debug(
+        `connected-component filter: dropped ${componentDropIds.length} cache(s) not linked to the main component (maxLink=${input.maxLinkMeters} m)`,
+      );
+    }
 
-    const metersMatrix = matrix.legs.map((row) =>
-      row.map((cell) => (cell ? cell.meters : null)),
+    const cacheRows = allRows.filter((c) => ids.includes(c.id));
+    const byId = new Map(cacheRows.map((c) => [c.id, c]));
+    // Re-slice the matrices down to the kept component (indexed like `ids`).
+    const allIdsIndex = new Map(allIds.map((id, i) => [id, i]));
+    const keptIdxs = ids.map((id) => allIdsIndex.get(id)!);
+    const metersMatrix = keptIdxs.map((ri) =>
+      keptIdxs.map((ci) => metersFull[ri]?.[ci] ?? null),
     );
-    const secondsMatrix = matrix.legs.map((row) =>
-      row.map((cell) => (cell ? cell.seconds : null)),
+    const secondsMatrix = keptIdxs.map((ri) =>
+      keptIdxs.map((ci) => secondsFull[ri]?.[ci] ?? null),
     );
 
     // Collapse caches within a few metres' walk of each other into one routing
@@ -298,7 +315,11 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     }[] = trim.drops.map((d) => ({
       id: d.id,
       reason: d.reason,
-      neededBudgetMeters: round2(d.marginalMeters),
+      // A null-leg drop has an infinite marginal; omit the hint rather than
+      // emit Infinity (JSON-serialises to `null` → fails the wire schema).
+      ...(Number.isFinite(d.marginalMeters)
+        ? { neededBudgetMeters: round2(d.marginalMeters) }
+        : {}),
     }));
 
     // AL-aware trim (FR-I16): the solver keeps adventures whole (hard
@@ -378,6 +399,93 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           id: repId,
           reason: unreachable ? "unreachable" : "budget",
         });
+      }
+    }
+
+    // Budget-fill re-add (FR-T13): the trim can leave the loop well under
+    // budget — especially after dropping a whole spread adventure. Re-add whole
+    // adventures (and individual non-AL reps) that were dropped for *budget*
+    // reasons, cheapest-to-reach first, while the closed loop stays within
+    // budget. `outlier`/`unreachable` drops are never reclaimed (genuine
+    // barrier detours / no foot route). Re-2-opt per accepted unit; the
+    // closed-loop length over the rep matrix gates each addition.
+    {
+      const repIndexF = new Map(repIds.map((id, i) => [id, i]));
+      const distAt = (a: number, b: number): number => {
+        const i = repIndexF.get(a);
+        const j = repIndexF.get(b);
+        if (i === undefined || j === undefined) return Number.POSITIVE_INFINITY;
+        const v = repMatrixMeters[i]?.[j];
+        return v == null ? Number.POSITIVE_INFINITY : v;
+      };
+      const parkTo = (id: number): number => {
+        const i = repIndexF.get(id);
+        const v = i === undefined ? undefined : parkingToCacheMeters[i];
+        return v == null || v >= PARK_UNREACHABLE_SENTINEL
+          ? Number.POSITIVE_INFINITY
+          : v;
+      };
+      const toPark = (id: number): number => {
+        const i = repIndexF.get(id);
+        const v = i === undefined ? undefined : cacheToParkingMeters[i];
+        return v == null || v >= PARK_UNREACHABLE_SENTINEL
+          ? Number.POSITIVE_INFINITY
+          : v;
+      };
+      const advOf = (id: number): string | null =>
+        byId.get(id)?.adventureId ?? null;
+
+      // Group dropped reps into atomic units (whole adventure, or one non-AL
+      // rep). A unit is eligible only if every dropped rep in it is reclaimable.
+      const dropReasonById = new Map(repDrops.map((d) => [d.id, d.reason]));
+      const reclaimable = (r: Tours.DropReason): boolean =>
+        r === "budget" || r === "adventure-incomplete";
+      const unitOf = (id: number): string => {
+        const a = advOf(id);
+        return a ? `adv:${a}` : `cache:${id}`;
+      };
+      const unitMembers = new Map<string, number[]>();
+      for (const d of repDrops) {
+        const key = unitOf(d.id);
+        (unitMembers.get(key) ?? unitMembers.set(key, []).get(key)!).push(d.id);
+      }
+      const eligibleUnits = [...unitMembers.values()].filter((members) =>
+        members.every((id) => reclaimable(dropReasonById.get(id)!)),
+      );
+
+      let current = orderedIds.slice();
+      const nearestToLoop = (members: readonly number[]): number =>
+        Math.min(...members.flatMap((m) => current.map((c) => distAt(m, c))));
+      eligibleUnits.sort((x, y) => nearestToLoop(x) - nearestToLoop(y));
+
+      const reAdded = new Set<number>();
+      for (const members of eligibleUnits) {
+        const candidate = [...current, ...members];
+        const subDist = candidate.map((a) =>
+          candidate.map((b) => {
+            const d = a === b ? 0 : distAt(a, b);
+            return Number.isFinite(d) ? d : Number.MAX_SAFE_INTEGER;
+          }),
+        );
+        const { order } = Tsp.solveTwoOpt(subDist, 0);
+        const reordered = order.map((i) => candidate[i]!);
+        if (
+          closedLoopMeters(reordered, distAt, parkTo, toPark) <=
+          input.distanceBudgetMeters
+        ) {
+          current = reordered;
+          for (const id of members) reAdded.add(id);
+        }
+      }
+
+      if (reAdded.size > 0) {
+        orderedIds = current;
+        for (let i = repDrops.length - 1; i >= 0; i -= 1) {
+          if (reAdded.has(repDrops[i]!.id)) repDrops.splice(i, 1);
+        }
+        this.logger.debug(
+          `budget re-add: restored ${reAdded.size} rep(s) within budget`,
+        );
       }
     }
 
@@ -505,6 +613,10 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         id,
         reason: "candidate-cap" as const,
       })),
+      ...componentDropIds.map((id) => ({
+        id,
+        reason: "unreachable" as const,
+      })),
     ];
     const droppedExpanded = droppedCaches.map((d) => d.id);
 
@@ -570,7 +682,11 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         visitedCount: response.visitedCount,
         marginalTrimDroppedCount: droppedExpanded.length,
-        marginalTrimSavedMeters: round2(trim.savedMeters),
+        // savedMeters can be Infinity when a null-leg cache was trimmed; keep the
+        // wire numeric (Infinity → JSON null → fails PlanResult.parse).
+        marginalTrimSavedMeters: Number.isFinite(trim.savedMeters)
+          ? round2(trim.savedMeters)
+          : 0,
       },
       legs,
     };
