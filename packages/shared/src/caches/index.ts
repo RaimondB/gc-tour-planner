@@ -19,6 +19,7 @@ export const CACHE_TYPES = [
   "Webcam",
   "Wherigo",
   "CITO",
+  "Adventure Lab",
   "Other",
 ] as const;
 export const CacheType = z.enum(CACHE_TYPES);
@@ -114,6 +115,17 @@ export const CacheDTO = z.object({
    * `DESCRIPTION_HINTS` (e.g. `"fishingRod"`, `"binoculars"`).
    */
   descriptionHints: z.array(z.string()).default([]),
+  /**
+   * Adventure Lab deep-link GUID — the path segment of
+   * `labs.geocaching.com/goto/<id>`. Set only for `type==='Adventure Lab'`
+   * stages; lets the popup link out to the Adventure (a stage has no per-stage
+   * geocaching.com page). `null` for every other cache. Defaulted for back-compat.
+   */
+  adventureId: z.string().nullable().default(null),
+  /** Adventure Lab 1-based stage position; `null` for non-AL caches. */
+  stageSequence: z.number().int().positive().nullable().default(null),
+  /** Adventure Lab total stage count (the "M" in "Stage N of M"); `null` otherwise. */
+  stageTotal: z.number().int().positive().nullable().default(null),
 });
 export type CacheDTO = z.infer<typeof CacheDTO>;
 
@@ -207,6 +219,16 @@ export const CacheSummaryDTO = z.object({
   parkingPoints: z.array(LngLat),
   /** = hasToolRequirement(attributeIds, descriptionHints), computed server-side. */
   requiresTool: z.boolean(),
+  /**
+   * Adventure Lab deep-link GUID (Adventure Lab stages only; `null` otherwise).
+   * Kept on the lean wire shape so the map popup can render the "open in
+   * Adventure Lab" link immediately, without the per-cache detail round-trip.
+   */
+  adventureId: z.string().nullable().default(null),
+  /** AL stage position — drives the numbered map label + "Stage N of M". */
+  stageSequence: z.number().int().positive().nullable().default(null),
+  /** AL total stage count — denominator for tour completion. */
+  stageTotal: z.number().int().positive().nullable().default(null),
 });
 export type CacheSummaryDTO = z.infer<typeof CacheSummaryDTO>;
 
@@ -230,5 +252,8 @@ export function toCacheSummary(c: CacheDTO): CacheSummaryDTO {
     stageCount: c.stageCount,
     parkingPoints: c.parkingPoints,
     requiresTool: hasToolRequirement(c.attributeIds, c.descriptionHints),
+    adventureId: c.adventureId,
+    stageSequence: c.stageSequence,
+    stageTotal: c.stageTotal,
   };
 }

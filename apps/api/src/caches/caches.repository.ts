@@ -80,6 +80,11 @@ interface CacheRow {
    * never re-parsed. Empty array when scanned but nothing matched.
    */
   description_hints: string[] | null;
+  /** Adventure Lab deep-link GUID; null for non-AL caches. */
+  adventure_id: string | null;
+  /** Adventure Lab stage position + total; null for non-AL caches. */
+  stage_sequence: number | null;
+  stage_total: number | null;
 }
 
 @Injectable()
@@ -167,6 +172,9 @@ export class CachesRepository {
           .select(sql<number>`COUNT(*)::int`.as("stage_count"))
           .as("stage_count"),
         "c.description_hints",
+        "c.adventure_id",
+        "c.stage_sequence",
+        "c.stage_total",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -287,6 +295,9 @@ export class CachesRepository {
         // the DB so the admin reprocess flow can spot back-fill
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
+        adventureId: r.adventure_id,
+        stageSequence: r.stage_sequence,
+        stageTotal: r.stage_total,
       };
     });
 
@@ -473,6 +484,9 @@ export class CachesRepository {
           .select(sql<number>`COUNT(*)::int`.as("stage_count"))
           .as("stage_count"),
         "c.description_hints",
+        "c.adventure_id",
+        "c.stage_sequence",
+        "c.stage_total",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -516,8 +530,147 @@ export class CachesRepository {
         // the DB so the admin reprocess flow can spot back-fill
         // targets via WHERE description_hints IS NULL.
         descriptionHints: r.description_hints ?? [],
+        adventureId: r.adventure_id,
+        stageSequence: r.stage_sequence,
+        stageTotal: r.stage_total,
       };
     });
+  }
+
+  /**
+   * FR-I16: all (non-archived) stages of the given Adventure Labs owned by this
+   * user — used to "pull in" an adventure's missing stages so the solver can
+   * keep adventures complete. Resolves ids via the partial
+   * `caches_adventure_id_idx`, then reuses `findByIds` for the full DTO shape.
+   */
+  async findAdventureStages(
+    userId: string,
+    adventureIds: readonly string[],
+  ): Promise<Caches.CacheDTO[]> {
+    if (adventureIds.length === 0) return [];
+    const rows = await this.db
+      .selectFrom("caches")
+      .select("id")
+      .where("owner_id", "=", userId)
+      .where("adventure_id", "in", adventureIds as unknown as string[])
+      .where("archived", "=", false)
+      .execute();
+    return this.findByIds(
+      userId,
+      rows.map((r) => Number(r.id)),
+    );
+  }
+
+  /**
+   * FR-I17: Adventure Lab stages that carry stage metadata (so they were
+   * imported as AL stages) but have no `adventure_id` — typically older uploads
+   * from a Lab2Gpx GPX whose `<url>` lacked the `goto/<guid>` deep-link, leaving
+   * the planner unable to group them as one adventure. Returns just what the
+   * backfill needs: id + code (the LC source code, our match key against a fresh
+   * Lab2Gpx fetch), the human name (its `<title> : S{n} …` prefix groups stages
+   * of one adventure), and coordinates (to centre the re-fetch).
+   */
+  async findAlStagesMissingAdventureId(
+    userId: string,
+  ): Promise<
+    Array<{ id: number; code: string; name: string; lng: number; lat: number }>
+  > {
+    const rows = await sql<{
+      id: string;
+      code: string;
+      name: string;
+      lng: number;
+      lat: number;
+    }>`
+      SELECT id, code, name,
+             ST_X(location::geometry) AS lng,
+             ST_Y(location::geometry) AS lat
+      FROM caches
+      WHERE owner_id = ${userId}
+        AND type = 'Adventure Lab'
+        AND stage_sequence IS NOT NULL
+        AND (adventure_id IS NULL OR adventure_id = '')
+    `.execute(this.db);
+    return rows.rows.map((r) => ({
+      id: Number(r.id),
+      code: r.code,
+      name: r.name,
+      lng: Number(r.lng),
+      lat: Number(r.lat),
+    }));
+  }
+
+  /**
+   * FR-I17 dedup: remove duplicate Adventure Lab stage rows for one owner — the
+   * same adventure imported under two Lab2Gpx code schemes (separator vs not)
+   * leaves two rows per `(adventure_id, stage_sequence)`. Keep one (prefer the
+   * non-hyphenated code = the enricher's current scheme, then lowest id). Mirror
+   * of migration 1784 but owner-scoped, run at the end of the backfill so the
+   * stages whose `adventure_id` it just filled get deduped too. FKs cascade.
+   * Returns the number of rows deleted.
+   */
+  async dedupAdventureStages(userId: string): Promise<number> {
+    const res = await sql`
+      DELETE FROM caches c
+      USING (
+        SELECT id,
+               row_number() OVER (
+                 PARTITION BY owner_id, adventure_id, stage_sequence
+                 ORDER BY (code ~ '-[0-9]+$') ASC, id ASC
+               ) AS rn
+        FROM caches
+        WHERE owner_id = ${userId}
+          AND type = 'Adventure Lab'
+          AND adventure_id IS NOT NULL AND adventure_id <> ''
+          AND stage_sequence IS NOT NULL
+      ) dup
+      WHERE c.id = dup.id AND dup.rn > 1
+    `.execute(this.db);
+    return Number(res.numAffectedRows ?? 0n);
+  }
+
+  /**
+   * FR-I17 backfill: set `adventure_id` on a cache only when it's currently
+   * missing, matched by owner + LC `code`. Returns the number of rows updated
+   * (0 or 1), so a re-fetch that doesn't resolve a code is a safe no-op.
+   */
+  async setAdventureIdIfMissing(
+    userId: string,
+    code: string,
+    adventureId: string,
+  ): Promise<number> {
+    const res = await this.db
+      .updateTable("caches")
+      .set({ adventure_id: adventureId })
+      .where("owner_id", "=", userId)
+      .where("code", "=", code)
+      .where((eb) =>
+        eb.or([eb("adventure_id", "is", null), eb("adventure_id", "=", "")]),
+      )
+      .executeTakeFirst();
+    return Number(res.numUpdatedRows ?? 0n);
+  }
+
+  /**
+   * FR-I17 backfill: same as {@link setAdventureIdIfMissing} but matched by cache
+   * `id` — used when the stored stage's `code` doesn't match the fresh Lab2Gpx
+   * fetch (a different code scheme) and we resolved its id by coordinate instead.
+   */
+  async setAdventureIdByIdIfMissing(
+    userId: string,
+    id: number,
+    adventureId: string,
+  ): Promise<number> {
+    const res = await this.db
+      .updateTable("caches")
+      .set({ adventure_id: adventureId })
+      .where("owner_id", "=", userId)
+      .where("id", "=", id)
+      .where((eb) =>
+        eb.or([eb("adventure_id", "is", null), eb("adventure_id", "=", "")]),
+      )
+      .executeTakeFirst();
+    return Number(res.numUpdatedRows ?? 0n);
   }
 
   /**

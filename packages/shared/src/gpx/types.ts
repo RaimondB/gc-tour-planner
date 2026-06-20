@@ -37,6 +37,26 @@ export const ParsedCache = z.object({
    * when the parser couldn't extract description text.
    */
   descriptionHints: z.array(z.string()).default([]),
+  /**
+   * Adventure Lab deep-link GUID, parsed from a stage `<wpt>`'s
+   * `<url>https://labs.geocaching.com/goto/<guid></url>`. Shared by every
+   * stage of one Adventure → both a grouping key and the source of the
+   * "open in Adventure Lab" link. `null` for ordinary caches (their `<url>`,
+   * if any, points at a geocaching.com listing, which this never matches).
+   */
+  adventureId: z.string().nullable().default(null),
+  /**
+   * 1-based stage position within the Adventure (Lab2Gpx `<urlname>` `S{n}`
+   * prefix). `null` for ordinary caches. Drives "Stage N of M" + the numbered
+   * map label.
+   */
+  stageSequence: z.number().int().positive().nullable().default(null),
+  /**
+   * Total stages in the Adventure (Lab2Gpx `<lab2gpx:stagesTotal>`). The "M" in
+   * "Stage N of M" and the denominator for tour completion. `null` for ordinary
+   * caches.
+   */
+  stageTotal: z.number().int().positive().nullable().default(null),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

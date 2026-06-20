@@ -16,6 +16,7 @@ import {
   type WalkingGraphStats,
 } from "../walking-graph.js";
 import { selectGrowthPool } from "./growth-pool.js";
+import { collapseAdventures } from "../collapse-adventures.js";
 import type { ClusteringContext } from "./strategy.js";
 
 /** Boundary-spanning clusters (ADR-0026). Default-off. */
@@ -51,6 +52,13 @@ const KNN_MUTUAL_FLOOR = Number.parseInt(
 export interface PreparedContext extends ClusteringContext {
   /** Bytes returned alongside diagnostics — not used by strategies. */
   landuseKindsByCacheId: ReadonlyMap<number, readonly string[]>;
+  /**
+   * Adventure-collapse expansion (FR-I17): representative cache id → all of that
+   * adventure's stage ids. Pass-1 clusters on the representatives (one node per
+   * adventure); `computeClusters` expands each chosen cluster's ids back to
+   * every stage on output. Empty when no Adventure Labs are in the pool.
+   */
+  adventureExpansion: ReadonlyMap<number, number[]>;
 }
 
 /**
@@ -131,24 +139,39 @@ export async function prepareClusteringContext(
     // pool-vs-map divergence.
     excludeFound: true,
   });
+  if (caches.length < 2) return null;
+
+  // Collapse each Adventure Lab's stages into one representative node (FR-I17)
+  // BEFORE the pool cap and the walking graph, so an adventure counts as a
+  // single place rather than 5-10 near-co-located caches that would otherwise
+  // form their own dense micro-cluster. The chosen cluster's ids are expanded
+  // back to every stage in `computeClusters`. No-op when no AL is in the pool.
+  const { collapsed, expansion: adventureExpansion } =
+    collapseAdventures(caches);
+  if (collapsed.length < caches.length) {
+    deps.logger.debug(
+      `adventure collapse: ${caches.length - collapsed.length} AL stage(s) → ${adventureExpansion.size} adventure node(s)`,
+    );
+  }
   if (stats) {
     stats.listMs = clock() - tList;
-    stats.candidateCount = caches.length;
+    // Candidate count reflects what clustering actually operates on (post-collapse).
+    stats.candidateCount = collapsed.length;
   }
-  if (caches.length < 2) return null;
+  if (collapsed.length < 2) return null;
 
   // Cap by proximity to the centre so the in-radius seed set + the nearest halo
   // survive the cap; `inRadiusIds` is the seed-eligible subset.
   const { pool, inRadiusIds } = selectGrowthPool(
-    caches,
+    collapsed,
     input.center,
     input.radiusM,
     MAX_DISCOVERY_POOL,
   );
   if (pool.length < 2) return null;
-  if (caches.length > pool.length) {
+  if (collapsed.length > pool.length) {
     deps.logger.warn(
-      `prepareClusteringContext: ${caches.length} candidates exceeds MAX_DISCOVERY_POOL=${MAX_DISCOVERY_POOL}; trimming to nearest ${pool.length}.`,
+      `prepareClusteringContext: ${collapsed.length} candidates exceeds MAX_DISCOVERY_POOL=${MAX_DISCOVERY_POOL}; trimming to nearest ${pool.length}.`,
     );
   }
   const coordinated = pool.map((c) => ({
@@ -222,6 +245,7 @@ export async function prepareClusteringContext(
     input,
     projection: Geo.makeProjection(input.center[0], input.center[1]),
     landuseKindsByCacheId,
+    adventureExpansion,
   };
 }
 

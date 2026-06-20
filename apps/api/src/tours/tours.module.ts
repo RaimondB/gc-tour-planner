@@ -15,6 +15,7 @@ import { LanduseProfilesRepository } from "../landuse-profiles/landuse-profiles.
 import { ParkingFacilitiesRepository } from "../osm/parking-facilities.repository.js";
 import { CarRoadsRepository } from "../osm/car-roads.repository.js";
 import { RoutingModule } from "../routing/routing.module.js";
+import { AdventureLabModule } from "../sources/adventure-lab/adventure-lab.module.js";
 import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
@@ -31,6 +32,7 @@ import {
   SOLVER_CLIENT,
   type SolverClient,
 } from "./strategies/solver/solver-client.js";
+import { GREEDY_PLANNER, SOLVER_PLANNER } from "./planner.tokens.js";
 import { ToursController } from "./tours.controller.js";
 import { ToursService } from "./tours.service.js";
 import { SavedToursController } from "./saved-tours.controller.js";
@@ -38,22 +40,15 @@ import { SavedToursService } from "./saved-tours.service.js";
 import { SavedToursRepository } from "./saved-tours.repository.js";
 
 /**
- * Strategy factory.
- *
- * `TOUR_PLANNER=greedy` (default): pure-TS GreedyTspPlanner.
- * `TOUR_PLANNER=solver`:           SolverTourPlanner, which delegates Pass 1
- *                                  to the greedy planner and POSTs Pass 2 to
- *                                  the Timefold sidecar (SOLVER_URL).
- *
- * Both strategies always have their dependencies instantiated — the factory
- * just picks which is returned. This keeps the wiring trivial and lets us
- * promote the greedy planner to a discoverClusters delegate without juggling
- * provider scopes.
+ * Both Pass-2 planners are always instantiated and exposed under their own
+ * tokens so `ToursService` can pick per request (greedy by default; the Timefold
+ * solver when Adventure Labs are in scope, FR-I16). The greedy planner also
+ * serves Pass-1 discovery for both. `Tours.TOUR_PLANNER` is kept (resolving to
+ * greedy or solver per `TOUR_PLANNER` env) for the discovery bench scripts.
  */
-const tourPlannerProvider: Provider = {
-  provide: Tours.TOUR_PLANNER,
+const greedyPlannerProvider: Provider = {
+  provide: GREEDY_PLANNER,
   useFactory: (
-    config: ConfigService,
     caches: CachesService,
     cachesRepo: CachesRepository,
     cacheLanduse: CacheLanduseRepository,
@@ -61,13 +56,12 @@ const tourPlannerProvider: Provider = {
     routingRepo: RoutingRepository,
     osrm: OsrmClient,
     osrmVersion: OsrmVersionService,
-    solver: SolverClient,
     parkingFacilities: ParkingFacilitiesRepository,
     carRoads: CarRoadsRepository,
     landuseProfiles: LanduseProfilesRepository,
     computePool: ComputePool,
-  ) => {
-    const greedy = new GreedyTspPlanner(
+  ) =>
+    new GreedyTspPlanner(
       caches,
       cachesRepo,
       cacheLanduse,
@@ -79,25 +73,8 @@ const tourPlannerProvider: Provider = {
       carRoads,
       landuseProfiles,
       computePool,
-    );
-    const flavor = config.get<string>("TOUR_PLANNER") ?? "greedy";
-    switch (flavor) {
-      case "solver":
-        return new SolverTourPlanner(
-          greedy,
-          caches,
-          routing,
-          osrm,
-          solver,
-          parkingFacilities,
-        );
-      case "greedy":
-      default:
-        return greedy;
-    }
-  },
+    ),
   inject: [
-    ConfigService,
     CachesService,
     CachesRepository,
     CacheLanduseRepository,
@@ -105,12 +82,52 @@ const tourPlannerProvider: Provider = {
     RoutingRepository,
     OSRM_CLIENT,
     OsrmVersionService,
-    SOLVER_CLIENT,
     ParkingFacilitiesRepository,
     CarRoadsRepository,
     LanduseProfilesRepository,
     COMPUTE_POOL,
   ],
+};
+
+const solverPlannerProvider: Provider = {
+  provide: SOLVER_PLANNER,
+  useFactory: (
+    greedy: GreedyTspPlanner,
+    caches: CachesService,
+    routing: RoutingService,
+    osrm: OsrmClient,
+    solver: SolverClient,
+    parkingFacilities: ParkingFacilitiesRepository,
+  ) =>
+    new SolverTourPlanner(
+      greedy,
+      caches,
+      routing,
+      osrm,
+      solver,
+      parkingFacilities,
+    ),
+  inject: [
+    GREEDY_PLANNER,
+    CachesService,
+    RoutingService,
+    OSRM_CLIENT,
+    SOLVER_CLIENT,
+    ParkingFacilitiesRepository,
+  ],
+};
+
+const tourPlannerProvider: Provider = {
+  provide: Tours.TOUR_PLANNER,
+  useFactory: (
+    config: ConfigService,
+    greedy: GreedyTspPlanner,
+    solver: SolverTourPlanner,
+  ) =>
+    (config.get<string>("TOUR_PLANNER") ?? "greedy") === "solver"
+      ? solver
+      : greedy,
+  inject: [ConfigService, GREEDY_PLANNER, SOLVER_PLANNER],
 };
 
 @Module({
@@ -120,6 +137,7 @@ const tourPlannerProvider: Provider = {
     RoutingModule,
     OsmModule,
     LanduseProfilesModule,
+    AdventureLabModule,
   ],
   controllers: [ToursController, SavedToursController],
   providers: [
@@ -128,6 +146,8 @@ const tourPlannerProvider: Provider = {
     SavedToursRepository,
     { provide: SOLVER_CLIENT, useClass: HttpSolverClient },
     { provide: COMPUTE_POOL, useClass: PiscinaComputePool },
+    greedyPlannerProvider,
+    solverPlannerProvider,
     tourPlannerProvider,
   ],
   exports: [Tours.TOUR_PLANNER, ToursService],

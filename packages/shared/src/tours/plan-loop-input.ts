@@ -26,6 +26,27 @@ export const PlanLoopInput = z.object({
   /** Per-cache visit time used in time-budget math. Default per FR-T3 = 5. */
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
   /**
+   * Per-stage visit time for Adventure Lab stages, used instead of
+   * `timePerCacheMinutes` for `type==='Adventure Lab'` stops. Labs are quick
+   * (answer a question on your phone) and several often sit at one spot, so a
+   * separate, smaller default (2 min) keeps tour-time estimates realistic.
+   */
+  alStageVisitMinutes: z.number().int().nonnegative().max(120).default(2),
+  /**
+   * Adventure-Lab solver toggle (FR-I16): when an Adventure is in scope, include
+   * it **completely or not at all** — never a partial adventure. The solver pulls
+   * in missing stages and drops a whole adventure if it can't fit the budget.
+   * Default true. Only consulted on the solver path (AL in scope).
+   */
+  completeAdventuresOnly: z.boolean().default(true),
+  /**
+   * Adventure-Lab solver toggle (FR-I16): allow an Adventure's stages to
+   * **interleave** with other caches for the shortest route (default true). When
+   * false, the solver keeps each adventure as one contiguous block. Only
+   * consulted on the solver path.
+   */
+  adventureInterleave: z.boolean().default(true),
+  /**
    * FR-SF7: extra minutes added per cache that needs a tool (climbing
    * gear, scuba, fishing rod, etc. — see `hasToolRequirement` in
    * `packages/shared/src/caches/attributes.ts`). Default 5 min covers

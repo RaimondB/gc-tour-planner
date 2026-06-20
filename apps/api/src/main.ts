@@ -17,7 +17,10 @@ import { AppModule } from "./app.module.js";
 import { parseTrustProxy } from "./auth/client-ip.js";
 import { SESSION_COOKIE } from "./auth/cookies.js";
 import { SessionService } from "./auth/session.service.js";
-import { QUEUE_WALKING_PRECOMPUTE } from "./queues/queue.tokens.js";
+import {
+  QUEUE_ADVENTURE_LAB_IMPORT,
+  QUEUE_WALKING_PRECOMPUTE,
+} from "./queues/queue.tokens.js";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -89,10 +92,18 @@ async function bootstrap(): Promise<void> {
   const queuesMountPath = "/admin/queues";
   const publicBasePath = process.env.BULL_BOARD_BASE_PATH ?? queuesMountPath;
   const walkingQueue = app.get<Queue>(getQueueToken(QUEUE_WALKING_PRECOMPUTE));
+  const adventureLabQueue = app.get<Queue>(
+    getQueueToken(QUEUE_ADVENTURE_LAB_IMPORT),
+  );
   const bullBoardAdapter = new ExpressAdapter();
   bullBoardAdapter.setBasePath(publicBasePath);
   createBullBoard({
-    queues: [new BullMQAdapter(walkingQueue)],
+    queues: [
+      new BullMQAdapter(walkingQueue),
+      // Adventure Lab bulk import + adventure_id backfill jobs (FR-I15/I17),
+      // so the operator can watch them in bull-board like the precompute queue.
+      new BullMQAdapter(adventureLabQueue),
+    ],
     serverAdapter: bullBoardAdapter,
   });
 

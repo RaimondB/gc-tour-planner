@@ -4,7 +4,10 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Global, Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { QUEUE_WALKING_PRECOMPUTE } from "./queue.tokens.js";
+import {
+  QUEUE_ADVENTURE_LAB_IMPORT,
+  QUEUE_WALKING_PRECOMPUTE,
+} from "./queue.tokens.js";
 
 /**
  * Shared BullMQ wiring. Producers (admin controller, gpx upload service)
@@ -45,6 +48,17 @@ import { QUEUE_WALKING_PRECOMPUTE } from "./queue.tokens.js";
         removeOnFail: { age: 7 * 24 * 3600 },
         attempts: 3,
         backoff: { type: "exponential", delay: 5000 },
+      },
+    }),
+    BullModule.registerQueue({
+      name: QUEUE_ADVENTURE_LAB_IMPORT,
+      defaultJobOptions: {
+        removeOnComplete: { age: 3600, count: 100 },
+        removeOnFail: { age: 7 * 24 * 3600 },
+        // One retry — Lab2Gpx hiccups are transient; the import is idempotent
+        // (upsert by code), so a retry can't double-insert.
+        attempts: 2,
+        backoff: { type: "exponential", delay: 10_000 },
       },
     }),
   ],

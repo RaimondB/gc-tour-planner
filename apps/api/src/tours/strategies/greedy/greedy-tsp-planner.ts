@@ -25,6 +25,8 @@ import {
   resolveClusteringStrategy,
 } from "./clustering/index.js";
 import { haversineMeters } from "./equirectangular.js";
+import { collapseColocated } from "./colocate.js";
+import { expandColocatedRoute } from "./expand-colocated.js";
 import {
   COMPUTE_POOL,
   type ComputePool,
@@ -45,6 +47,19 @@ const PROFILE: Routing.RoutingProfile = "foot";
 const DEFAULT_TOP_N_CLUSTERS = 5;
 /** Hard cap so a misconfigured request doesn't make the planner OOM. */
 const MAX_LOOP_CACHES = 50;
+/** Default walking-metre radius for collapsing co-located stops (`PLANNER_COLOCATE_M`). */
+const DEFAULT_COLOCATE_M = 40;
+
+/**
+ * Co-location threshold in metres (caches within this walking distance collapse
+ * to one routing node). `PLANNER_COLOCATE_M=0` disables collapsing.
+ */
+function colocateThresholdMeters(): number {
+  const raw = process.env.PLANNER_COLOCATE_M;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_COLOCATE_M;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_COLOCATE_M;
+}
 /** Default number of nearest car-road segments to consider as `osrm-nearest-road`
  *  parking candidates. Override with `PLANNER_ROAD_CANDIDATES`. */
 const DEFAULT_ROAD_CANDIDATES = 12;
@@ -198,12 +213,31 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const byId = new Map(cacheRows.map((c) => [c.id, c]));
 
     const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
-    const { connectedIds, distances } = filterConnected(ids, matrix);
-    if (connectedIds.length < 2) {
+    const { connectedIds: connectedIdsRaw, distances: distancesRaw } =
+      filterConnected(ids, matrix);
+    if (connectedIdsRaw.length < 2) {
       throw new NotFoundException(
         "Selected caches are not mutually reachable on foot — pick a different cluster.",
       );
     }
+
+    // Collapse caches that are within a few metres' walk of each other into a
+    // single routing node — most importantly the co-located stages of an
+    // Adventure Lab. The whole Pass-2 pipeline below then runs on the (often far
+    // fewer) representatives; members are expanded back on output. Falls back to
+    // no-collapse if everything would merge into one group (need ≥2 to loop).
+    const colo = collapseColocated(
+      connectedIdsRaw,
+      distancesRaw,
+      (id) => byId.get(id)?.stageSequence ?? Number.POSITIVE_INFINITY,
+      colocateThresholdMeters(),
+    );
+    const useCollapse = colo.repIds.length >= 2;
+    const connectedIds = useCollapse ? colo.repIds : connectedIdsRaw;
+    const distances = useCollapse ? colo.repDistances : distancesRaw;
+    const groupMembers: ReadonlyMap<number, number[]> = useCollapse
+      ? colo.members
+      : new Map(connectedIdsRaw.map((id) => [id, [id]]));
 
     // Build the cache cycle BEFORE choosing parking so parking selection can
     // be loop-aware. 2-opt is anchored on the centroid's nearest cache (a
@@ -555,47 +589,56 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       );
     }
 
-    const orderedIdsFinal = currentOrderedIds;
-    droppedCacheIds.push(...postTrimDropped);
+    // Expand co-located groups back to their member stops (Pass-2 ran on one
+    // representative per group). Each group becomes its members — contiguous, in
+    // visit order — with real OSRM legs between groups and tiny synthesized legs
+    // between co-located members. Preserves the wire invariant
+    // `legs.length === orderedCacheIds.length + 1`, so TourLayer / completion /
+    // GPX export are unaffected.
+    const membersOf = (repId: number): number[] =>
+      groupMembers.get(repId) ?? [repId];
+    const { orderedIds: orderedIdsFinal, allLegs } = expandColocatedRoute(
+      currentOrderedIds,
+      membersOf,
+      (id) => byId.get(id)!.location.coordinates as [number, number],
+      { parkingToFirst, interCacheLegs, lastToParking },
+    );
 
-    const polyline = concatLineStrings([
-      parkingToFirst.geometry,
-      ...interCacheLegs.map((l) => l.geometry),
-      lastToParking.geometry,
-    ]);
+    // A dropped representative drops all of its members.
+    const droppedExpanded = [...droppedCacheIds, ...postTrimDropped].flatMap(
+      (id) => membersOf(id),
+    );
 
-    const interMeters = sum(interCacheLegs.map((l) => l.meters));
-    const interSeconds = sum(interCacheLegs.map((l) => l.seconds));
-    const meters = parkingToFirst.meters + interMeters + lastToParking.meters;
-    const seconds =
-      parkingToFirst.seconds + interSeconds + lastToParking.seconds;
-    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes`
-    // on top of `timePerCacheMinutes`. The bonus counts attribute-
-    // tagged tool caches (TOOL_ATTRIBUTE_IDS) and descriptionHints
-    // matches together (see `hasToolRequirement`). Only affects the
-    // returned `totals.visitMinutes` — distance budget, parking
-    // selection, and leg picking still use the flat per-cache time.
+    const polyline = concatLineStrings(allLegs.map((l) => l.geometry));
+    const meters = sum(allLegs.map((l) => l.meters));
+    const seconds = sum(allLegs.map((l) => l.seconds));
+    const parkingDetourMeters =
+      (allLegs[0]?.meters ?? 0) + (allLegs[allLegs.length - 1]?.meters ?? 0);
+
+    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes` on top of its
+    // base visit time. Adventure Lab stages use their own (smaller) per-stage
+    // visit time (`alStageVisitMinutes`) instead of `timePerCacheMinutes` —
+    // labs are quick and often clustered at one spot. Only affects
+    // `totals.visitMinutes`; distance/parking/leg-picking use the flat time.
     let toolStopCount = 0;
+    let alStageCount = 0;
     for (const id of orderedIdsFinal) {
       const c = byId.get(id);
       if (!c) continue;
+      if (c.type === "Adventure Lab") alStageCount += 1;
       if (hasToolRequirement(c.attributeIds, c.descriptionHints))
         toolStopCount += 1;
     }
+    const regularStops = orderedIdsFinal.length - alStageCount;
     const visitMinutes =
-      input.timePerCacheMinutes * orderedIdsFinal.length +
+      input.timePerCacheMinutes * regularStops +
+      input.alStageVisitMinutes * alStageCount +
       input.toolBonusMinutes * toolStopCount;
 
-    // Project the in-memory legs into the wire shape PlanResult.legs[]
-    // expects. Parking endpoints use the sentinel cache id 0. Each leg
-    // carries every alternative the picker considered + the index of
-    // the selected one, so the manual-edit UI can offer leg-route
-    // swaps without re-querying OSRM.
-    const allLegs: LegWithAlternatives[] = [
-      parkingToFirst,
-      ...interCacheLegs,
-      lastToParking,
-    ];
+    // Project the in-memory legs into the wire shape. Parking endpoints use the
+    // sentinel cache id 0. Each leg carries the alternatives the picker
+    // considered + the selected index for the manual-edit UI (synthesized
+    // co-located legs carry none).
     const legs: Tours.PlanLeg[] = allLegs.map((l, idx) => ({
       index: idx,
       fromCacheId: l.fromCacheId,
@@ -613,7 +656,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
 
     return {
       orderedCacheIds: orderedIdsFinal,
-      droppedCacheIds,
+      droppedCacheIds: droppedExpanded,
       polyline,
       totals: {
         meters: round2(meters),
@@ -623,11 +666,9 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       parking,
       scoreBreakdown: {
         tspLoopMeters: round2(meters),
-        parkingDetourMeters: round2(
-          parkingToFirst.meters + lastToParking.meters,
-        ),
+        parkingDetourMeters: round2(parkingDetourMeters),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
-        marginalTrimDroppedCount: droppedCacheIds.length,
+        marginalTrimDroppedCount: droppedExpanded.length,
         marginalTrimSavedMeters: round2(trim.savedMeters),
       },
       legs,

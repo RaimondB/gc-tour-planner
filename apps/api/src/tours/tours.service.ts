@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { Tours } from "@gctp/shared";
 import type { Caches } from "@gctp/shared";
 import { CachesService } from "../caches/caches.service.js";
@@ -11,6 +17,8 @@ import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
+import { AdventureLabEnricher } from "../sources/adventure-lab/al-enricher.service.js";
+import { GREEDY_PLANNER, SOLVER_PLANNER } from "./planner.tokens.js";
 import { haversineMeters } from "./strategies/greedy/equirectangular.js";
 import { explainSelection } from "./strategies/greedy/clustering/explain.js";
 import {
@@ -24,6 +32,13 @@ const PREFETCH_PROFILE = "foot" as const;
 /** Top-N clusters whose intra-cluster pairs we warm after Pass 1. */
 const PREFETCH_TOP_N = 5;
 
+/** Cluster-augment (FR-I15): metres added beyond the cluster's own extent. */
+const AUGMENT_BUFFER_M = 500;
+/** Cluster-augment: adventures to fetch from Lab2Gpx — small + fast by design. */
+const AUGMENT_LIMIT_ADVENTURES = 25;
+/** Hard cap on the augmented id set (mirrors the planner's MAX_LOOP_CACHES). */
+const AUGMENT_MAX_CACHES = 50;
+
 @Injectable()
 export class ToursService {
   private readonly logger = new Logger(ToursService.name);
@@ -31,6 +46,11 @@ export class ToursService {
   constructor(
     @Inject(Tours.TOUR_PLANNER)
     private readonly planner: Tours.TourPlannerStrategy,
+    @Inject(GREEDY_PLANNER)
+    private readonly greedy: Tours.TourPlannerStrategy,
+    @Inject(SOLVER_PLANNER)
+    private readonly solver: Tours.TourPlannerStrategy,
+    private readonly config: ConfigService,
     private readonly caches: CachesService,
     private readonly cachesRepo: CachesRepository,
     private readonly cacheLanduse: CacheLanduseRepository,
@@ -38,12 +58,18 @@ export class ToursService {
     private readonly routingRepo: RoutingRepository,
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly osrmVersion: OsrmVersionService,
+    private readonly adventureLab: AdventureLabEnricher,
   ) {}
 
   async discoverClusters(
     ownerId: string,
     input: Tours.PlanInput,
   ): Promise<Tours.DiscoverClustersResult> {
+    // Clustering operates on the existing pool only — Adventure Lab stages
+    // already in the DB participate like any other cache (the type filter
+    // governs whether they're included). Fetching more labs is an explicit,
+    // per-cluster action (`augmentClusterWithLabs`) and a manual admin bulk
+    // import, never an inline whole-area fetch (too heavy — see FR-I15).
     const result = await this.planner.discoverClusters(ownerId, input);
     // Opportunistic warm-up: after Pass 1 returns, kick off /route fetches
     // for the intra-cluster pairs of the top-N candidates. The cells are
@@ -63,11 +89,169 @@ export class ToursService {
     return result;
   }
 
-  planLoop(
+  /**
+   * Pass-2 routing. Strategy is chosen **per request** (FR-I16): the Timefold
+   * solver when Adventure Labs are in the candidate set (it models atomic
+   * adventures + budget + loop shape), the greedy planner otherwise (fast path).
+   * `TOUR_PLANNER` env overrides: `auto` (default) | `greedy` | `solver`. The
+   * solver is best-effort — if the sidecar is down/times out we fall back to
+   * greedy so an AL plan still returns.
+   */
+  async planLoop(
     ownerId: string,
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
-    return this.planner.planLoop(ownerId, input);
+    // Default `auto` (FR-I16): the solver path now has co-location collapse,
+    // atomic-adventure + contiguity constraints, and a lexicographic loop-shape
+    // objective, so AL plans route to Timefold while cache-only plans stay on the
+    // fast greedy path. Override with TOUR_PLANNER=greedy (force fast path) or
+    // =solver (force the solver for every plan).
+    const mode = (this.config.get<string>("TOUR_PLANNER") ?? "auto").trim();
+    let useSolver: boolean;
+    if (mode === "solver") useSolver = true;
+    else if (mode === "greedy") useSolver = false;
+    else {
+      // auto: solver only when the candidate set contains Adventure Lab stages.
+      const rows = await this.cachesRepo.findByIds(ownerId, input.cacheIds);
+      useSolver = rows.some((c) => c.type === "Adventure Lab");
+    }
+
+    if (!useSolver) return this.greedy.planLoop(ownerId, input);
+
+    // Pull in any missing stages of adventures already in the selection so the
+    // solver can keep them complete (FR-I16). Atomicity itself is enforced in the
+    // solver's constraints.
+    const cacheIds = await this.expandForCompleteAdventures(
+      ownerId,
+      input.cacheIds,
+    );
+    const solverInput: Tours.PlanLoopInput = { ...input, cacheIds };
+    try {
+      return await this.solver.planLoop(ownerId, solverInput);
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) {
+        this.logger.warn(
+          `Solver unavailable (${err.message}); falling back to greedy for this plan.`,
+        );
+        return this.greedy.planLoop(ownerId, solverInput);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Expand a cluster's cache ids with the missing stages of any Adventure Lab it
+   * already touches, so the solver can complete adventures. Adventures are added
+   * **whole** (never split) up to the candidate cap; non-AL caches are always
+   * kept. Returns the original ids unchanged when no AL is present.
+   */
+  private async expandForCompleteAdventures(
+    ownerId: string,
+    cacheIds: readonly number[],
+  ): Promise<number[]> {
+    const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
+    const adventureIds = [
+      ...new Set(
+        rows
+          .map((r) => r.adventureId)
+          .filter((x): x is string => x != null && x.length > 0),
+      ),
+    ];
+    if (adventureIds.length === 0) return [...new Set(cacheIds)];
+
+    const stages = await this.cachesRepo.findAdventureStages(
+      ownerId,
+      adventureIds,
+    );
+    const byAdventure = new Map<string, number[]>();
+    for (const s of stages) {
+      if (s.adventureId == null) continue;
+      const arr = byAdventure.get(s.adventureId) ?? [];
+      arr.push(s.id);
+      byAdventure.set(s.adventureId, arr);
+    }
+
+    // Non-AL caches from the original selection are always kept.
+    const result = new Set<number>(
+      rows.filter((r) => r.adventureId == null).map((r) => r.id),
+    );
+    let dropped = 0;
+    for (const ids of byAdventure.values()) {
+      if (result.size + ids.length > AUGMENT_MAX_CACHES) {
+        dropped += 1; // whole-or-none: skip an adventure that won't fit the cap
+        continue;
+      }
+      for (const id of ids) result.add(id);
+    }
+    if (dropped > 0) {
+      this.logger.debug(
+        `expandForCompleteAdventures: candidate cap ${AUGMENT_MAX_CACHES} skipped ${dropped} whole adventure(s)`,
+      );
+    }
+    return [...result];
+  }
+
+  /**
+   * FR-I15 cluster augmentation: pull nearby Adventure Lab stages into a chosen
+   * cluster. Does a *small* Lab2Gpx fetch around the cluster's own extent
+   * (+buffer), imports the stages via the GPX path, then returns the cluster's
+   * ids expanded with nearby labs (existing + freshly imported), nearest-first,
+   * capped at the loop max. No-op (returns the input unchanged) when the admin
+   * flag is off. Best-effort: a Lab2Gpx failure still returns whatever labs are
+   * already local, never throws.
+   */
+  async augmentClusterWithLabs(
+    ownerId: string,
+    input: Tours.AugmentClusterInput,
+  ): Promise<Tours.AugmentClusterResult> {
+    const cacheIds = Array.from(new Set(input.cacheIds));
+    if (!this.adventureLab.enabled) return { cacheIds, added: 0 };
+
+    const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
+    if (rows.length === 0) return { cacheIds, added: 0 };
+
+    const coords = rows.map((c) => c.location.coordinates as [number, number]);
+    const centroid: [number, number] = [
+      coords.reduce((s, c) => s + c[0], 0) / coords.length,
+      coords.reduce((s, c) => s + c[1], 0) / coords.length,
+    ];
+    const clusterRadiusM = coords.reduce(
+      (max, c) => Math.max(max, haversineMeters(centroid, c)),
+      0,
+    );
+    const fetchRadiusM = Math.round(clusterRadiusM) + AUGMENT_BUFFER_M;
+
+    // Import nearby labs (best-effort — null on flag-off/outage); we then read
+    // them back from the DB alongside any that were already local.
+    await this.adventureLab.enrich(
+      ownerId,
+      { center: centroid, radiusM: fetchRadiusM },
+      { limitAdventures: AUGMENT_LIMIT_ADVENTURES },
+    );
+
+    const nearby = await this.cachesRepo.find({
+      ownerId,
+      center: centroid,
+      radiusM: fetchRadiusM,
+      types: ["Adventure Lab"],
+      excludeFound: true,
+    });
+
+    const have = new Set(cacheIds);
+    const labsByDistance = nearby
+      .filter((c) => !have.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        d: haversineMeters(
+          centroid,
+          c.location.coordinates as [number, number],
+        ),
+      }))
+      .sort((a, b) => a.d - b.d);
+
+    const room = Math.max(0, AUGMENT_MAX_CACHES - cacheIds.length);
+    const addedIds = labsByDistance.slice(0, room).map((l) => l.id);
+    return { cacheIds: [...cacheIds, ...addedIds], added: addedIds.length };
   }
 
   /**

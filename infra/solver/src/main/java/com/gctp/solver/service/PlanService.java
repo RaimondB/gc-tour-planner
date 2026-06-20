@@ -4,7 +4,9 @@
 package com.gctp.solver.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
@@ -54,9 +56,15 @@ public class PlanService {
 
     private TourSolution toProblem(PlanRequest req) {
         List<Cache> caches = new ArrayList<>(req.caches().size());
+        Map<String, Long> adventureCandidateCounts = new HashMap<>();
         for (int i = 0; i < req.caches().size(); i++) {
             PlanRequest.CacheInput c = req.caches().get(i);
-            caches.add(new Cache(c.id(), i, c.lng(), c.lat()));
+            Cache cache = new Cache(c.id(), i, c.lng(), c.lat());
+            cache.setAdventureId(c.adventureId());
+            caches.add(cache);
+            if (c.adventureId() != null) {
+                adventureCandidateCounts.merge(c.adventureId(), 1L, Long::sum);
+            }
         }
         Tour tour = new Tour();
         tour.setMatrixMeters(req.matrixMeters());
@@ -68,8 +76,17 @@ public class PlanService {
         tour.setDistanceBudgetMeters(req.distanceBudgetMeters());
         tour.setTimeBudgetSeconds(req.timeBudgetSeconds() == null ? -1L : req.timeBudgetSeconds());
         tour.setVisitSecondsPerCache(req.visitSecondsPerCache());
-        if (req.weights() != null && req.weights().visitedCount() != null) {
-            tour.setVisitedCountWeight(req.weights().visitedCount());
+        tour.setAdventureCandidateCounts(adventureCandidateCounts);
+        // Toggles default ON when the request omits them (older clients).
+        tour.setCompleteAdventuresOnly(req.completeAdventuresOnly() == null || req.completeAdventuresOnly());
+        tour.setAdventureInterleave(req.adventureInterleave() == null || req.adventureInterleave());
+        if (req.weights() != null) {
+            if (req.weights().visitedCount() != null) {
+                tour.setVisitedCountWeight(req.weights().visitedCount());
+            }
+            if (req.weights().loopLength() != null) {
+                tour.setLoopLengthWeight(req.weights().loopLength());
+            }
         }
         return new TourSolution(caches, tour);
     }

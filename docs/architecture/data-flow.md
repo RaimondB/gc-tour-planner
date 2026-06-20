@@ -8,6 +8,15 @@ How requests traverse the stack from the user action down to storage and back.
 2. API: `gpx` service streams the file into the shared parser; upserts `caches` + `additional_waypoints`, scoped to `req.user.id`.
 3. Web invalidates the `/caches` query → markers re-render.
 
+### Machine ingestion (programmatic GPX upload, FR-I14 / ADR-0033)
+
+A trusted non-browser client — a script, a scheduled job, or a future external source adapter — can feed the same pipeline without a browser session:
+
+1. Client → `POST /ingest/gpx` (multipart `file`) with `Authorization: Bearer <INGEST_API_KEY>`.
+2. `IngestAuthGuard` resolves the token → owner (the `IngestTokenResolver` seam; env key → `INGEST_OWNER_ID` today) and the controller calls the **same** `GpxService.ingest(ownerId, …)` — identical dedup, staleness guard, upsert, and precompute as the browser path.
+
+The client and its credentials live outside this repo; GCTP exposes only the bearer-authenticated seam (off by default).
+
 ## Filter → list
 
 1. Sidebar updates filter state → debounced → `GET /caches?center&radiusM&types&attributes`.

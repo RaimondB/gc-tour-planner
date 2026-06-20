@@ -3,7 +3,7 @@
 
 package com.gctp.solver.solver;
 
-import ai.timefold.solver.core.api.score.buildin.hardsoftlong.HardSoftLongScore;
+import ai.timefold.solver.core.api.score.buildin.hardmediumsoftlong.HardMediumSoftLongScore;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
@@ -11,11 +11,21 @@ import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
 import com.gctp.solver.domain.Tour;
 
 /**
- * MVP constraint set per ADR-0005 / SolverTourPlanner brief:
- *   - HARD:  distance budget respected
- *   - HARD:  time budget respected (only when supplied)
- *   - HARD:  every leg in the order is reachable (no null matrix cells)
- *   - SOFT:  reward count of visited caches × {@code visitedCountWeight}
+ * Constraint set per ADR-0005 / SolverTourPlanner brief:
+ *   - HARD:   distance budget respected
+ *   - HARD:   time budget respected (only when supplied)
+ *   - HARD:   every leg in the order is reachable (no null matrix cells)
+ *   - HARD:   Adventure Lab atomicity — an adventure is included whole or not
+ *             at all (only when {@code completeAdventuresOnly})
+ *   - HARD:   Adventure Lab contiguity — an adventure's stages stay consecutive
+ *             (only when {@code !adventureInterleave})
+ *   - MEDIUM: reward count of visited caches × {@code visitedCountWeight}
+ *   - SOFT:   penalise total closed-loop metres × {@code loopLengthWeight}
+ *
+ * The three-level score makes selection strictly lexicographic: count (MEDIUM)
+ * dominates loop length (SOFT), so the solver never drops a cache to shorten the
+ * loop — it only compacts the loop among equal-count solutions. That's the
+ * loop-shape objective the greedy planner lacks.
  *
  * Terrain mix / landuse / pace-fit constraints are intentionally deferred —
  * they will land in a follow-up wave alongside the weights schema work.
@@ -34,7 +44,10 @@ public class TourConstraintProvider implements ConstraintProvider {
             distanceBudget(factory),
             timeBudget(factory),
             reachableLegs(factory),
-            visitedCount(factory)
+            adventureAtomicity(factory),
+            adventureContiguity(factory),
+            visitedCount(factory),
+            loopLength(factory)
         };
     }
 
@@ -42,7 +55,7 @@ public class TourConstraintProvider implements ConstraintProvider {
         return factory.forEach(Tour.class)
                 .filter(tour -> tour.totalMeters() > tour.getDistanceBudgetMeters())
                 .penalizeLong(
-                        HardSoftLongScore.ONE_HARD,
+                        HardMediumSoftLongScore.ONE_HARD,
                         tour -> Math.max(
                                 1L,
                                 (long) Math.ceil(tour.totalMeters() - tour.getDistanceBudgetMeters())))
@@ -54,7 +67,7 @@ public class TourConstraintProvider implements ConstraintProvider {
                 .filter(tour -> tour.getTimeBudgetSeconds() > 0
                         && tour.totalSeconds() > tour.getTimeBudgetSeconds())
                 .penalizeLong(
-                        HardSoftLongScore.ONE_HARD,
+                        HardMediumSoftLongScore.ONE_HARD,
                         tour -> Math.max(
                                 1L,
                                 (long) Math.ceil(tour.totalSeconds() - tour.getTimeBudgetSeconds())))
@@ -64,15 +77,41 @@ public class TourConstraintProvider implements ConstraintProvider {
     public Constraint reachableLegs(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .filter(Tour::hasUnreachableLeg)
-                .penalizeLong(HardSoftLongScore.ONE_HARD, tour -> 1_000L)
+                .penalizeLong(HardMediumSoftLongScore.ONE_HARD, tour -> 1_000L)
                 .asConstraint("reachable legs");
+    }
+
+    public Constraint adventureAtomicity(ConstraintFactory factory) {
+        return factory.forEach(Tour.class)
+                .filter(tour -> tour.isCompleteAdventuresOnly()
+                        && tour.partialAdventurePenalty() > 0L)
+                .penalizeLong(HardMediumSoftLongScore.ONE_HARD, Tour::partialAdventurePenalty)
+                .asConstraint("adventure atomicity");
+    }
+
+    public Constraint adventureContiguity(ConstraintFactory factory) {
+        return factory.forEach(Tour.class)
+                .filter(tour -> !tour.isAdventureInterleave()
+                        && tour.contiguityGapPenalty() > 0L)
+                .penalizeLong(HardMediumSoftLongScore.ONE_HARD, Tour::contiguityGapPenalty)
+                .asConstraint("adventure contiguity");
     }
 
     public Constraint visitedCount(ConstraintFactory factory) {
         return factory.forEach(Tour.class)
                 .rewardLong(
-                        HardSoftLongScore.ONE_SOFT,
+                        HardMediumSoftLongScore.ONE_MEDIUM,
                         tour -> (long) tour.getVisitOrder().size() * tour.getVisitedCountWeight())
                 .asConstraint("visited count");
+    }
+
+    public Constraint loopLength(ConstraintFactory factory) {
+        return factory.forEach(Tour.class)
+                .filter(tour -> !tour.getVisitOrder().isEmpty()
+                        && Double.isFinite(tour.totalMeters()))
+                .penalizeLong(
+                        HardMediumSoftLongScore.ONE_SOFT,
+                        tour -> Math.max(0L, (long) Math.ceil(tour.totalMeters() * tour.getLoopLengthWeight())))
+                .asConstraint("loop length");
     }
 }

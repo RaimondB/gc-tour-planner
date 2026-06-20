@@ -6,11 +6,17 @@ import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
 import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { RoutingService } from "../../../routing/routing.service.js";
-import { OSRM_CLIENT, type OsrmClient } from "../../../routing/osrm.client.js";
+import {
+  OSRM_CLIENT,
+  type OsrmClient,
+  type OsrmLeg,
+} from "../../../routing/osrm.client.js";
 import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
 import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
 import { pickBestPqParking } from "../pick-pq-parking.js";
+import { collapseColocated } from "../greedy/colocate.js";
+import { expandColocatedRoute } from "../greedy/expand-colocated.js";
 import {
   OverlapGrid,
   pickAndAccumulate,
@@ -28,6 +34,38 @@ import {
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const MAX_LOOP_CACHES = 50;
+
+/** Default walking-metre radius for collapsing co-located stops
+ *  (`PLANNER_COLOCATE_M`). Mirrors GreedyTspPlanner — kept in sync so both
+ *  planners collapse AL stages identically. */
+const DEFAULT_COLOCATE_M = 40;
+
+/** Soft loop-length weight sent to the solver (`PLANNER_SOLVER_LOOP_WEIGHT`).
+ *  Per-metre SOFT penalty; the visited-count reward lives on the MEDIUM level
+ *  so this only compacts the loop among equal-count solutions. */
+const DEFAULT_SOLVER_LOOP_WEIGHT = 1;
+
+function colocateThresholdMeters(): number {
+  const raw = process.env.PLANNER_COLOCATE_M;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_COLOCATE_M;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_COLOCATE_M;
+}
+
+function solverLoopWeight(): number {
+  const raw = process.env.PLANNER_SOLVER_LOOP_WEIGHT;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_SOLVER_LOOP_WEIGHT;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_SOLVER_LOOP_WEIGHT;
+}
+
+/** Routing.Leg plus the alternatives the picker considered + the selected one,
+ *  so the solver path can surface them in PlanResult.legs (manual-edit UI) and
+ *  feed {@link expandColocatedRoute}, which requires ≥1 alternative per leg. */
+type LegWithAlternatives = Routing.Leg & {
+  alternatives: OsrmLeg[];
+  selectedIndex: number;
+};
 
 /**
  * Solver-backed implementation of {@link Tours.TourPlannerStrategy}.
@@ -107,34 +145,64 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       );
     }
 
+    const metersMatrix = matrix.legs.map((row) =>
+      row.map((cell) => (cell ? cell.meters : null)),
+    );
+    const secondsMatrix = matrix.legs.map((row) =>
+      row.map((cell) => (cell ? cell.seconds : null)),
+    );
+
+    // Collapse caches within a few metres' walk of each other into one routing
+    // node — most importantly the co-located stages of an Adventure Lab. The
+    // solver then plans on the (often far fewer) representatives; members are
+    // expanded back on output. Without this, AL plans regress to near-zero-leg
+    // weirdness and the atomicity/contiguity constraints fire on duplicate
+    // single-spot nodes. Falls back to no-collapse if everything would merge
+    // into one group (need ≥2 to loop).
+    const colo = collapseColocated(
+      ids,
+      metersMatrix,
+      (id) => byId.get(id)?.stageSequence ?? Number.POSITIVE_INFINITY,
+      colocateThresholdMeters(),
+    );
+    const useCollapse = colo.repIds.length >= 2;
+    const repIds = useCollapse ? colo.repIds : ids;
+    const groupMembers: ReadonlyMap<number, number[]> = useCollapse
+      ? colo.members
+      : new Map(ids.map((id) => [id, [id]]));
+    const membersOf = (repId: number): number[] =>
+      groupMembers.get(repId) ?? [repId];
+
+    // Reduce the meter/second matrices to representative-by-representative,
+    // indexed like `repIds`. (collapseColocated only reduces meters, so we
+    // derive both here from the rep positions for a consistent layout.)
+    const idsIndex = new Map(ids.map((id, i) => [id, i]));
+    const repOrigIdx = repIds.map((id) => idsIndex.get(id)!);
+    const subMatrix = (m: (number | null)[][]): (number | null)[][] =>
+      repOrigIdx.map((ri) =>
+        repOrigIdx.map((rj) => (ri === rj ? 0 : (m[ri]?.[rj] ?? null))),
+      );
+    const repMatrixMeters = subMatrix(metersMatrix);
+    const repMatrixSeconds = subMatrix(secondsMatrix);
+
     // Parking: same algorithm as greedy. Picked BEFORE the solver so the
     // anchor-to-parking legs go in as constants in the problem instance.
     const parking = await this.pickParking(input, cacheRows);
     const parkingCoord = parking.point.coordinates as [number, number];
+    const coordOf = (id: number): [number, number] =>
+      byId.get(id)!.location.coordinates as [number, number];
 
-    // Parking → cache and cache → parking legs (length N each).
+    // Parking → rep and rep → parking legs (length = #representatives).
     const parkingLegs = await Promise.all(
-      ids.map((id) =>
-        this.osrm.route(
-          parkingCoord,
-          byId.get(id)!.location.coordinates as [number, number],
-          PROFILE,
-        ),
-      ),
+      repIds.map((id) => this.osrm.route(parkingCoord, coordOf(id), PROFILE)),
     );
     const closingLegs = await Promise.all(
-      ids.map((id) =>
-        this.osrm.route(
-          byId.get(id)!.location.coordinates as [number, number],
-          parkingCoord,
-          PROFILE,
-        ),
-      ),
+      repIds.map((id) => this.osrm.route(coordOf(id), parkingCoord, PROFILE)),
     );
 
     // OSRM returns null for unreachable pairs; the solver needs concrete
-    // numbers for the per-cache parking legs (otherwise it can't compute the
-    // start/end totals). Force any unreachable cache to look extremely
+    // numbers for the per-rep parking legs (otherwise it can't compute the
+    // start/end totals). Force any unreachable rep to look extremely
     // expensive so the solver naturally drops it from the visit order.
     const PARK_UNREACHABLE_SENTINEL = 1e9;
     const parkingToCacheMeters = parkingLegs.map(
@@ -156,17 +224,18 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       : null;
 
     const req: SolverPlanRequest = {
-      caches: ids.map((id) => ({
-        id,
-        lng: byId.get(id)!.location.coordinates[0]!,
-        lat: byId.get(id)!.location.coordinates[1]!,
-      })),
-      matrixMeters: matrix.legs.map((row) =>
-        row.map((cell) => (cell ? cell.meters : null)),
-      ),
-      matrixSeconds: matrix.legs.map((row) =>
-        row.map((cell) => (cell ? cell.seconds : null)),
-      ),
+      caches: repIds.map((id) => {
+        const c = byId.get(id)!;
+        return {
+          id,
+          lng: c.location.coordinates[0]!,
+          lat: c.location.coordinates[1]!,
+          adventureId: c.adventureId ?? null,
+          stageSequence: c.stageSequence ?? null,
+        };
+      }),
+      matrixMeters: repMatrixMeters,
+      matrixSeconds: repMatrixSeconds,
       parkingToCacheMeters,
       parkingToCacheSeconds,
       cacheToParkingMeters,
@@ -174,7 +243,9 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       distanceBudgetMeters: input.distanceBudgetMeters,
       timeBudgetSeconds,
       visitSecondsPerCache,
-      weights: { visitedCount: 100 },
+      completeAdventuresOnly: input.completeAdventuresOnly,
+      adventureInterleave: input.adventureInterleave,
+      weights: { visitedCount: 100, loopLength: solverLoopWeight() },
     };
 
     const response = await this.solver.plan(req);
@@ -186,26 +257,19 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     }
 
     // Marginal-cost trim — same rationale as in GreedyTspPlanner. The
-    // solver doesn't currently weight tour length (its only soft is
-    // visitedCount), so it's especially likely to leave behind-barrier
-    // caches in the tour. We use the matrix the solver was scored on
-    // (built from primary-path /table distances) and re-TSP locally on
-    // the surviving set.
-    const trimDistances = matrix.legs.map((row) =>
-      row.map((cell) => (cell ? cell.meters : null)),
-    );
-    // Threshold = user-supplied maxLinkMeters (see greedy-tsp-planner.ts
-    // for the rationale). In budget-aware mode this is the legacy floor; the
-    // distance budget + outlier factor drive the drops instead.
+    // solver's loop-length objective is soft (it never sacrifices a cache),
+    // so a behind-barrier outlier whose haversine looks reasonable can still
+    // survive. We re-TSP locally on the surviving reps using the same rep
+    // matrix the solver was scored on.
     const trimThreshold = input.maxLinkMeters;
     const trimCfg = resolveMarginalTrimConfig();
     // trimMarginalCaches is async (ADR-0014); the solver path uses its
     // synchronous fallback solve (its heavy work is the Timefold sidecar).
     const trim = await trimMarginalCaches({
       orderedIds: solverOrderedIds,
-      originalIds: ids,
-      distances: trimDistances,
-      // Parking distances are already fetched per-cache (parkingLegs +
+      originalIds: repIds,
+      distances: repMatrixMeters,
+      // Parking distances are already fetched per-rep (parkingLegs +
       // closingLegs), so endpoint trim is on — catches the
       // last-cache-stuck-behind-a-barrier case.
       parkingToCacheM: parkingToCacheMeters,
@@ -221,31 +285,70 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           }
         : {}),
     });
-    const orderedIds = trim.orderedIds;
-    const droppedCacheIds = trim.droppedIds;
+    let orderedIds = trim.orderedIds;
+    let droppedCacheIds = trim.droppedIds;
+
+    // AL-aware trim (FR-I16): the solver keeps adventures whole (hard
+    // atomicity constraint), but the marginal trim above drops individual reps
+    // and can orphan an adventure. When `completeAdventuresOnly`, drop the rest
+    // of any adventure the trim left partial — never present a partial AL. (We
+    // drop the survivors rather than restore the trimmed rep, since the trim
+    // removed it for a budget/outlier reason; trimming reduces distance so it
+    // stays feasible.)
+    if (input.completeAdventuresOnly) {
+      const advOf = (repId: number): string | null =>
+        byId.get(repId)?.adventureId ?? null;
+      // Reps per adventure in the SOLVED order (atomic by construction).
+      const totalByAdv = new Map<string, number>();
+      for (const r of solverOrderedIds) {
+        const a = advOf(r);
+        if (a) totalByAdv.set(a, (totalByAdv.get(a) ?? 0) + 1);
+      }
+      const keptByAdv = new Map<string, number[]>();
+      for (const r of orderedIds) {
+        const a = advOf(r);
+        if (!a) continue;
+        const arr = keptByAdv.get(a) ?? [];
+        arr.push(r);
+        keptByAdv.set(a, arr);
+      }
+      const orphanDrops = new Set<number>();
+      for (const [a, kept] of keptByAdv) {
+        const total = totalByAdv.get(a) ?? kept.length;
+        if (kept.length < total) for (const r of kept) orphanDrops.add(r);
+      }
+      if (orphanDrops.size > 0) {
+        const next = orderedIds.filter((r) => !orphanDrops.has(r));
+        // Keep the loop viable (≥2 stops); otherwise leave the trim as-is.
+        if (next.length >= 2) {
+          orderedIds = next;
+          droppedCacheIds = [...droppedCacheIds, ...orphanDrops];
+          this.logger.debug(
+            `AL-aware trim: dropped ${orphanDrops.size} rep(s) to keep adventures whole`,
+          );
+        }
+      }
+    }
+
     if (droppedCacheIds.length > 0) {
       this.logger.debug(
-        `marginal trim: dropped ${droppedCacheIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
+        `marginal trim: dropped ${droppedCacheIds.length} rep(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
       );
     }
 
-    // Loop-aware polyline assembly. The solver was scored on primary-path
-    // distances (the matrix we sent it), so its order is still correct, but
-    // we render each leg using `pickAndAccumulate` against an OverlapGrid
-    // so consecutive legs prefer non-overlapping streets when OSRM offers
-    // alternatives. The picked legs' meters/seconds also feed back into
-    // totals, so the displayed totals match the rendered polyline.
+    // Loop-aware polyline assembly. The solver order is fixed, but each leg
+    // gets a chance to pick a non-overlapping alternative against the polyline
+    // accumulated so far (stops walking the same street twice). The picked
+    // legs' meters/seconds feed back into totals, so the displayed totals match
+    // the rendered polyline. Legs carry their alternatives so the manual-edit
+    // UI works and {@link expandColocatedRoute} can splice co-located members.
     const loopOpts = readLoopOptionsFromEnv();
     const grid = new OverlapGrid(loopOpts.picker.gridMeters);
     const altCount = loopOpts.altCount;
-    const firstCoord = byId.get(orderedIds[0]!)!.location.coordinates as [
-      number,
-      number,
-    ];
-    const lastCoord = byId.get(orderedIds[orderedIds.length - 1]!)!.location
-      .coordinates as [number, number];
+    const firstCoord = coordOf(orderedIds[0]!);
+    const lastCoord = coordOf(orderedIds[orderedIds.length - 1]!);
 
-    const parkingToFirst = await pickAndAccumulate({
+    const ptf = await pickAndAccumulate({
       from: parkingCoord,
       to: firstCoord,
       profile: PROFILE,
@@ -256,21 +359,29 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       logger: this.logger,
       label: "parking→first",
     });
-    if (!parkingToFirst) {
+    if (!ptf) {
       throw new NotFoundException(
         "OSRM could not connect parking to the chosen loop — try a different start preference.",
       );
     }
+    const parkingToFirst: LegWithAlternatives = {
+      fromCacheId: 0,
+      toCacheId: orderedIds[0]!,
+      profile: PROFILE,
+      meters: ptf.picked.meters,
+      seconds: ptf.picked.seconds,
+      geometry: ptf.picked.geometry,
+      alternatives: ptf.alternatives,
+      selectedIndex: ptf.selectedIndex,
+    };
 
-    const interCacheLegs: Routing.Leg[] = [];
+    const interCacheLegs: LegWithAlternatives[] = [];
     for (let i = 0; i < orderedIds.length - 1; i += 1) {
       const fromId = orderedIds[i]!;
       const toId = orderedIds[i + 1]!;
-      const fromC = byId.get(fromId)!.location.coordinates as [number, number];
-      const toC = byId.get(toId)!.location.coordinates as [number, number];
       const picked = await pickAndAccumulate({
-        from: fromC,
-        to: toC,
+        from: coordOf(fromId),
+        to: coordOf(toId),
         profile: PROFILE,
         count: altCount,
         fetchAlternatives: this.osrm.routeAlternatives.bind(this.osrm),
@@ -288,11 +399,13 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           meters: picked.picked.meters,
           seconds: picked.picked.seconds,
           geometry: picked.picked.geometry,
+          alternatives: picked.alternatives,
+          selectedIndex: picked.selectedIndex,
         });
       }
     }
 
-    const lastToParking = await pickAndAccumulate({
+    const ltp = await pickAndAccumulate({
       from: lastCoord,
       to: parkingCoord,
       profile: PROFILE,
@@ -303,46 +416,82 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       logger: this.logger,
       label: "last→parking",
     });
-    if (!lastToParking) {
+    if (!ltp) {
       throw new NotFoundException(
         "OSRM could not connect parking to the chosen loop — try a different start preference.",
       );
     }
+    const lastToParking: LegWithAlternatives = {
+      fromCacheId: orderedIds[orderedIds.length - 1]!,
+      toCacheId: 0,
+      profile: PROFILE,
+      meters: ltp.picked.meters,
+      seconds: ltp.picked.seconds,
+      geometry: ltp.picked.geometry,
+      alternatives: ltp.alternatives,
+      selectedIndex: ltp.selectedIndex,
+    };
 
-    const polyline = concatLineStrings([
-      parkingToFirst.picked.geometry,
-      ...interCacheLegs.map((l) => l.geometry),
-      lastToParking.picked.geometry,
-    ]);
+    // Expand co-located groups back to their member stops (the solver ran on
+    // one rep per group). Each group becomes its members — contiguous, in visit
+    // order — with the real OSRM legs between groups and tiny synthesized legs
+    // between co-located members. Preserves `legs.length === orderedIds + 1` and
+    // the ≥1-alternative invariant every PlanLeg requires.
+    const { orderedIds: orderedIdsFinal, allLegs } = expandColocatedRoute(
+      orderedIds,
+      membersOf,
+      coordOf,
+      { parkingToFirst, interCacheLegs, lastToParking },
+    );
+    // A dropped representative drops all of its members.
+    const droppedExpanded = droppedCacheIds.flatMap((id) => membersOf(id));
 
-    const interMeters = sum(interCacheLegs.map((l) => l.meters));
-    const interSeconds = sum(interCacheLegs.map((l) => l.seconds));
-    const meters =
-      parkingToFirst.picked.meters + interMeters + lastToParking.picked.meters;
-    const seconds =
-      parkingToFirst.picked.seconds +
-      interSeconds +
-      lastToParking.picked.seconds;
-    // FR-SF7: match the greedy planner — add `toolBonusMinutes` per
-    // cache that needs equipment. We keep the sidecar's flat
-    // `visitSecondsPerCache` budget (line 151) for internal solver
-    // optimisation; the bonus only shows up in the returned totals.
-    // Effect on solver quality is small (~3-5% of typical tour time)
-    // and the trade-off is documented in this comment.
+    const polyline = concatLineStrings(allLegs.map((l) => l.geometry));
+    const meters = sum(allLegs.map((l) => l.meters));
+    const seconds = sum(allLegs.map((l) => l.seconds));
+    const parkingDetourMeters =
+      (allLegs[0]?.meters ?? 0) + (allLegs[allLegs.length - 1]?.meters ?? 0);
+
+    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes` on top of its
+    // base visit time. Adventure Lab stages use their own (smaller) per-stage
+    // visit time (`alStageVisitMinutes`) — labs are quick and often clustered.
+    // Mirrors GreedyTspPlanner; only affects `totals.visitMinutes`.
     let toolStopCount = 0;
-    for (const id of orderedIds) {
+    let alStageCount = 0;
+    for (const id of orderedIdsFinal) {
       const c = byId.get(id);
       if (!c) continue;
+      if (c.type === "Adventure Lab") alStageCount += 1;
       if (hasToolRequirement(c.attributeIds, c.descriptionHints))
         toolStopCount += 1;
     }
+    const regularStops = orderedIdsFinal.length - alStageCount;
     const visitMinutes =
-      input.timePerCacheMinutes * orderedIds.length +
+      input.timePerCacheMinutes * regularStops +
+      input.alStageVisitMinutes * alStageCount +
       input.toolBonusMinutes * toolStopCount;
 
+    // Project the in-memory legs into the wire shape (parking endpoints use the
+    // sentinel cache id 0). Each leg carries the alternatives the picker
+    // considered; synthesized co-located legs carry their own single alternative.
+    const legs: Tours.PlanLeg[] = allLegs.map((l, idx) => ({
+      index: idx,
+      fromCacheId: l.fromCacheId,
+      toCacheId: l.toCacheId,
+      meters: round2(l.meters),
+      seconds: round2(l.seconds),
+      geometry: l.geometry,
+      alternatives: l.alternatives.map((a) => ({
+        meters: round2(a.meters),
+        seconds: round2(a.seconds),
+        geometry: a.geometry,
+      })),
+      selectedAlternativeIndex: l.selectedIndex,
+    }));
+
     return {
-      orderedCacheIds: orderedIds,
-      droppedCacheIds,
+      orderedCacheIds: orderedIdsFinal,
+      droppedCacheIds: droppedExpanded,
       polyline,
       totals: {
         meters: round2(meters),
@@ -354,19 +503,13 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         solverTotalMeters: round2(response.totalMeters),
         solverTotalSeconds: round2(response.totalSeconds),
         tspLoopMeters: round2(meters),
-        parkingDetourMeters: round2(
-          parkingToFirst.picked.meters + lastToParking.picked.meters,
-        ),
+        parkingDetourMeters: round2(parkingDetourMeters),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         visitedCount: response.visitedCount,
-        marginalTrimDroppedCount: droppedCacheIds.length,
+        marginalTrimDroppedCount: droppedExpanded.length,
         marginalTrimSavedMeters: round2(trim.savedMeters),
       },
-      // Solver path doesn't expose per-leg alternatives — the sidecar
-      // returns the final visit order, and Pass 2 here only fetches the
-      // chosen route per leg. Edit-mode UI shows "no alternatives" for
-      // solver-planned tours.
-      legs: [],
+      legs,
     };
   }
 
@@ -516,20 +659,6 @@ function mean(xs: readonly number[]): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function haversineMeters(
-  a: readonly [number, number],
-  b: readonly [number, number],
-): number {
-  const R = 6_371_000;
-  const toRad = (x: number) => (x * Math.PI) / 180;
-  const dLat = toRad(b[1] - a[1]);
-  const dLng = toRad(b[0] - a[0]);
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
 function concatLineStrings(

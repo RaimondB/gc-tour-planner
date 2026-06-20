@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+export * from "./adventure-completion.js";
+export * from "./augment-cluster.js";
 export * from "./cluster-candidate.js";
 export * from "./cluster-growth.js";
 export * from "./explain-cluster.js";

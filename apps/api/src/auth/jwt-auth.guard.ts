@@ -15,6 +15,7 @@ import type { AuthConfig } from "./auth.config.js";
 import { AUTH_CONFIG } from "./auth.config.js";
 import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from "./cookies.js";
 import { DevUserService } from "./dev-user.service.js";
+import { IS_MACHINE_KEY } from "./machine-auth.decorator.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { SessionService } from "./session.service.js";
 
@@ -27,8 +28,10 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  *
  * Order of checks:
  *   1. `@Public()` → allow, no auth, no CSRF.
- *   2. `AUTH_DEV_BYPASS=1` (non-prod only) → attribute to the dev user, skip CSRF.
- *   3. Otherwise → require a valid Valkey session (sliding TTL), then enforce
+ *   2. `@MachineAuth()` → step aside (no session, no CSRF); a route-level
+ *      guard performs the real bearer-token check (ADR-0033).
+ *   3. `AUTH_DEV_BYPASS=1` (non-prod only) → attribute to the dev user, skip CSRF.
+ *   4. Otherwise → require a valid Valkey session (sliding TTL), then enforce
  *      the double-submit CSRF token on state-changing methods.
  *
  * The name is kept as `JwtAuthGuard` for continuity with the planned seam, even
@@ -49,6 +52,16 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
+
+    // Machine-authenticated routes (e.g. POST /ingest/gpx) carry a bearer
+    // token, not a session cookie. The global session guard steps aside here;
+    // the route's own IngestAuthGuard does the real check (ADR-0033). CSRF does
+    // not apply — a bearer in Authorization is not an ambient credential.
+    const isMachine = this.reflector.getAllAndOverride<boolean>(
+      IS_MACHINE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (isMachine) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
 

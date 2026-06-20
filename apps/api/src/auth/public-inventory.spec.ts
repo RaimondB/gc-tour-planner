@@ -14,6 +14,7 @@ import { AuthController } from "./auth.controller.js";
 import { CachesController } from "../caches/caches.controller.js";
 import { GpxController } from "../gpx/gpx.controller.js";
 import { HealthController } from "../health/health.controller.js";
+import { IngestController } from "../ingest/ingest.controller.js";
 import { OsmController } from "../osm/osm.controller.js";
 import { ParkingFacilitiesController } from "../osm/parking-facilities.controller.js";
 import { RoutingController } from "../routing/routing.controller.js";
@@ -31,6 +32,7 @@ const CONTROLLERS: Ctor[] = [
   CachesController,
   GpxController,
   HealthController,
+  IngestController,
   OsmController,
   ParkingFacilitiesController,
   RoutingController,

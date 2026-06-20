@@ -22,6 +22,15 @@ export interface CachePopupProps {
   /** FR-SF1 count of `stages` waypoints. 0 for non-multis. */
   stageCount?: number;
   /**
+   * Adventure Lab deep-link GUID. When set (Adventure Lab stages), the popup
+   * links to `labs.geocaching.com/goto/<id>` to open the Adventure in the Lab
+   * app instead of the dead per-stage geocaching.com link.
+   */
+  adventureId?: string | null;
+  /** Adventure Lab stage position (1-based) and total, for "Stage N of M". */
+  stageSequence?: number | null;
+  stageTotal?: number | null;
+  /**
    * True when the plotted location is a user-supplied solved/corrected
    * coordinate (Mystery solution or Multi final). Shows a pill + the
    * "remove solved coordinates" action.
@@ -56,6 +65,9 @@ export function CachePopup({
   attributeIds = [],
   descriptionHints = [],
   stageCount = 0,
+  adventureId = null,
+  stageSequence = null,
+  stageTotal = null,
   solved = false,
   onClearSolved,
   loadingDetail = false,
@@ -82,6 +94,12 @@ export function CachePopup({
       setClearingSolved(false);
     }
   };
+
+  // Adventure Lab stages carry a Lab2Gpx-synthetic code (e.g. "LC28QT1"), not a
+  // real GC code — so a coord.info/<code> link would 404. The geocaching.com
+  // listing is also per-adventure, not per-stage; there is no stage-level page to
+  // navigate to. Mark-as-found stays: that's tracked in our own DB.
+  const isAdventureLab = type === "Adventure Lab";
 
   // Multi sub-type label (FR-SF2). 0 stages → field-puzzle multi
   // (owner expects you to derive the next coord on-site); 1-2 →
@@ -120,6 +138,13 @@ export function CachePopup({
           {multiLabel}
         </div>
       )}
+      {isAdventureLab && stageSequence != null && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          {stageTotal != null
+            ? `Stage ${stageSequence} of ${stageTotal}`
+            : `Stage ${stageSequence}`}
+        </div>
+      )}
       {loadingDetail ? (
         <div className="cache-popup__meta cache-popup__meta--muted">
           Loading details…
@@ -132,15 +157,34 @@ export function CachePopup({
       )}
       {/* Full description, the official hint, logs etc. aren't stored locally
           (and redistributing Groundspeak descriptions is a licensing concern),
-          so link out to the canonical cache page which has all of it. */}
-      <a
-        className="cache-popup__link"
-        href={`https://coord.info/${code}`}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Full details on geocaching.com ↗
-      </a>
+          so link out to the canonical cache page which has all of it.
+          Adventure Lab stages have no per-stage geocaching.com page and their
+          code isn't a real GC code, so we show a note instead of a dead link. */}
+      {isAdventureLab ? (
+        adventureId ? (
+          <a
+            className="cache-popup__link"
+            href={`https://labs.geocaching.com/goto/${adventureId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open in Adventure Lab ↗
+          </a>
+        ) : (
+          <div className="cache-popup__meta cache-popup__meta--muted">
+            Adventure Lab stage — play it in the Adventure Lab app.
+          </div>
+        )
+      ) : (
+        <a
+          className="cache-popup__link"
+          href={`https://coord.info/${code}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Full details on geocaching.com ↗
+        </a>
+      )}
       <button
         type="button"
         className={`cache-popup__btn${foundByMe ? " cache-popup__btn--unmark" : ""}`}

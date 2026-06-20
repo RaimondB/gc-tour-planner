@@ -131,6 +131,16 @@ Side effects:
 - **FR-I12**: the uncompressed XML is SHA-256-hashed and matched against this owner's existing `status='parsed'` uploads (`raw_sha256`). On a match, processing is skipped — no second file stored, no re-parse — and the response is `duplicate: true` with `uploadId` = the existing upload and all counts/stats zero. `force=true` re-processes the existing stored upload instead of skipping. Dedup is per-owner.
 - **FR-I13** (`solvedCoordinates=true`): every cache in the file is marked `solved` and its `location` set to the file's coord; `published_location` (the posted coord) is preserved, and a solved upload never overwrites it (nor does a later normal PQ overwrite a solved `location`). Bypasses the FR-I10 staleness guard. Because the coordinate moved, the upsert deletes those caches' `route_legs` + `cache_landuse` in-transaction and the walking-precompute re-warm recomputes them.
 
+## `POST /ingest/gpx` (FR-I14, ADR-0033)
+
+Machine ingestion for trusted non-browser clients (scripts, scheduled jobs, future external source adapters) to upload GPX cache files programmatically. Identical multipart contract, flags, response shape (`UploadGpxResult`), and side effects as [`POST /gpx/upload`](#post-gpxupload) — it reuses `GpxService.ingest()` unchanged. The only difference is authentication:
+
+- **Credential:** `Authorization: Bearer <INGEST_API_KEY>` (no session cookie, no CSRF — a bearer is not an ambient credential). `@MachineAuth()` makes the global session guard step aside; `IngestAuthGuard` does the bearer check.
+- **Owner:** caches are attributed to the token's actor (`INGEST_OWNER_ID`), never a request-supplied id.
+- **Disabled by default** (`INGEST_API_ENABLED`); a disabled feature → 403, a missing/invalid token → 401.
+
+Not a `@Public()` route — it is authenticated by a different credential, pinned by `machine-auth-inventory.spec.ts`.
+
 ## `DELETE /caches/:id/solved-coordinates`
 
 FR-I13 — remove a cache's solved coordinate, reverting `location = COALESCE(published_location, location)` and clearing `solved`/`solved_at`. Owner-scoped (**404** for another user's id). Idempotent: returns `{ cleared: boolean }` — `false` when the cache had no solved coordinate. On a successful clear the cache moved back to its posted coord, so its `route_legs` + `cache_landuse` are invalidated and a single-cache walking-precompute is enqueued.
