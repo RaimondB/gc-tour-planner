@@ -159,7 +159,10 @@ describe("SolverTourPlanner — determinism", () => {
     distanceBudgetMeters: 8000,
     timePerCacheMinutes: 5,
     startPreference: "parking-waypoint",
-  };
+    // 101↔103 is 1700 m (> maxLink), but 101↔102 (800) + 102↔103 (900) chain
+    // them into one walk-connected component, so the pre-filter keeps all three.
+    maxLinkMeters: 1500,
+  } as unknown as Tours.PlanLoopInput;
 
   it("returns the same PlanResult on repeated runs", async () => {
     const a = await planner.planLoop(ownerId, input);
@@ -198,13 +201,19 @@ describe("SolverTourPlanner — determinism", () => {
   it("classifies a solver-omitted but reachable cache as a `budget` drop", async () => {
     // Solver returns only 2 of the 3 candidates (count-vs-length trade-off).
     // Cache 103 is fully reachable, so the omission reads as a budget choice.
+    // A tight budget keeps the re-add pass from reclaiming it: the [101,102]
+    // loop fits, but re-adding 103 (~2 km) would exceed 1300 m.
+    const tightBudget = {
+      ...input,
+      distanceBudgetMeters: 1300,
+    } as unknown as Tours.PlanLoopInput;
     (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       orderedCacheIds: [101, 102],
       totalMeters: 1000,
       totalSeconds: 1000,
       visitedCount: 2,
     });
-    const res = await planner.planLoop(ownerId, input);
+    const res = await planner.planLoop(ownerId, tightBudget);
     expect(res.orderedCacheIds).not.toContain(103);
     expect(res.droppedCacheIds).toContain(103);
     expect(res.droppedCaches).toContainEqual({ id: 103, reason: "budget" });
@@ -212,6 +221,20 @@ describe("SolverTourPlanner — determinism", () => {
     expect(res.droppedCaches.map((d) => d.id).sort()).toEqual(
       [...res.droppedCacheIds].sort(),
     );
+  });
+
+  it("re-adds a budget-dropped reachable cache when the budget has room", async () => {
+    // Same solver omission as above, but the default 8 km budget leaves plenty
+    // of room — the budget-fill re-add pass reclaims 103 (FR-T13 Part 2).
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, input);
+    expect(res.orderedCacheIds).toContain(103);
+    expect(res.droppedCacheIds).not.toContain(103);
   });
 
   it("classifies a solver-omitted unrouteable cache as `unreachable`", async () => {

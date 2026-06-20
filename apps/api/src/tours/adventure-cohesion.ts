@@ -90,3 +90,79 @@ export function partitionAdventuresByReachability(args: {
   }
   return { acceptedStageIds, rejected };
 }
+
+/**
+ * Keep only the **largest walk-connected component** of a candidate set, and
+ * report the rest as dropped. A planner that receives a disconnected candidate
+ * set (two groups with no `≤ maxLinkMeters` chain between them — e.g. across a
+ * river/motorway) can't route them into one foot loop: the OSRM leg between the
+ * groups is `null`, which poisons the tour length (∞) and triggers a runaway
+ * over-trim. Pre-filtering to one component up front prevents that; the dropped
+ * minority is surfaced as `unreachable` (FR-T13).
+ *
+ * `metersMatrix` is indexed like `ids` (`metersMatrix[i][j]` = `ids[i]→ids[j]`,
+ * `null` when OSRM couldn't route it). An edge exists iff
+ * `min(i→j, j→i)` is finite **and** `≤ maxLinkMeters` — the same linking cap as
+ * Pass-1's walking graph, so a component connected only by long/`null` legs
+ * splits. Ties (equal node counts) break on the lowest member id for
+ * determinism. Pure + unit-testable.
+ */
+export function largestConnectedComponent(
+  ids: readonly number[],
+  metersMatrix: readonly (readonly (number | null)[])[],
+  maxLinkMeters: number,
+): { keptIds: number[]; droppedIds: number[] } {
+  const n = ids.length;
+  if (n <= 1) return { keptIds: [...ids], droppedIds: [] };
+
+  const linked = (i: number, j: number): boolean => {
+    const ab = metersMatrix[i]?.[j];
+    const ba = metersMatrix[j]?.[i];
+    const best = Math.min(
+      ab == null ? Number.POSITIVE_INFINITY : ab,
+      ba == null ? Number.POSITIVE_INFINITY : ba,
+    );
+    return Number.isFinite(best) && best <= maxLinkMeters;
+  };
+
+  // BFS each unvisited node into its component (by index into `ids`).
+  const compOf = new Array<number>(n).fill(-1);
+  const components: number[][] = [];
+  for (let s = 0; s < n; s += 1) {
+    if (compOf[s] !== -1) continue;
+    const comp: number[] = [];
+    const stack = [s];
+    compOf[s] = components.length;
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      comp.push(cur);
+      for (let k = 0; k < n; k += 1) {
+        if (compOf[k] === -1 && linked(cur, k)) {
+          compOf[k] = components.length;
+          stack.push(k);
+        }
+      }
+    }
+    components.push(comp);
+  }
+
+  // Pick the largest; tie-break on the lowest member id (deterministic).
+  let best = components[0]!;
+  let bestMinId = Math.min(...best.map((i) => ids[i]!));
+  for (const comp of components.slice(1)) {
+    const minId = Math.min(...comp.map((i) => ids[i]!));
+    if (
+      comp.length > best.length ||
+      (comp.length === best.length && minId < bestMinId)
+    ) {
+      best = comp;
+      bestMinId = minId;
+    }
+  }
+
+  const keep = new Set(best.map((i) => ids[i]!));
+  return {
+    keptIds: ids.filter((id) => keep.has(id)),
+    droppedIds: ids.filter((id) => !keep.has(id)),
+  };
+}

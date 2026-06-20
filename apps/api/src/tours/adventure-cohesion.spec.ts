@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { Routing } from "@gctp/shared";
 import {
+  largestConnectedComponent,
   partitionAdventuresByReachability,
   type CandidateAdventure,
 } from "./adventure-cohesion.js";
@@ -88,5 +89,53 @@ describe("partitionAdventuresByReachability", () => {
     });
     expect(out.acceptedStageIds).toEqual([]);
     expect(out.rejected).toEqual([{ adventureId: "Z", stageIds: [999] }]);
+  });
+});
+
+describe("largestConnectedComponent", () => {
+  // ids-indexed meters matrix from an undirected edge map; unlisted pairs null.
+  const mtx = (
+    ids: number[],
+    edges: Record<string, number>,
+  ): (number | null)[][] =>
+    ids.map((a) =>
+      ids.map((b) => {
+        if (a === b) return 0;
+        return edges[`${a}-${b}`] ?? edges[`${b}-${a}`] ?? null;
+      }),
+    );
+
+  it("keeps the larger of two components split by a >maxLink gap", () => {
+    // {1,2,3} chained ≤1000; {4,5} chained ≤1000; the only 3↔4 link is 5000.
+    const ids = [1, 2, 3, 4, 5];
+    const edges = { "1-2": 400, "2-3": 400, "4-5": 400, "3-4": 5000 };
+    const out = largestConnectedComponent(ids, mtx(ids, edges), 1000);
+    expect(out.keptIds).toEqual([1, 2, 3]);
+    expect(out.droppedIds).toEqual([4, 5]);
+  });
+
+  it("splits on null (unrouteable) legs too", () => {
+    const ids = [1, 2, 3];
+    // 3 is unrouteable to everyone (all null); 1↔2 connected.
+    const out = largestConnectedComponent(ids, mtx(ids, { "1-2": 300 }), 1500);
+    expect(out.keptIds).toEqual([1, 2]);
+    expect(out.droppedIds).toEqual([3]);
+  });
+
+  it("keeps everything when the set is one component", () => {
+    const ids = [1, 2, 3];
+    const edges = { "1-2": 300, "2-3": 300 };
+    const out = largestConnectedComponent(ids, mtx(ids, edges), 1000);
+    expect(out.keptIds).toEqual([1, 2, 3]);
+    expect(out.droppedIds).toEqual([]);
+  });
+
+  it("breaks ties on the lowest member id", () => {
+    // Two equal-size components {1,2} and {3,4}; keep the one with id 1.
+    const ids = [1, 2, 3, 4];
+    const edges = { "1-2": 300, "3-4": 300 };
+    const out = largestConnectedComponent(ids, mtx(ids, edges), 1000);
+    expect(out.keptIds).toEqual([1, 2]);
+    expect(out.droppedIds).toEqual([3, 4]);
   });
 });
