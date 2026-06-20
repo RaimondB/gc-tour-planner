@@ -1,19 +1,20 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { type JSX } from "react";
+import { useMemo, type JSX } from "react";
 import { Navigation } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { parkingNavTarget } from "../../lib/maps.js";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
-import type {
-  ClusterCandidate,
-  ClusterDiagnostics,
-  ClusteringStrategyName,
-  PlanResult,
-  StartPreference,
-  TestRouteResponse,
-  WalkingGraphResponse,
+import {
+  summarizeAdventureCompletion,
+  type ClusterCandidate,
+  type ClusterDiagnostics,
+  type ClusteringStrategyName,
+  type PlanResult,
+  type StartPreference,
+  type TestRouteResponse,
+  type WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import {
   PARKING_ACCESS_CHIPS,
@@ -49,6 +50,12 @@ export interface PlanSettings {
   startPreference: StartPreference;
   /** Per-cache visit time used in time totals. */
   timePerCacheMinutes: number;
+  /** Per-stage visit time for Adventure Lab stages (they're quick + clustered). */
+  alStageVisitMinutes: number;
+  /** AL solver: include an adventure completely or not at all (no partial ALs). */
+  completeAdventuresOnly: boolean;
+  /** AL solver: allow adventure stages to interleave with other caches (shortest route). */
+  adventureInterleave: boolean;
   /**
    * FR-SF7: extra minutes added per cache that needs equipment
    * (climbing gear, scuba, fishing rod, …). Default 5 min covers
@@ -110,6 +117,9 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   maxLinkMeters: 1_500,
   startPreference: "auto",
   timePerCacheMinutes: 5,
+  alStageVisitMinutes: 2,
+  completeAdventuresOnly: true,
+  adventureInterleave: true,
   toolBonusMinutes: 5,
   avgWalkingKmh: 5,
   clusteringStrategy: "hdbscan-star",
@@ -646,6 +656,18 @@ export function PlanResultPanel({
   const visitMin = result.totals.visitMinutes;
   const totalMin = walkingMin + visitMin;
 
+  // Per-Adventure completion: of each Adventure Lab represented in the loop, how
+  // many of its stages are in vs. dropped — answers "can I finish the whole AL?".
+  const adventureCompletion = useMemo(() => {
+    const byId = new Map<number, CacheSummaryDTO>();
+    for (const c of caches ?? []) byId.set(c.id, c);
+    return summarizeAdventureCompletion(
+      result.orderedCacheIds,
+      result.droppedCacheIds,
+      byId,
+    );
+  }, [caches, result.orderedCacheIds, result.droppedCacheIds]);
+
   // Same queryKey as ParkingPreviewLayer → no double fetch. Lets us dump the
   // exact parking-options payload the map is rendering for offline diagnosis
   // of weird-looking preview routes.
@@ -798,6 +820,33 @@ export function PlanResultPanel({
           </a>
         </dd>
       </dl>
+      {adventureCompletion.length > 0 && (
+        <div className="plan-adventures">
+          <h4>Adventure Labs in this tour</h4>
+          <ul className="plan-adventures__list">
+            {adventureCompletion.map((a) => {
+              const complete = a.total != null && a.included >= a.total;
+              return (
+                <li
+                  key={a.adventureId}
+                  className={
+                    complete
+                      ? "plan-adventures__item plan-adventures__item--complete"
+                      : "plan-adventures__item plan-adventures__item--partial"
+                  }
+                >
+                  <span className="plan-adventures__name">{a.name}</span>
+                  <span className="plan-adventures__count">
+                    {complete ? "✓" : "⚠"} {a.included}
+                    {a.total != null ? `/${a.total}` : ""} stages
+                    {a.dropped > 0 ? ` (${a.dropped} dropped)` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
       <h4>Score breakdown</h4>
       <ul className="breakdown">
         {Object.entries(result.scoreBreakdown).map(([k, v]) => (
@@ -1330,6 +1379,49 @@ export function TourSettingsPanel({
               })
             }
           />
+        </label>
+        <label>
+          Visit time per Adventure Lab stage (min):{" "}
+          {settings.alStageVisitMinutes}
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={settings.alStageVisitMinutes}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                alStageVisitMinutes: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.completeAdventuresOnly}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                completeAdventuresOnly: e.target.checked,
+              })
+            }
+          />
+          Adventure Labs: all stages or none
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.adventureInterleave}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                adventureInterleave: e.target.checked,
+              })
+            }
+          />
+          Allow Adventure Lab stages to interleave
         </label>
         <label>
           Extra time for tool caches (min): {settings.toolBonusMinutes}

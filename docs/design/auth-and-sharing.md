@@ -64,6 +64,16 @@ This table is a **normative security contract**: adding a `@Public()` route requ
 
 **Explicitly NOT public** (require a valid session): `GET /auth/me`, `POST /auth/logout`, and `POST`/`DELETE /tours/:id/share` (share _management_ stays owner-auth; only the `GET /shared/:slug` _read_ is public). Every other endpoint requires auth (FR-P12).
 
+### 7d. Machine-authenticated routes (FR-I14, ADR-0033)
+
+A second class of credential exists for **headless source adapters**: a bearer token, not a session cookie. The route `POST /ingest/gpx` is marked `@MachineAuth()` — the global `JwtAuthGuard` steps aside (no session lookup, **no CSRF**: a bearer in `Authorization` is not an ambient credential) and a route-level `IngestAuthGuard` resolves the token to an owner. These routes are deliberately **not** `@Public()` (they _are_ authenticated), so they carry their own normative inventory, the sibling of the public table above:
+
+| Machine-auth route | Credential | Owner | Guardrails |
+| --- | --- | --- | --- |
+| `POST /ingest/gpx` | `Authorization: Bearer <INGEST_API_KEY>` | the token's actor (`INGEST_OWNER_ID`), never request-supplied | Disabled by default (`INGEST_API_ENABLED`); constant-time key compare; reuses the GPX dedup/staleness/owner-isolation path; CSRF-exempt by design |
+
+The live `@MachineAuth()` set is asserted against this inventory by `apps/api/src/ingest/machine-auth-inventory.spec.ts` (and `public-inventory.spec.ts` confirms the route is **not** in the no-auth set). The shipped credential is a single env key → single owner; the guard resolves token → owner through the `IngestTokenResolver` seam so a future DB-backed per-user PAT store (hash, never the token) supersedes it without changing the adapter contract.
+
 ### 7a. Admin role (FR-P12)
 
 `/admin/*` and the destructive `POST /tours/walking-graph/purge-bogus` require the **admin role**, not merely a session. The `users.is_admin` column (added by `1779700000000_users_is_admin.sql`, default `FALSE`) is captured into the session at login and carried on `AuthUser.isAdmin`; an `AdminGuard` (a route guard layered after the global `JwtAuthGuard`) returns 403 for non-admins and **fails closed** (a legacy session with no `isAdmin` field is treated as non-admin). No user is an admin until an operator promotes one: `UPDATE users SET is_admin = TRUE WHERE email = '<operator>'`.
@@ -143,6 +153,7 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 | `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
 | `GET /shared/:slug` | public | — | Read-only snapshot (FR-P3, §10) |
+| `POST /ingest/gpx` | machine (bearer) | n/a | Headless source-adapter GPX push (FR-I14, §7d); owner is the token actor; CSRF-exempt |
 
 Shared zod schemas in `packages/shared`: `RegisterInput`, `LoginInput`, `SetPasswordInput`, `AuthUser`, `SaveTourInput`, `SavedTourSummary`, `SavedTourDetail`, `SharedTour`. The detailed bodies are recorded in [api-surface.md](api-surface.md).
 

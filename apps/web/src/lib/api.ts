@@ -33,6 +33,8 @@ import {
   ClusterCandidatesResponse,
   type ExplainClusterInput,
   ExplainClusterResponse,
+  type AugmentClusterInput,
+  AugmentClusterResult,
   type ParkingOptionsInput,
   ParkingOptionsResponse,
   type PlanInput,
@@ -321,6 +323,15 @@ export async function planLoop(input: PlanLoopInput) {
   return PlanResult.parse(raw);
 }
 
+export async function augmentClusterLabs(input: AugmentClusterInput) {
+  const raw = await request<unknown>("/tours/clusters/augment-labs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return AugmentClusterResult.parse(raw);
+}
+
 export async function fetchParkingOptions(input: ParkingOptionsInput) {
   const raw = await request<unknown>("/tours/parking-options", {
     method: "POST",
@@ -497,6 +508,16 @@ export async function retriggerStale(input: RetriggerStaleRequest) {
     body: JSON.stringify(input),
   });
   return RetriggerStaleResponse.parse(raw);
+}
+
+/**
+ * FR-I17: enqueue the Adventure Lab `adventure_id` backfill — re-fetches every
+ * AL stage missing its id from Lab2Gpx. Admin-only; returns the job id.
+ */
+export async function backfillAdventureLabIds(): Promise<{ jobId: string }> {
+  return request<{ jobId: string }>("/admin/adventure-labs/backfill-ids", {
+    method: "POST",
+  });
 }
 
 export async function retriggerOne(input: RetriggerOneRequest) {

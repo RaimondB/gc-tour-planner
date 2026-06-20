@@ -166,6 +166,26 @@ export class ToursController {
     return this.service.planLoop(user.id, parsed.data);
   }
 
+  @Post("clusters/augment-labs")
+  @ApiOperation({
+    summary:
+      "Augment a chosen cluster with nearby Adventure Lab stages (FR-I15); returns the expanded cache-id set",
+  })
+  @ApiResponse({
+    status: 201,
+    description: "Original ids plus nearby Adventure Lab stage ids (capped).",
+  })
+  async augmentLabs(
+    @CurrentUser() user: AuthUser,
+    @Body() body: unknown,
+  ): Promise<Tours.AugmentClusterResult> {
+    const parsed = Tours.AugmentClusterInput.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+    return this.service.augmentClusterWithLabs(user.id, parsed.data);
+  }
+
   @Post("parking-options")
   @ApiOperation({
     summary:

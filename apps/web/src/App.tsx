@@ -18,6 +18,7 @@ import type {
   PlanResult,
 } from "@gctp/shared/tours";
 import {
+  augmentClusterLabs,
   discoverClusters,
   listCaches,
   planLoop,
@@ -118,6 +119,9 @@ function planLoopSettingsKey(
   return JSON.stringify({
     distanceBudgetMeters: s.distanceBudgetMeters,
     timePerCacheMinutes: s.timePerCacheMinutes,
+    alStageVisitMinutes: s.alStageVisitMinutes,
+    completeAdventuresOnly: s.completeAdventuresOnly,
+    adventureInterleave: s.adventureInterleave,
     toolBonusMinutes: s.toolBonusMinutes,
     startPreference: s.startPreference,
     maxLinkMeters: s.maxLinkMeters,
@@ -358,6 +362,9 @@ export default function App(): JSX.Element {
         cacheIds: cluster.cacheIds,
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
         timePerCacheMinutes: planSettings.timePerCacheMinutes,
+        alStageVisitMinutes: planSettings.alStageVisitMinutes,
+        completeAdventuresOnly: planSettings.completeAdventuresOnly,
+        adventureInterleave: planSettings.adventureInterleave,
         toolBonusMinutes: planSettings.toolBonusMinutes,
         startPreference: planSettings.startPreference,
         maxLinkMeters: planSettings.maxLinkMeters,
@@ -384,6 +391,27 @@ export default function App(): JSX.Element {
     },
     [online, planMutation],
   );
+
+  // FR-I15: pull nearby Adventure Lab stages into the chosen cluster. The server
+  // does a small Lab2Gpx fetch around the cluster + returns the expanded id set;
+  // we splice it back into that candidate and refresh the caches query so the
+  // new stages render on the map before the user plans.
+  const augmentMutation = useMutation({
+    mutationFn: async (cluster: ClusterCandidate) =>
+      augmentClusterLabs({ cacheIds: [...cluster.cacheIds] }),
+    onSuccess: (res, cluster) => {
+      setClusters((prev) =>
+        prev
+          ? prev.map((c) =>
+              c.clusterId === cluster.clusterId
+                ? { ...c, cacheIds: res.cacheIds }
+                : c,
+            )
+          : prev,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["caches"] });
+    },
+  });
 
   // ── Save tour (M6-γ, FR-P1) ──────────────────────────────────────────
   const saveMutation = useMutation({
@@ -1006,21 +1034,38 @@ export default function App(): JSX.Element {
                 timePerCacheMinutes={planSettings.timePerCacheMinutes}
               />
               {chosenCluster ? (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => planCluster(chosenCluster)}
-                  disabled={
-                    planMutation.isPending || needsPickedStart || !online
-                  }
-                  title={!online ? OFFLINE_REASON : undefined}
-                >
-                  {planMutation.isPending
-                    ? "Planning…"
-                    : needsPickedStart
-                      ? "Click the map to set your start"
-                      : `Plan cluster #${chosenClusterRank} (${chosenCluster.cacheIds.length} caches)`}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => planCluster(chosenCluster)}
+                    disabled={
+                      planMutation.isPending || needsPickedStart || !online
+                    }
+                    title={!online ? OFFLINE_REASON : undefined}
+                  >
+                    {planMutation.isPending
+                      ? "Planning…"
+                      : needsPickedStart
+                        ? "Click the map to set your start"
+                        : `Plan cluster #${chosenClusterRank} (${chosenCluster.cacheIds.length} caches)`}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => augmentMutation.mutate(chosenCluster)}
+                    disabled={augmentMutation.isPending || !online}
+                    title={
+                      !online
+                        ? OFFLINE_REASON
+                        : "Fetch nearby Adventure Lab stages and add them to this cluster"
+                    }
+                  >
+                    {augmentMutation.isPending
+                      ? "Finding Adventure Labs…"
+                      : "Add nearby Adventure Labs"}
+                  </button>
+                </>
               ) : (
                 <span className="muted">
                   Swipe or tap a cluster to pick it.

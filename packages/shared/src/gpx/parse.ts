@@ -69,7 +69,16 @@ export function parseGpx(xml: string): ParsedGpx {
     const name = textOrNull(wpt.name) ?? "";
 
     if (gsCache) {
-      const cache = toParsedCache(name, lat, lon, gsCache, warnings);
+      const adventureId = extractAdventureId(textOrNull(wpt.url));
+      const { stageSequence, stageTotal } = extractStageInfo(wpt);
+      const cache = toParsedCache(
+        name,
+        lat,
+        lon,
+        gsCache,
+        { adventureId, stageSequence, stageTotal },
+        warnings,
+      );
       if (cache) caches.push(cache);
       continue;
     }
@@ -120,7 +129,55 @@ interface GpxWpt {
   cmt?: string;
   sym?: string;
   type?: string;
+  url?: string;
+  urlname?: string;
+  "lab2gpx:adventureLab"?: { "lab2gpx:stagesTotal"?: string | number };
   "groundspeak:cache"?: GroundspeakCache;
+}
+
+/**
+ * Adventure Lab stage position + total, parsed from a Lab2Gpx stage `<wpt>`.
+ * The 1-based sequence is the `S{n}` prefix of `<urlname>` (e.g.
+ * `S2 Adventure Title`); the total is the `<lab2gpx:stagesTotal>` extension.
+ * Both null for ordinary caches (no `urlname` S-prefix, no lab2gpx extension).
+ */
+function extractStageInfo(wpt: GpxWpt): {
+  stageSequence: number | null;
+  stageTotal: number | null;
+} {
+  const urlname = textOrNull(wpt.urlname);
+  const seqMatch = urlname?.match(/^\s*S(\d+)\b/i);
+  const stageSequence = seqMatch?.[1] ? Number(seqMatch[1]) : null;
+  const stageTotal = numOrNull(
+    wpt["lab2gpx:adventureLab"]?.["lab2gpx:stagesTotal"],
+  );
+  return { stageSequence, stageTotal };
+}
+
+/**
+ * Parse the Adventure Lab deep-link id out of a stage `<wpt>`'s `<url>`.
+ * Lab2Gpx emits `<url>https://labs.geocaching.com/goto/<id></url>` per stage,
+ * where `<id>` is the value the `/goto/` endpoint resolves — either a GUID
+ * (`…/goto/0f5c…`) or a human slug the adventure owner set
+ * (`…/goto/MooieMonumenten`). Both forms are identical across an adventure's
+ * stages, so either groups them correctly, and `goto/<id>` is a working deep
+ * link in both cases. We grab the whole path segment rather than insisting on a
+ * GUID — older imports whose adventures use a slug were silently left without an
+ * id otherwise. Canonical GUIDs are lower-cased (Lab2Gpx already emits them so);
+ * a slug keeps its original case so the deep link still resolves. Returns null
+ * for any non-AL URL (e.g. a normal PQ listing link), so ordinary caches are
+ * unaffected.
+ */
+function extractAdventureId(url: string | null): string | null {
+  if (!url) return null;
+  const m = url.match(/labs\.geocaching\.com\/goto\/([^\s/?#<>"']+)/i);
+  const seg = m?.[1];
+  if (!seg) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    seg,
+  )
+    ? seg.toLowerCase()
+    : seg;
 }
 
 interface GroundspeakCache {
@@ -179,6 +236,11 @@ function normalizeCacheType(raw: string | undefined): CacheType | null {
   if (lower.startsWith("webcam")) return "Webcam";
   if (lower.startsWith("wherigo")) return "Wherigo";
   if (lower.startsWith("cito")) return "CITO";
+  // Adventure Lab stages. Lab2Gpx exports `<groundspeak:type>Lab Cache</…>` by
+  // default; a synthesized export may use "Adventure Lab" directly. Both map to
+  // our canonical "Adventure Lab" type.
+  if (lower.startsWith("lab") || lower.startsWith("adventure"))
+    return "Adventure Lab";
   for (const t of CACHE_TYPES) if (lower === t.toLowerCase()) return t;
   return "Other";
 }
@@ -188,6 +250,11 @@ function toParsedCache(
   lat: number,
   lon: number,
   gs: GroundspeakCache,
+  adventure: {
+    adventureId: string | null;
+    stageSequence: number | null;
+    stageTotal: number | null;
+  },
   warnings: string[],
 ): ParsedCache | null {
   const code = name.trim();
@@ -253,6 +320,9 @@ function toParsedCache(
     disabled,
     attributes,
     descriptionHints,
+    adventureId: adventure.adventureId,
+    stageSequence: adventure.stageSequence,
+    stageTotal: adventure.stageTotal,
   };
 }
 

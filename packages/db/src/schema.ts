@@ -121,6 +121,46 @@ export interface CachesTable {
   >;
   last_seen_at: Generated<Date>;
   raw: JSONColumnType<Record<string, unknown>>;
+  /**
+   * Adventure Lab deep-link GUID (path segment of
+   * `labs.geocaching.com/goto/<id>`). Shared by every stage of one Adventure, so
+   * it both groups the stages and lets the UI link out to the Adventure (a stage
+   * has no per-stage geocaching.com page and its `code` is a Lab2Gpx-synthetic
+   * id). NULL for non-Adventure-Lab caches. See migration 1782000000000.
+   */
+  adventure_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  /**
+   * 1-based stage position within an Adventure Lab. "Stage N of M" display +
+   * sequential routing. NULL for non-AL caches.
+   */
+  stage_sequence: ColumnType<
+    number | null,
+    number | null | undefined,
+    number | null
+  >;
+  /**
+   * Total stages in the Adventure (Lab2Gpx `stagesTotal`). The "M" in
+   * "Stage N of M" and the denominator for tour completion. NULL for non-AL
+   * caches. See migration 1783000000000.
+   */
+  stage_total: ColumnType<
+    number | null,
+    number | null | undefined,
+    number | null
+  >;
+  /**
+   * TRUE when the Adventure Lab must be completed in stage order (AL `IsLinear`).
+   * NULL for non-AL caches.
+   */
+  adventure_sequential: ColumnType<
+    boolean | null,
+    boolean | null | undefined,
+    boolean | null
+  >;
 }
 
 export interface CacheAttributesTable {

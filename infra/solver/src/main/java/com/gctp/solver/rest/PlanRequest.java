@@ -22,7 +22,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param distanceBudgetMeters hard cap on total tour distance
  * @param timeBudgetSeconds    hard cap on total tour time, or null
  * @param visitSecondsPerCache per-cache visit time added to total time
- * @param weights              soft-score weights (MVP: visitedCount only)
+ * @param completeAdventuresOnly enforce Adventure Lab atomicity (whole or none)
+ * @param adventureInterleave  when false, an adventure's stages must be contiguous
+ * @param weights              score weights (visitedCount = MEDIUM, loopLength = SOFT)
  */
 public record PlanRequest(
         List<CacheInput> caches,
@@ -35,9 +37,19 @@ public record PlanRequest(
         @JsonProperty("distanceBudgetMeters") long distanceBudgetMeters,
         @JsonProperty("timeBudgetSeconds") Long timeBudgetSeconds,
         @JsonProperty("visitSecondsPerCache") long visitSecondsPerCache,
+        @JsonProperty("completeAdventuresOnly") Boolean completeAdventuresOnly,
+        @JsonProperty("adventureInterleave") Boolean adventureInterleave,
         Weights weights
 ) {
-    public record CacheInput(long id, double lng, double lat) {}
+    /** {@code adventureId} is null for a plain cache; non-null groups Adventure Lab stages. */
+    public record CacheInput(
+            long id,
+            double lng,
+            double lat,
+            @JsonProperty("adventureId") String adventureId,
+            @JsonProperty("stageSequence") Integer stageSequence) {}
 
-    public record Weights(@JsonProperty("visitedCount") Long visitedCount) {}
+    public record Weights(
+            @JsonProperty("visitedCount") Long visitedCount,
+            @JsonProperty("loopLength") Long loopLength) {}
 }

@@ -11,7 +11,16 @@ import { ConfigService } from "@nestjs/config";
 
 /** Request body posted to the Timefold sidecar's POST /plan. */
 export interface SolverPlanRequest {
-  caches: ReadonlyArray<{ id: number; lng: number; lat: number }>;
+  caches: ReadonlyArray<{
+    id: number;
+    lng: number;
+    lat: number;
+    /** Adventure this node belongs to (null for a plain cache); groups the
+     *  atomicity + contiguity constraints. */
+    adventureId: string | null;
+    /** Within-adventure stage order (null for a plain cache). */
+    stageSequence: number | null;
+  }>;
   /** N×N. `null` cells mark unreachable pairs. */
   matrixMeters: (number | null)[][];
   matrixSeconds: (number | null)[][];
@@ -23,7 +32,13 @@ export interface SolverPlanRequest {
   /** Omit (or null) to skip the time-budget hard constraint. */
   timeBudgetSeconds: number | null;
   visitSecondsPerCache: number;
-  weights: { visitedCount: number };
+  /** Adventure Lab atomicity — include an adventure whole or not at all. */
+  completeAdventuresOnly: boolean;
+  /** When false, an adventure's stages must be one contiguous block. */
+  adventureInterleave: boolean;
+  /** `visitedCount` = MEDIUM reward (count dominates); `loopLength` = SOFT
+   *  penalty per metre (compacts the loop among equal-count solutions). */
+  weights: { visitedCount: number; loopLength: number };
 }
 
 export interface SolverPlanResponse {

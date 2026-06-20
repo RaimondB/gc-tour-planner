@@ -30,5 +30,11 @@ export function tourCachesToSummaries(
     stageCount: 0,
     parkingPoints: [],
     requiresTool: false,
+    // Snapshots don't store the adventure deep-link / stage metadata; a live
+    // re-fetch repopulates them. Null is fine — the marker still renders for a
+    // saved Adventure Lab stop.
+    adventureId: null,
+    stageSequence: null,
+    stageTotal: null,
   }));
 }

@@ -20,6 +20,7 @@ import type { PreparedContext } from "./clustering/context.js";
 import { refineClusters } from "./clustering/refine.js";
 import { resolveClusteringStrategy } from "./clustering/registry.js";
 import { scoreCluster } from "./cluster-scoring.js";
+import { expandAdventureIds } from "./collapse-adventures.js";
 
 /** Default cut-off when PlanInput omits `topNClusters` (the zod schema already
  *  supplies 5; defensive). Mirrors the constant in greedy-tsp-planner.ts. */
@@ -90,9 +91,18 @@ export function computeClusters(
     });
     const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
     const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
+    // Pass-1 clustered on adventure representatives (one node per Adventure
+    // Lab); expand each rep back to all of its stages so the cluster the client
+    // selects — and Pass-2 routes — contains the whole adventure (FR-I17).
+    // Scoring / MST / centroid above stay on the representatives (the collapsed
+    // view), which is the point of the collapse.
+    const expandedIds = expandAdventureIds(
+      cluster.map((c) => c.id),
+      ctx.adventureExpansion,
+    );
     return {
-      clusterId: stableClusterId(cluster.map((c) => c.id)),
-      cacheIds: cluster.map((c) => c.id),
+      clusterId: stableClusterId(expandedIds),
+      cacheIds: expandedIds,
       centroid: {
         type: "Point" as const,
         coordinates: [meanLng, meanLat] as [number, number],

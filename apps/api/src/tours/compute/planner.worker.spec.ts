@@ -46,6 +46,7 @@ function buildPreparedContext(): PreparedContext {
     input: planInput(),
     projection: Geo.makeProjection(0, 0),
     landuseKindsByCacheId: new Map<number, readonly string[]>(),
+    adventureExpansion: new Map<number, number[]>(),
   };
 }
 
@@ -78,6 +79,29 @@ describe("planner worker — cluster-task serialization (ADR-0014)", () => {
     // Two pods → at least one scored candidate. A missing/un-rehydrated
     // projection would throw inside computeClusters before reaching here.
     expect(result.candidates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("expands adventure representatives back to all stages in candidate cacheIds (FR-I17)", () => {
+    // Node 4 is the representative of an adventure whose other stages (7, 8)
+    // were collapsed away before clustering. The pod {4,5,6} must surface with
+    // those stages spliced back in.
+    const base = buildPreparedContext();
+    const ctx: PreparedContext = {
+      ...base,
+      adventureExpansion: new Map<number, number[]>([[4, [4, 7, 8]]]),
+    };
+    const { projection: _projection, ...serializable } = ctx;
+    const result = plannerTask({
+      kind: "cluster",
+      ctx: structuredClone(serializable),
+      strategyName: "hdbscan-star",
+      preferredLanduseKinds: [],
+    }) as Tours.DiscoverClustersResult;
+
+    const pod = result.candidates.find((c) => c.cacheIds.includes(5));
+    expect(pod).toBeDefined();
+    // Representative 4 expanded to its stages; 5 and 6 (plain pod members) stay.
+    expect(pod!.cacheIds).toEqual(expect.arrayContaining([4, 5, 6, 7, 8]));
   });
 });
 
