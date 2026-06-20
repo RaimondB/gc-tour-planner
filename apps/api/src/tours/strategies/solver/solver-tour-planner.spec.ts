@@ -195,6 +195,50 @@ describe("SolverTourPlanner — determinism", () => {
     expect(greedy.discoverClusters).toHaveBeenCalledWith(ownerId, planInput);
   });
 
+  it("classifies a solver-omitted but reachable cache as a `budget` drop", async () => {
+    // Solver returns only 2 of the 3 candidates (count-vs-length trade-off).
+    // Cache 103 is fully reachable, so the omission reads as a budget choice.
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, input);
+    expect(res.orderedCacheIds).not.toContain(103);
+    expect(res.droppedCacheIds).toContain(103);
+    expect(res.droppedCaches).toContainEqual({ id: 103, reason: "budget" });
+    // The two lists stay in lock-step.
+    expect(res.droppedCaches.map((d) => d.id).sort()).toEqual(
+      [...res.droppedCacheIds].sort(),
+    );
+  });
+
+  it("classifies a solver-omitted unrouteable cache as `unreachable`", async () => {
+    // 103 has no finite matrix neighbour (null to/from everyone), but 101↔102
+    // keep the loop viable. The solver omits 103 → reason `unreachable`.
+    const brokenMatrix: Routing.Matrix = {
+      ...matrix,
+      legs: matrix.legs.map((row, i) =>
+        row.map((cell, j) => (i === 2 || j === 2 ? null : cell)),
+      ),
+    };
+    (
+      routingService.getMatrix as ReturnType<typeof vi.fn>
+    ).mockResolvedValueOnce(brokenMatrix);
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, input);
+    expect(res.droppedCaches).toContainEqual({
+      id: 103,
+      reason: "unreachable",
+    });
+  });
+
   it("posts the matrix with null cells preserved for unreachable pairs", async () => {
     // Replace one cell with null and confirm the request mirrors it.
     const brokenMatrix: Routing.Matrix = {

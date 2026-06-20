@@ -351,15 +351,23 @@ export default function App(): JSX.Element {
   const cancelViaDrag = useCallback(() => setViaDrag(null), []);
 
   // ── Plan-loop mutation ───────────────────────────────────────────────
+  // Plans an arbitrary id set, so the same path serves a discovered cluster and
+  // a hand-built / edited selection. Manual sets use the synthetic id "manual".
   const planMutation = useMutation({
-    mutationFn: async (cluster: ClusterCandidate) => {
-      setChosenClusterId(cluster.clusterId);
+    mutationFn: async ({
+      clusterId,
+      cacheIds,
+    }: {
+      clusterId: string;
+      cacheIds: readonly number[];
+    }) => {
+      setChosenClusterId(clusterId);
       pendingPlanKeyRef.current = planLoopSettingsKey(
         planSettings,
         pickedStart,
       );
       return planLoop({
-        cacheIds: cluster.cacheIds,
+        cacheIds: [...cacheIds],
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
         timePerCacheMinutes: planSettings.timePerCacheMinutes,
         alStageVisitMinutes: planSettings.alStageVisitMinutes,
@@ -387,9 +395,27 @@ export default function App(): JSX.Element {
   const planCluster = useCallback(
     (cluster: ClusterCandidate) => {
       if (!online) return;
-      planMutation.mutate(cluster);
+      planMutation.mutate({
+        clusterId: cluster.clusterId,
+        cacheIds: cluster.cacheIds,
+      });
     },
     [online, planMutation],
+  );
+  /** Plan the current hand-built / edited selection (FR — manual clusters). */
+  const planSelection = useCallback(() => {
+    if (!online || selectedCacheIds.size < 2) return;
+    planMutation.mutate({
+      clusterId: "manual",
+      cacheIds: [...selectedCacheIds],
+    });
+  }, [online, planMutation, selectedCacheIds]);
+  /** Seed the editable selection from a discovered cluster (leaves it untouched). */
+  const editClusterSelection = useCallback(
+    (cluster: ClusterCandidate) => {
+      setSelectedCacheIds(new Set(cluster.cacheIds));
+    },
+    [setSelectedCacheIds],
   );
 
   // FR-I15: pull nearby Adventure Lab stages into the chosen cluster. The server
@@ -574,6 +600,14 @@ export default function App(): JSX.Element {
     }
     return [];
   }, [planResult, focusedClusterId, clusters]);
+
+  // Per-cache drop reasons for the current plan, keyed by id — threaded into
+  // the cache popup so a dropped cache shows "why" alongside its details.
+  const droppedById = useMemo(
+    () =>
+      new Map((planResult?.droppedCaches ?? []).map((d) => [d.id, d] as const)),
+    [planResult],
+  );
 
   // Canonical caches-query input (server-relevant params only).
   const cacheQueryInput = useMemo<ListCachesParams>(
@@ -995,8 +1029,76 @@ export default function App(): JSX.Element {
     }
     if (activeStep === "clusters") {
       const hasClusters = clusters !== null && clusters.length > 0;
+      const selectedIds = [...selectedCacheIds];
       return (
         <div className="step-peek step-peek--stack">
+          {selectedCacheIds.size > 0 && (
+            <div className="selected-set">
+              <div className="selected-set__head">
+                <strong>Selected set</strong> · {selectedCacheIds.size} cache
+                {selectedCacheIds.size === 1 ? "" : "s"}
+              </div>
+              <ul className="selected-set__list">
+                {selectedIds.slice(0, 8).map((id) => {
+                  const c = caches?.find((x) => x.id === id);
+                  return (
+                    <li key={id}>
+                      <span>{c ? `${c.code} · ${c.name}` : `#${id}`}</span>
+                      <button
+                        type="button"
+                        className="selected-set__remove"
+                        title="Remove from selection"
+                        onClick={() => {
+                          const next = new Set(selectedCacheIds);
+                          next.delete(id);
+                          setSelectedCacheIds(next);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
+                {selectedCacheIds.size > 8 && (
+                  <li className="muted">+{selectedCacheIds.size - 8} more…</li>
+                )}
+              </ul>
+              <div className="selected-set__actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={planSelection}
+                  disabled={
+                    selectedCacheIds.size < 2 ||
+                    planMutation.isPending ||
+                    needsPickedStart ||
+                    !online
+                  }
+                  title={
+                    !online
+                      ? OFFLINE_REASON
+                      : selectedCacheIds.size < 2
+                        ? "Select at least 2 caches"
+                        : undefined
+                  }
+                >
+                  {planMutation.isPending
+                    ? "Planning…"
+                    : `Plan this set (${selectedCacheIds.size})`}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setSelectedCacheIds(new Set())}
+                >
+                  Clear
+                </button>
+              </div>
+              <span className="muted selected-set__hint">
+                Shift-click caches on the map to add or remove.
+              </span>
+            </div>
+          )}
           {clustersStale && (
             <div className="stale-banner">
               Search area changed — clusters may be out of date.
@@ -1064,6 +1166,14 @@ export default function App(): JSX.Element {
                     {augmentMutation.isPending
                       ? "Finding Adventure Labs…"
                       : "Add nearby Adventure Labs"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => editClusterSelection(chosenCluster)}
+                    title="Copy this cluster into an editable selection — shift-click the map to add/remove, then plan it"
+                  >
+                    Edit this cluster by hand
                   </button>
                 </>
               ) : (
@@ -1527,6 +1637,7 @@ export default function App(): JSX.Element {
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
               online={online}
+              droppedById={droppedById}
             />
             <ClustersPreviewLayer
               candidates={clusters}

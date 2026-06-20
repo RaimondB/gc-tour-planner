@@ -820,6 +820,16 @@ export function PlanResultPanel({
           </a>
         </dd>
       </dl>
+      {result.droppedCaches.some((d) => d.reason === "unreachable") && (
+        <div className="plan-warning">
+          {
+            result.droppedCaches.filter((d) => d.reason === "unreachable")
+              .length
+          }{" "}
+          selected cache(s) had no walking route and were left out. Click a gray
+          ✕ marker for details.
+        </div>
+      )}
       {adventureCompletion.length > 0 && (
         <div className="plan-adventures">
           <h4>Adventure Labs in this tour</h4>

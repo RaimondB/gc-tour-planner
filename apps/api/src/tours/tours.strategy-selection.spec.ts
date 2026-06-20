@@ -117,4 +117,29 @@ describe("ToursService.planLoop — strategy selection", () => {
     expect(greedy.planLoop).toHaveBeenCalledOnce();
     expect(res).toBe(PLAN);
   });
+
+  it("surfaces adventures skipped at the candidate cap as `candidate-cap` drops", async () => {
+    // 50 non-AL caches already fill the cap, so adventure A1's stages can't fit
+    // and are skipped whole — they must come back as candidate-cap drops.
+    const fillers = Array.from({ length: 50 }, (_, i) =>
+      cache(100 + i, "traditional"),
+    );
+    const { svc, solver } = makeService({
+      mode: "auto",
+      rows: [...fillers, cache(1, "Adventure Lab", "A1")],
+      stages: [
+        cache(1, "Adventure Lab", "A1"),
+        cache(2, "Adventure Lab", "A1"),
+      ],
+    });
+    const res = await svc.planLoop(ownerId, input);
+    expect(solver.planLoop).toHaveBeenCalledOnce();
+    expect(res.droppedCaches).toEqual(
+      expect.arrayContaining([
+        { id: 1, reason: "candidate-cap" },
+        { id: 2, reason: "candidate-cap" },
+      ]),
+    );
+    expect(res.droppedCacheIds).toEqual(expect.arrayContaining([1, 2]));
+  });
 });
