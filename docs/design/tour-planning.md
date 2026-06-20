@@ -94,7 +94,7 @@ On the client, `PlannerSidebar` keeps `legPicks: Record<legIndex, alternativeInd
 
 `TourLayer` builds its displayed polyline from `legs.map(l => l.alternatives[picks[l.index] ?? l.selectedAlternativeIndex].geometry)`, and `PlanResultPanel` re-aggregates totals from the picked alternatives' `meters`/`seconds`. The GPX **track** export honours the override via a new optional `overridePolyline` arg to `planToGpxTrack`; the GPX **route** export is unchanged (route points are the cache list, not leg geometry). The JSON export attaches a `manualEdits` field — `{ planSignature, editedTotals, legPicks: [{ legIndex, originalAlternativeIndex, pickedAlternativeIndex, savedMeters, savedSeconds }] }` — so an offline analyser can see _which_ OSRM alternatives the picker chose and _which_ the human preferred. That's the input we want for tuning the loop-aware picker's overlap + via-waypoint heuristics in a future round.
 
-Solver path emits `legs: []` (the Timefold sidecar doesn't currently fetch OSRM alternatives), and the edit-mode toggle is disabled in the UI for those plans.
+The solver path (FR-I16) now emits full `legs` with alternatives too: it reuses the **same** loop-aware leg picker + `collapseColocated`/`expandColocatedRoute` helpers as the greedy path, so edit-mode works identically for AL-planned tours. (The sidecar itself only returns the visit order + totals; Nest does all OSRM geometry, leg-picking, and co-location expansion.)
 
 ### Live-drag via-waypoint
 
@@ -110,9 +110,13 @@ Client side (`LegViaPointLayer`):
 
 The `resolvePick(leg, legPicks[i])` helper in `apps/web/src/lib/persistent-state.ts` is the single source of truth for "what geometry should this leg render as" — the `TourLayer`, `editedPolyline` (used for GPX track export), and JSON export all go through it, so via-picks and alt-picks are interchangeable from every consumer's perspective.
 
-## Future strategy — `SolverTourPlanner` (M5+, not MVP)
+## `SolverTourPlanner` — shipped for Adventure Labs (FR-I16)
 
-Lives behind the same `TourPlannerStrategy` interface (see [ADR-0002](../adr/0002-planner-strategy-interface.md)). Recommended engines, in order:
+Lives behind the same `TourPlannerStrategy` interface (see [ADR-0002](../adr/0002-planner-strategy-interface.md)). It is now **live for the Adventure-Lab path**: `ToursService.planLoop` selects greedy vs. solver per request (`TOUR_PLANNER=auto`), routing to the Timefold sidecar ([ADR-0005](../adr/0005-timefold-solver-sidecar.md)) when the candidate set contains an AL stage. The solver models what greedy can't: **atomic adventures** (HARD), **stage contiguity** (HARD, when interleave is off), and **loop shape** (a SOFT per-metre loop-length penalty on a three-level `HardMediumSoftLong` score, kept below the visited-count MEDIUM reward so count never loses to length). Nest pulls in an adventure's missing stages first, collapses co-located stages to one rep, runs the solve, then reuses the greedy toolkit (AL-aware marginal trim + loop-aware leg picker + co-location expansion) for the final geometry. Full behaviour: [requirements FR-I16](../requirements/ingest.md); knobs: [PLANNER_TUNING.md](../PLANNER_TUNING.md#strategy-selection-tour_planner--fr-i16).
+
+### Other engines considered
+
+Recommended engines, in order:
 
 1. **Timefold Solver** (Apache-2.0, OptaPlanner fork). Java; runs as a sidecar container exposing a thin REST/JSON solve endpoint. Good when soft constraints proliferate or N > 50.
 2. Google OR-Tools (Apache-2.0). Python or C++ — heavier op cost.

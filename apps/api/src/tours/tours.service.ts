@@ -101,11 +101,12 @@ export class ToursService {
     ownerId: string,
     input: Tours.PlanLoopInput,
   ): Promise<Tours.PlanResult> {
-    // Default `greedy` for now: `auto` (AL→solver) flips on once the solver path
-    // has the co-location collapse + atomic-adventure constraints (FR-I16), so we
-    // don't regress AL plans to a solver that lacks them. Set TOUR_PLANNER=auto
-    // (or solver) to opt in early.
-    const mode = (this.config.get<string>("TOUR_PLANNER") ?? "greedy").trim();
+    // Default `auto` (FR-I16): the solver path now has co-location collapse,
+    // atomic-adventure + contiguity constraints, and a lexicographic loop-shape
+    // objective, so AL plans route to Timefold while cache-only plans stay on the
+    // fast greedy path. Override with TOUR_PLANNER=greedy (force fast path) or
+    // =solver (force the solver for every plan).
+    const mode = (this.config.get<string>("TOUR_PLANNER") ?? "auto").trim();
     let useSolver: boolean;
     if (mode === "solver") useSolver = true;
     else if (mode === "greedy") useSolver = false;

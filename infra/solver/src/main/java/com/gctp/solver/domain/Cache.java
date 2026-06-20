@@ -22,6 +22,14 @@ public class Cache {
     private double lng;
     private double lat;
 
+    /**
+     * The Adventure Lab this cache belongs to, or {@code null} for a plain
+     * cache. Constraints group caches by this id to enforce atomicity (an
+     * adventure is included whole or not at all) and contiguity (its stages
+     * stay consecutive in the visit order).
+     */
+    private String adventureId;
+
     public Cache() {
     }
 
@@ -62,6 +70,14 @@ public class Cache {
 
     public void setLat(double lat) {
         this.lat = lat;
+    }
+
+    public String getAdventureId() {
+        return adventureId;
+    }
+
+    public void setAdventureId(String adventureId) {
+        this.adventureId = adventureId;
     }
 
     @Override

@@ -210,11 +210,13 @@ re-clustering or knob tweaks:
   TSP — so the first iteration sees endpoints correctly. If a later
   iteration produces a new endpoint, that endpoint is also evaluated
   (parking arrays cover every cache).
-- **Solver doesn't yet minimize tour length** ([infra/solver/](../infra/solver/)).
-  Its only soft constraint is `visitedCount`. The greedy NN+2-opt
-  planner is currently better for distance optimization; the solver
-  becomes the right tool once landuse/terrain soft preferences land
-  (planned post-M5).
+- **Solver loop-shape is lexicographic, not single-objective**
+  ([infra/solver/](../infra/solver/)). The solver now optimises loop length
+  (a SOFT per-metre penalty) **below** the visited-count reward (MEDIUM), so it
+  never sacrifices a cache to shorten the loop — it only compacts among
+  equal-count solutions. Street-level retrace minimisation still happens in the
+  shared post-solve loop-aware leg picker (same as greedy), not inside the
+  solver. Landuse/terrain soft preferences remain deferred (post-M5).
 - **`/route?alternatives` rarely returns variants on dense urban foot
   legs** — that's structural in OSRM-MLD. The via-waypoint nudge
   compensates but won't find a parallel street that doesn't exist.
@@ -244,15 +246,18 @@ Symptom → knob:
 - **Landuse missing from cluster scoring.** Check the `landuse` summary tile at `/admin/jobs`; if there's drift, click "Retrigger stale".
 - **OSRM extract bumped; clusters look wrong.** All `walking` rows are now stale (osrm_version mismatch). Click "Retrigger stale" for the walking kind — the whole DB re-warms in the background while the planner stays responsive.
 
-## Default applied to UAT
+## Strategy selection (`TOUR_PLANNER`) — FR-I16
 
-The shipping `infra/.env` sets `TOUR_PLANNER=greedy`. The solver
-sidecar still runs (for the docker-compose dependency graph) but is
-unused. Switch with:
+Pass-2 routing picks a planner **per request**:
 
-```
-TOUR_PLANNER=solver
-```
+| Env            | Default | What it does                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TOUR_PLANNER` | `auto`  | `auto`: route to the Timefold **solver** when the candidate set contains an Adventure Lab stage (it models atomic adventures + contiguity + loop shape), otherwise use the fast **greedy** planner. `greedy`: force greedy for every plan. `solver`: force the solver for every plan. A solver outage/timeout falls back to greedy for that plan. |
+| `PLANNER_SOLVER_LOOP_WEIGHT` | `1` | SOFT per-metre loop-length penalty sent to the solver. Lives **below** the visited-count reward (MEDIUM), so it only compacts the loop among equal-count solutions — it never drops a cache. `0` disables loop-shape compaction (revert to "any order within budget"). |
 
-…after the next solver-side work lands (visitedCount + tour-length
-weights).
+Two **per-tour** toggles (set in the tour-settings panel, both default **on**) shape the solver path:
+
+- **`completeAdventuresOnly`** — include an Adventure Lab whole or not at all. The solver enforces atomicity (HARD); the missing stages of any selected adventure are pulled in from the DB beforehand, and the AL-aware post-solve trim never orphans an adventure.
+- **`adventureInterleave`** — when **off**, an adventure's stages must form one contiguous block in the visit order (HARD contiguity); when on, they may interleave with other caches for the shortest route.
+
+Co-located AL stages collapse into one routing node before solving (`PLANNER_COLOCATE_M`) and expand back on output, exactly as in the greedy path.

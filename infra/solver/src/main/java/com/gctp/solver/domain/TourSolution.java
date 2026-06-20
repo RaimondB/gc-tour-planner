@@ -11,7 +11,7 @@ import ai.timefold.solver.core.api.domain.solution.PlanningScore;
 import ai.timefold.solver.core.api.domain.solution.PlanningSolution;
 import ai.timefold.solver.core.api.domain.solution.ProblemFactCollectionProperty;
 import ai.timefold.solver.core.api.domain.valuerange.ValueRangeProvider;
-import ai.timefold.solver.core.api.score.buildin.hardsoftlong.HardSoftLongScore;
+import ai.timefold.solver.core.api.score.buildin.hardmediumsoftlong.HardMediumSoftLongScore;
 
 /**
  * Planning solution: owns the candidate cache value range and a single
@@ -33,7 +33,7 @@ public class TourSolution {
     private Tour tour;
 
     @PlanningScore
-    private HardSoftLongScore score;
+    private HardMediumSoftLongScore score;
 
     public TourSolution() {
     }
@@ -59,11 +59,11 @@ public class TourSolution {
         this.tour = tour;
     }
 
-    public HardSoftLongScore getScore() {
+    public HardMediumSoftLongScore getScore() {
         return score;
     }
 
-    public void setScore(HardSoftLongScore score) {
+    public void setScore(HardMediumSoftLongScore score) {
         this.score = score;
     }
 }
