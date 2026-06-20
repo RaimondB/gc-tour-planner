@@ -83,6 +83,14 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webp,woff2}"],
+        // Take control of the open page as soon as a new SW activates. Without
+        // this, clicking "Reload" on the update toast posts SKIP_WAITING and the
+        // new worker activates, but never controls the current tab — so the
+        // `controlling`/controllerchange event vite-plugin-pwa waits on to reload
+        // never fires, and the button appears to do nothing (most visibly in a
+        // desktop browser tab). We stay on the `prompt` strategy, so the new SW
+        // still only activates on the user's click — no mid-session chunk swap.
+        clientsClaim: true,
         navigateFallback: "/index.html",
         // Never serve the SPA shell for navigations the origin/edge must handle:
         //  - /api/*       → the backend (e.g. the OAuth start /api/auth/google).
