@@ -253,6 +253,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           lat: c.location.coordinates[1]!,
           adventureId: c.adventureId ?? null,
           stageSequence: c.stageSequence ?? null,
+          adventureSequential: c.adventureSequential ?? false,
         };
       }),
       matrixMeters: repMatrixMeters,

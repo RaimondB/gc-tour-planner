@@ -178,9 +178,12 @@ export class AdventureLabEnricher {
       coordinates: { lat, lon: lng },
       limit: opts.limitAdventures ?? DEFAULT_LIMIT_ADVENTURES,
       cacheType: "Lab Cache",
-      // "default" keeps every stage's posted coordinate; we don't need the
-      // [L]-prefix marking (sequential ordering is a later phase).
-      linear: "default",
+      // "mark" keeps every stage's posted coordinate AND prefixes a *linear*
+      // adventure's stage names with "[L] " (the GC IsLinear flag), which the
+      // parser reads into `adventureSequential` to drive in-order routing.
+      // (Unlike "first", mark never drops stages; unlike "corrected", it leaves
+      // coordinates untouched.)
+      linear: "mark",
       prefix: "LC",
       stageSeparator: false,
       customCodeTemplate: null,

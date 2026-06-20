@@ -260,4 +260,6 @@ Two **per-tour** toggles (set in the tour-settings panel, both default **on**) s
 - **`completeAdventuresOnly`** — include an Adventure Lab whole or not at all. The solver enforces atomicity (HARD); the missing stages of any selected adventure are pulled in from the DB beforehand, and the AL-aware post-solve trim never orphans an adventure.
 - **`adventureInterleave`** — when **off**, an adventure's stages must form one contiguous block in the visit order (HARD contiguity); when on, they may interleave with other caches for the shortest route.
 
+**Linear adventures** (FR-I18) need no toggle: a *linear* Adventure Lab (Lab2Gpx `linear: "mark"` → `[L]` prefix → `adventure_sequential`) is routed in ascending `stageSequence` order via a HARD ordering constraint, applied only to adventures flagged linear and orthogonal to `adventureInterleave`. Like atomicity, ordering is **solver-only** — a forced `TOUR_PLANNER=greedy` won't reorder linear stages (`auto` always routes AL sets to the solver). A separate **discovery** toggle, `includeAdventuresInClustering` (default on, FR-T15), decides whether Adventure Labs take part in Pass-1 cluster forming at all.
+
 Co-located AL stages collapse into one routing node before solving (`PLANNER_COLOCATE_M`) and expand back on output, exactly as in the greedy path.

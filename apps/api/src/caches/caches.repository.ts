@@ -85,6 +85,8 @@ interface CacheRow {
   /** Adventure Lab stage position + total; null for non-AL caches. */
   stage_sequence: number | null;
   stage_total: number | null;
+  /** True for a linear AL stage; false random-order; null non-AL. */
+  adventure_sequential: boolean | null;
 }
 
 @Injectable()
@@ -175,6 +177,7 @@ export class CachesRepository {
         "c.adventure_id",
         "c.stage_sequence",
         "c.stage_total",
+        "c.adventure_sequential",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -298,6 +301,7 @@ export class CachesRepository {
         adventureId: r.adventure_id,
         stageSequence: r.stage_sequence,
         stageTotal: r.stage_total,
+        adventureSequential: r.adventure_sequential,
       };
     });
 
@@ -515,6 +519,7 @@ export class CachesRepository {
         "c.adventure_id",
         "c.stage_sequence",
         "c.stage_total",
+        "c.adventure_sequential",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -561,6 +566,7 @@ export class CachesRepository {
         adventureId: r.adventure_id,
         stageSequence: r.stage_sequence,
         stageTotal: r.stage_total,
+        adventureSequential: r.adventure_sequential,
       };
     });
   }

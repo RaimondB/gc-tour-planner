@@ -59,6 +59,7 @@ export async function explainSelection(
     osmParkingFeeFilter: "any",
     topNClusters: 5,
     clusteringStrategy: input.clusteringStrategy,
+    includeAdventuresInClustering: true,
   };
 
   const ctx = await prepareClusteringContext(ownerId, planInput, {

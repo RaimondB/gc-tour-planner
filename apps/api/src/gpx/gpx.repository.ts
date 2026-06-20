@@ -221,6 +221,7 @@ export class GpxRepository {
                 adventure_id: c.adventureId,
                 stage_sequence: c.stageSequence,
                 stage_total: c.stageTotal,
+                adventure_sequential: c.adventureSequential,
                 raw: sql<string>`'{}'::jsonb`,
               })
               .onConflict((oc) =>
@@ -266,6 +267,7 @@ export class GpxRepository {
                 adventure_id: c.adventureId,
                 stage_sequence: c.stageSequence,
                 stage_total: c.stageTotal,
+                adventure_sequential: c.adventureSequential,
                 raw: sql<string>`'{}'::jsonb`,
               })
               .onConflict((oc) =>
@@ -296,6 +298,8 @@ export class GpxRepository {
                     adventure_id: (eb) => eb.ref("excluded.adventure_id"),
                     stage_sequence: (eb) => eb.ref("excluded.stage_sequence"),
                     stage_total: (eb) => eb.ref("excluded.stage_total"),
+                    adventure_sequential: (eb) =>
+                      eb.ref("excluded.adventure_sequential"),
                     last_seen_at: sql<Date>`now()`,
                   }),
               )

@@ -246,6 +246,32 @@ describe("parseGpx", () => {
     // Stage position from <urlname> "S{n}", total from <lab2gpx:stagesTotal>.
     expect(s1?.stageSequence).toBe(1);
     expect(s1?.stageTotal).toBe(5);
+    // No "[L]" prefix ⇒ random-order adventure (false, not null — it IS an AL).
+    expect(s1?.adventureSequential).toBe(false);
+    expect(s2?.adventureSequential).toBe(false);
+  });
+
+  it("flags a linear Adventure Lab from the Lab2Gpx '[L] ' name prefix and strips it", () => {
+    // Lab2Gpx `linear: "mark"` mode prepends "[L] " to a linear adventure's
+    // <groundspeak:name>. We record adventureSequential=true and strip the
+    // marker from the stored display name.
+    const xml = `<?xml version="1.0"?>
+      <gpx xmlns="http://www.topografix.com/GPX/1/0"
+           xmlns:groundspeak="http://www.groundspeak.com/cache/1/0/1">
+        <wpt lat="52.0" lon="5.0">
+          <name>LCLIN1</name>
+          <url>https://labs.geocaching.com/goto/lineardv</url>
+          <urlname>S1 First stop</urlname>
+          <groundspeak:cache id="1" available="True" archived="False">
+            <groundspeak:name>[L] Linear Walk : S1 First stop</groundspeak:name>
+            <groundspeak:type>Lab Cache</groundspeak:type>
+          </groundspeak:cache>
+        </wpt>
+      </gpx>`;
+    const s1 = parseGpx(xml).caches.find((c) => c.code === "LCLIN1");
+    expect(s1?.adventureSequential).toBe(true);
+    // The "[L] " marker is removed from the display name.
+    expect(s1?.name).toBe("Linear Walk : S1 First stop");
   });
 
   it("extracts a slug-form goto deep-link as the adventureId (not just GUIDs)", () => {
@@ -297,6 +323,8 @@ describe("parseGpx", () => {
     expect(cache?.stageSequence).toBeNull();
     expect(cache?.stageTotal).toBeNull();
     expect(cache?.found).toBe(false);
+    // Linearity is meaningful only for AL stages ⇒ null for ordinary caches.
+    expect(cache?.adventureSequential).toBeNull();
   });
 
   it("reads per-stage completion from <sym>…Found</sym> (FR-I19 cross-off)", () => {

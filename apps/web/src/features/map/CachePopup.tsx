@@ -61,6 +61,11 @@ export interface CachePopupProps {
   stageSequence?: number | null;
   stageTotal?: number | null;
   /**
+   * True for a *linear* Adventure Lab stage (stages must be done in order).
+   * Adds a "Linear" hint so the user knows the tour routes them in sequence.
+   */
+  adventureSequential?: boolean | null;
+  /**
    * Adventure-level completion rollup (FR-I19): how many of this adventure's
    * stages the user has found, and how many it has. Drives the "not started /
    * partly done / completed" line. Both 0 for non-AL caches.
@@ -114,6 +119,7 @@ export function CachePopup({
   adventureId = null,
   stageSequence = null,
   stageTotal = null,
+  adventureSequential = null,
   adventureFoundCount = 0,
   adventureStageCount = 0,
   solved = false,
@@ -198,6 +204,7 @@ export function CachePopup({
           {stageTotal != null
             ? `Stage ${stageSequence} of ${stageTotal}`
             : `Stage ${stageSequence}`}
+          {adventureSequential ? " · Linear (visited in order)" : ""}
         </div>
       )}
       {isAdventureLab && adventureStageCount > 0 && (

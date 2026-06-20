@@ -20,6 +20,9 @@ export interface SolverPlanRequest {
     adventureId: string | null;
     /** Within-adventure stage order (null for a plain cache). */
     stageSequence: number | null;
+    /** True when this node belongs to a *linear* adventure — its stages must be
+     *  visited in `stageSequence` order (other caches may still interleave). */
+    adventureSequential: boolean;
   }>;
   /** N×N. `null` cells mark unreachable pairs. */
   matrixMeters: (number | null)[][];
