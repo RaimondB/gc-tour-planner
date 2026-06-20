@@ -618,7 +618,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         membersOf(d.id).map((id) => ({
           id,
           reason: d.reason,
-          neededBudgetMeters: round2(d.marginalMeters),
+          // Null-leg drops carry an infinite marginal — omit the hint rather
+          // than emit Infinity (→ JSON null → fails PlanResult.parse).
+          ...(Number.isFinite(d.marginalMeters)
+            ? { neededBudgetMeters: round2(d.marginalMeters) }
+            : {}),
         })),
       ),
       ...postTrimDropped.flatMap((d) =>
@@ -693,7 +697,9 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         parkingDetourMeters: round2(parkingDetourMeters),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         marginalTrimDroppedCount: droppedExpanded.length,
-        marginalTrimSavedMeters: round2(trim.savedMeters),
+        marginalTrimSavedMeters: Number.isFinite(trim.savedMeters)
+          ? round2(trim.savedMeters)
+          : 0,
       },
       legs,
     };

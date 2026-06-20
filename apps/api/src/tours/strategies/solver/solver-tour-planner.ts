@@ -315,7 +315,11 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     }[] = trim.drops.map((d) => ({
       id: d.id,
       reason: d.reason,
-      neededBudgetMeters: round2(d.marginalMeters),
+      // A null-leg drop has an infinite marginal; omit the hint rather than
+      // emit Infinity (JSON-serialises to `null` → fails the wire schema).
+      ...(Number.isFinite(d.marginalMeters)
+        ? { neededBudgetMeters: round2(d.marginalMeters) }
+        : {}),
     }));
 
     // AL-aware trim (FR-I16): the solver keeps adventures whole (hard
@@ -678,7 +682,11 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         visitedCount: response.visitedCount,
         marginalTrimDroppedCount: droppedExpanded.length,
-        marginalTrimSavedMeters: round2(trim.savedMeters),
+        // savedMeters can be Infinity when a null-leg cache was trimmed; keep the
+        // wire numeric (Infinity → JSON null → fails PlanResult.parse).
+        marginalTrimSavedMeters: Number.isFinite(trim.savedMeters)
+          ? round2(trim.savedMeters)
+          : 0,
       },
       legs,
     };

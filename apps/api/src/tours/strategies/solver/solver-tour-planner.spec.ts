@@ -3,6 +3,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
+import { Tours as ToursSchema } from "@gctp/shared";
 import type { CachesService } from "../../../caches/caches.service.js";
 import type { RoutingService } from "../../../routing/routing.service.js";
 import type { OsrmClient } from "../../../routing/osrm.client.js";
@@ -158,6 +159,8 @@ describe("SolverTourPlanner — determinism", () => {
     cacheIds: [101, 102, 103],
     distanceBudgetMeters: 8000,
     timePerCacheMinutes: 5,
+    alStageVisitMinutes: 2,
+    toolBonusMinutes: 5,
     startPreference: "parking-waypoint",
     // 101↔103 is 1700 m (> maxLink), but 101↔102 (800) + 102↔103 (900) chain
     // them into one walk-connected component, so the pre-filter keeps all three.
@@ -235,6 +238,38 @@ describe("SolverTourPlanner — determinism", () => {
     const res = await planner.planLoop(ownerId, input);
     expect(res.orderedCacheIds).toContain(103);
     expect(res.droppedCacheIds).not.toContain(103);
+  });
+
+  it("never emits a non-finite number when a null-leg cache is trimmed", async () => {
+    // 102→103 is unrouteable but 101 links to both, so all 3 stay in one
+    // component (pre-filter keeps them). The solved order [101,102,103] then has
+    // a null consecutive leg → the trim's savedMeters / a drop's marginal go
+    // Infinity. Those must NOT reach the wire (Infinity → JSON null → the web's
+    // PlanResult.parse rejects the whole plan → "no result").
+    const nullLegMatrix: Routing.Matrix = {
+      ...matrix,
+      legs: matrix.legs.map((row, i) =>
+        row.map((cell, j) => {
+          if ((i === 1 && j === 2) || (i === 2 && j === 1)) return null;
+          return cell;
+        }),
+      ),
+    };
+    (
+      routingService.getMatrix as ReturnType<typeof vi.fn>
+    ).mockResolvedValueOnce(nullLegMatrix);
+    const res = await planner.planLoop(ownerId, input);
+    // The result must round-trip through JSON + the wire schema unscathed.
+    const wire = JSON.parse(JSON.stringify(res));
+    expect(() => ToursSchema.PlanResult.parse(wire)).not.toThrow();
+    expect(Number.isFinite(res.scoreBreakdown.marginalTrimSavedMeters)).toBe(
+      true,
+    );
+    for (const d of res.droppedCaches) {
+      if (d.neededBudgetMeters !== undefined) {
+        expect(Number.isFinite(d.neededBudgetMeters)).toBe(true);
+      }
+    }
   });
 
   it("classifies a solver-omitted unrouteable cache as `unreachable`", async () => {
