@@ -28,6 +28,15 @@ const CACHES_AL_CIRCLE_LAYER = "gctp-caches-al-circle";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
 const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
+// Linear Adventure Labs (FR-I18): their stages must be done in order, so each
+// stage gets a small numbered corner badge on its pin (a disc + the stage
+// number) instead of the plain centred S{n} — making the route order legible and
+// flagging the adventure as linear at a glance.
+const CACHES_AL_LINEAR_BADGE_CIRCLE_LAYER =
+  "gctp-caches-al-linear-badge-circle";
+const CACHES_AL_LINEAR_BADGE_LABEL_LAYER = "gctp-caches-al-linear-badge-label";
+/** Pixel offset (top-right of the pin) for the linear-stage corner badge. */
+const AL_LINEAR_BADGE_OFFSET: [number, number] = [9, -9];
 const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
 // Collapsed Adventure Labs (FR-I17): AL stages that overlap on screen collapse
 // into one pin (the same pixel-proximity logic the planned tour uses — see
@@ -399,6 +408,8 @@ export function CachesLayer({
           "all",
           [">", ["get", "stageSequence"], 0],
           ["==", ["get", "alHidden"], 0],
+          // Linear adventures get the distinct corner badge below instead.
+          ["!=", ["get", "adventureSequential"], 1],
         ],
         layout: {
           "text-field": [
@@ -416,6 +427,57 @@ export function CachesLayer({
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
           "text-halo-width": 1.8,
+        },
+      });
+    }
+    // Linear AL stages (FR-I18): a small numbered disc at the pin's top-right so
+    // the visit order is readable on the map and the adventure reads as linear.
+    // A circle layer for the badge background + a symbol layer for the number,
+    // both pixel-translated by the same offset so they sit together on the pin.
+    if (!map.getLayer(CACHES_AL_LINEAR_BADGE_CIRCLE_LAYER)) {
+      map.addLayer({
+        id: CACHES_AL_LINEAR_BADGE_CIRCLE_LAYER,
+        type: "circle",
+        source: CACHES_SOURCE,
+        minzoom: AL_STAGE_LABEL_MINZOOM,
+        filter: [
+          "all",
+          [">", ["get", "stageSequence"], 0],
+          ["==", ["get", "alHidden"], 0],
+          ["==", ["get", "adventureSequential"], 1],
+        ],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 7, 16, 9],
+          "circle-color": "#7b1fa2",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+          "circle-translate": AL_LINEAR_BADGE_OFFSET,
+        },
+      });
+    }
+    if (!map.getLayer(CACHES_AL_LINEAR_BADGE_LABEL_LAYER)) {
+      map.addLayer({
+        id: CACHES_AL_LINEAR_BADGE_LABEL_LAYER,
+        type: "symbol",
+        source: CACHES_SOURCE,
+        minzoom: AL_STAGE_LABEL_MINZOOM,
+        filter: [
+          "all",
+          [">", ["get", "stageSequence"], 0],
+          ["==", ["get", "alHidden"], 0],
+          ["==", ["get", "adventureSequential"], 1],
+        ],
+        layout: {
+          "text-field": ["to-string", ["get", "stageSequence"]],
+          "text-font": ["Noto Sans Bold"],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9, 16, 12],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+          "text-offset": [0, 0],
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-translate": AL_LINEAR_BADGE_OFFSET,
         },
       });
     }
