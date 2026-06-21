@@ -32,6 +32,13 @@ class FakeMap {
     this.handlers.get(event)?.delete(cb);
     return this;
   }
+  once(event: string, cb: (...a: unknown[]) => void): this {
+    const wrap = (...a: unknown[]): void => {
+      this.off(event, wrap);
+      cb(...a);
+    };
+    return this.on(event, wrap);
+  }
   fire(event: string): void {
     for (const cb of [...(this.handlers.get(event) ?? [])]) cb({});
   }
@@ -57,11 +64,23 @@ class FakeMap {
   getZoom(): number {
     return 11;
   }
+  styleLoaded = true;
   isStyleLoaded(): boolean {
-    return this.style !== null;
+    return this.style !== null && this.styleLoaded;
   }
   loaded(): boolean {
-    return this.style !== null;
+    return this.isStyleLoaded();
+  }
+  /** Restore where MapLibre has re-set the style but it isn't loaded yet. */
+  restoreContextStillLoading(): void {
+    this.style = { getLayer: () => undefined };
+    this.styleLoaded = false;
+    this.fire("webglcontextrestored");
+  }
+  /** The restored style finishes loading (MapLibre fires `idle`). */
+  finishStyleLoad(): void {
+    this.styleLoaded = true;
+    this.fire("idle");
   }
   resize(): void {}
   triggerRepaint(): void {}
@@ -219,6 +238,37 @@ describe("WebGL context loss", () => {
 
     expect(lastMap).not.toBe(first); // a fresh map instance was built
     expect(isMapStyleLive(lastMap as never)).toBe(true); // and it's live
+  });
+
+  it("waits for the restored style to load before re-enabling layers (no addSource on an unloaded style)", async () => {
+    let ready: boolean | null = null;
+    function Probe(): null {
+      ready = useMap().ready;
+      return null;
+    }
+    await act(async () => {
+      render(
+        <MapView>
+          <Probe />
+        </MapView>,
+      );
+      await Promise.resolve();
+    });
+    const map = lastMap!;
+    expect(ready).toBe(true); // initial load
+
+    act(() => map.loseContext());
+    expect(ready).toBe(false);
+
+    // Context restored, but MapLibre's re-applied style isn't loaded yet —
+    // `ready` must stay false so layer effects don't call addSource (which would
+    // throw "Style is not done loading").
+    act(() => map.restoreContextStillLoading());
+    expect(ready).toBe(false);
+
+    // Style finishes loading (idle) → now safe to re-enable layers.
+    act(() => map.finishStyleLoad());
+    expect(ready).toBe(true);
   });
 
   it("does NOT recreate the map when the context restores normally", async () => {

@@ -263,12 +263,22 @@ export function MapView({
       }, 1500);
     };
     const onMapContextRestored = () => {
-      contextLost = false;
-      logEvent(`webglcontextRESTORED styleLive=${isMapStyleLive(map)}`);
+      logEvent(`webglcontextRESTORED styleLoaded=${map.isStyleLoaded()}`);
       clearTimeout(recreateTimer);
-      setApi((prev) => (prev ? { map: prev.map, ready: true } : prev));
-      map.resize();
-      map.triggerRepaint();
+      // MapLibre re-applies the saved style via setStyle() ASYNC on restore, so
+      // the style isn't loaded yet. Flipping `ready` true now makes a layer
+      // effect call addSource → "Style is not done loading." (the error screen).
+      // Wait for the style to finish; keep `contextLost` true until then so the
+      // recreate safety net still fires if the restore never actually completes.
+      const reenable = () => {
+        contextLost = false;
+        logEvent(`reenable after restore styleLoaded=${map.isStyleLoaded()}`);
+        setApi((prev) => (prev ? { map: prev.map, ready: true } : prev));
+        map.resize();
+        map.triggerRepaint();
+      };
+      if (map.isStyleLoaded()) reenable();
+      else map.once("idle", reenable);
     };
     map.on("webglcontextlost", onMapContextLost);
     map.on("webglcontextrestored", onMapContextRestored);

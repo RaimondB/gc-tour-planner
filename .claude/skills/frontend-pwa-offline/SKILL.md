@@ -158,6 +158,16 @@ Each rule below is a real incident that cost UAT round-trips.
      stays the cheap repaint path — never recreate a live map (would thrash tiles).
      `MapView.test.tsx` locks both: recreate-on-dead-refocus, and no-recreate when
      the context restores normally.
+  4. **Restore re-enables layers TOO EARLY → `"Style is not done loading."`**
+     (the recoverable error screen). On `webglcontextrestored` MapLibre re-applies
+     the saved style via `setStyle()` — **async**, so `map.isStyleLoaded()` is
+     false for a beat. Flipping `ready:true` immediately makes a layer effect call
+     `addSource`/`addLayer` before the style is ready → `_checkLoaded` throws. Gate
+     the re-enable: `onMapContextRestored` re-enables synchronously only if
+     `map.isStyleLoaded()`, else `map.once("idle", reenable)`. Keep `contextLost`
+     true until that reenable runs, so the recreate safety net (point 3) still
+     fires if the restore never actually completes. (`MapView.test.tsx` locks it:
+     `ready` stays false through a still-loading restore, flips true on `idle`.)
 - **Teardown order (secondary/defensive).** React runs effect cleanups
   **parent-first** on unmount, so `MapView`'s cleanup fires before each child
   layer's; a synchronous `map.remove()` there would null `map.style` before the
