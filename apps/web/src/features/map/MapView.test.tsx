@@ -57,6 +57,12 @@ class FakeMap {
   getZoom(): number {
     return 11;
   }
+  isStyleLoaded(): boolean {
+    return this.style !== null;
+  }
+  loaded(): boolean {
+    return this.style !== null;
+  }
   resize(): void {}
   triggerRepaint(): void {}
   queryRenderedFeatures(): unknown[] {

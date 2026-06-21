@@ -10,6 +10,24 @@ import { exposeMapForE2E } from "../../lib/test-helpers.js";
 const DEFAULT_CENTER: [number, number] = [5.1214, 52.0907]; // Utrecht, NL — placeholder
 const DEFAULT_ZOOM = 11;
 
+/**
+ * Opt-in map diagnostics (blank-map debugging). Enable on a device with either
+ * `?mapdebug` in the URL or `localStorage['gctp:mapdebug']='1'`, then reload:
+ * an on-screen overlay shows the map's lifecycle + errors (no remote console
+ * needed). Lifecycle is always logged under `[map]` regardless (console.warn;
+ * faults via console.error) so remote debugging works without the flag too.
+ */
+const MAP_DEBUG: boolean = (() => {
+  try {
+    if (typeof window === "undefined") return false;
+    if (new URLSearchParams(window.location.search).has("mapdebug"))
+      return true;
+    return window.localStorage?.getItem("gctp:mapdebug") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 const FALLBACK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   // Without `glyphs`, MapLibre silently drops every `symbol` layer's
@@ -95,9 +113,22 @@ export function MapView({
   const onBasemapErrorRef = useRef(onBasemapError);
   onBasemapErrorRef.current = onBasemapError;
 
+  // Diagnostics log buffer (only rendered when MAP_DEBUG). `logTick` forces the
+  // overlay to re-render as lines arrive.
+  const logsRef = useRef<string[]>([]);
+  const [, setLogTick] = useState(0);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
+    const logEvent = (msg: string, isError = false): void => {
+      // eslint allows only warn/error; use warn for lifecycle, error for faults.
+      (isError ? console.error : console.warn)(`[map] ${msg}`);
+      if (!MAP_DEBUG) return;
+      const t = new Date().toISOString().slice(11, 23);
+      logsRef.current = [...logsRef.current.slice(-15), `${t} ${msg}`];
+      setLogTick((n) => n + 1);
+    };
     // Use `||`-style emptiness check, not `??`. Vite stamps unset Docker
     // build args into the bundle as empty strings rather than `undefined`,
     // so nullish-coalescing would let an empty URL through and MapLibre
@@ -123,6 +154,14 @@ export function MapView({
     });
     // E2E-only handle (no-op unless VITE_E2E) so Playwright can read map state.
     exposeMapForE2E(map);
+    {
+      const c = map.getCanvas();
+      const gl = c.getContext("webgl2") ?? c.getContext("webgl");
+      logEvent(
+        `construct style=${typeof styleSource === "string" ? styleSource || "(empty!)" : "fallback"} ` +
+          `canvas=${c.width}x${c.height} webgl=${gl ? "ok" : "MISSING"} key=${recreateKey}`,
+      );
+    }
     const clickHandler = (e: maplibregl.MapMouseEvent) => {
       // Skip if the click hit a feature layer (those have their own
       // handlers). `map.getLayer` requires `map.style` to be loaded —
@@ -161,11 +200,25 @@ export function MapView({
     // This only nudges an authoritative probe — it never decides offline itself
     // (a cached tile is indistinguishable from being online), so it can't flap.
     let tileErrorCount = 0;
-    const onMapError = () => {
+    const onMapError = (e: { error?: { message?: string } }) => {
       tileErrorCount += 1;
+      // Surface the actual failure — style/sprite/glyph/tile fetch errors are
+      // the usual cause of a blank basemap and were previously swallowed.
+      logEvent(`ERROR ${e?.error?.message ?? "(no message)"}`, true);
     };
+    let loggedIdle = false;
     const onIdle = () => {
       if (tileErrorCount > 0) onBasemapErrorRef.current?.();
+      // Log the first idle (and any idle after a tile error) with the telling
+      // signals: did the style finish, is the canvas non-zero, is the map loaded.
+      if (!loggedIdle || tileErrorCount > 0) {
+        const c = map.getCanvas();
+        logEvent(
+          `idle styleLoaded=${map.isStyleLoaded()} loaded=${map.loaded()} ` +
+            `canvas=${c.width}x${c.height} tileErr=${tileErrorCount}`,
+        );
+        loggedIdle = true;
+      }
       tileErrorCount = 0;
     };
     map.on("error", onMapError);
@@ -186,6 +239,7 @@ export function MapView({
     // place. Guard with `isMapStyleLive` so we never recreate a healthy map.
     const recreateIfDead = (): boolean => {
       if (!contextLost || isMapStyleLive(map)) return false;
+      logEvent("recreate: context lost + style dead → rebuilding map");
       try {
         const c = map.getCenter();
         cameraRef.current = { center: [c.lng, c.lat], zoom: map.getZoom() };
@@ -198,6 +252,7 @@ export function MapView({
     let recreateTimer: ReturnType<typeof setTimeout> | undefined;
     const onMapContextLost = () => {
       contextLost = true;
+      logEvent("webglcontextLOST", true);
       setApi((prev) => (prev?.ready ? { map: prev.map, ready: false } : prev));
       // Foreground loss: give MapLibre a moment to restore on its own, then
       // recreate if it didn't. (Backgrounded loss is handled on refocus below,
@@ -209,6 +264,7 @@ export function MapView({
     };
     const onMapContextRestored = () => {
       contextLost = false;
+      logEvent(`webglcontextRESTORED styleLive=${isMapStyleLive(map)}`);
       clearTimeout(recreateTimer);
       setApi((prev) => (prev ? { map: prev.map, ready: true } : prev));
       map.resize();
@@ -218,6 +274,7 @@ export function MapView({
     map.on("webglcontextrestored", onMapContextRestored);
 
     map.on("load", () => {
+      logEvent(`load styleLoaded=${map.isStyleLoaded()}`);
       map.on("click", clickHandler);
       map.on("moveend", onMoveEnd);
       setApi({ map, ready: true });
@@ -242,6 +299,10 @@ export function MapView({
     // `pageshow` with `persisted=true` covers the BFCache restore case
     // (mobile Safari especially).
     const recover = () => {
+      logEvent(
+        `recover visible=${document.visibilityState} styleLive=${isMapStyleLive(map)} ` +
+          `canvas=${map.getCanvas().width}x${map.getCanvas().height}`,
+      );
       // A dead style (context lost, never restored) can't be repainted back —
       // recreate the map instead. Otherwise just re-measure/repaint.
       if (recreateIfDead()) return;
@@ -305,6 +366,30 @@ export function MapView({
     <div key={recreateKey} ref={containerRef} className="map-view">
       {api ? (
         <MapContext.Provider value={api}>{children}</MapContext.Provider>
+      ) : null}
+      {MAP_DEBUG ? (
+        <pre
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 9999,
+            margin: 0,
+            maxWidth: "92%",
+            maxHeight: "45%",
+            overflow: "auto",
+            background: "rgba(0,0,0,0.78)",
+            color: "#5dff7a",
+            font: "10px/1.35 ui-monospace, monospace",
+            padding: "4px 6px",
+            whiteSpace: "pre-wrap",
+            pointerEvents: "none",
+            borderBottomRightRadius: 6,
+          }}
+        >
+          {`map: api=${api ? (api.ready ? "ready" : "not-ready") : "null"}\n` +
+            logsRef.current.join("\n")}
+        </pre>
       ) : null}
     </div>
   );
