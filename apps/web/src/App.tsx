@@ -43,6 +43,7 @@ import {
   useLocalStorageState,
 } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
@@ -208,6 +209,11 @@ export default function App(): JSX.Element {
   );
   const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
   const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  // "Already covered the search circle for this …" guards (coverSearchCircle),
+  // so a cover runs once per opened tour / selected cluster — not on every
+  // re-render. Reset to re-cover (e.g. after an AL pull-in grows the cluster).
+  const coveredTourRef = useRef<string | null>(null);
+  const coveredClusterRef = useRef<string | null>(null);
   // Discover-input key captured when clusters were discovered. Compared against
   // the live inputs to light up the "Re-discover" stale guard.
   const [discoveredInputKey, setDiscoveredInputKey] = useState<string | null>(
@@ -440,6 +446,9 @@ export default function App(): JSX.Element {
           : prev,
       );
       void queryClient.invalidateQueries({ queryKey: ["caches"] });
+      // The cluster grew (pulled-in AL stages) → re-cover so the search circle
+      // expands to include them once their coords load.
+      coveredClusterRef.current = null;
     },
   });
 
@@ -512,13 +521,19 @@ export default function App(): JSX.Element {
   }, [openedDetail, online, markPreviewCaptured, queryClient]);
 
   // A fresh search (center/radius change) is a new exploration → leave the
-  // opened tour. Opening a tour fits the map via fitBounds (not setParams), so
-  // this never fires on open. Skip the mount run so a resumed tour survives the
-  // initial render (params are restored from localStorage on mount).
+  // opened tour. Skip the mount run so a resumed tour survives the initial
+  // render (params are restored from localStorage on mount). A *programmatic*
+  // circle change (coverSearchCircle — framing the opened tour / focused
+  // cluster) is NOT a new exploration, so it's ignored via the ref flag.
+  const programmaticSearchRef = useRef(false);
   const searchChangeMountRef = useRef(true);
   useEffect(() => {
     if (searchChangeMountRef.current) {
       searchChangeMountRef.current = false;
+      return;
+    }
+    if (programmaticSearchRef.current) {
+      programmaticSearchRef.current = false;
       return;
     }
     closeTour();
@@ -737,6 +752,44 @@ export default function App(): JSX.Element {
     [mapBottomInset],
   );
 
+  // Grow / recenter the search circle so it always covers the active context (a
+  // focused cluster, added AL stages, or an opened saved tour). The circle bounds
+  // the caches query + the visible RadiusLayer, so without this those caches
+  // wouldn't load and the circle wouldn't enclose them ("weird behavior").
+  // Marks the change programmatic (don't close the tour) and re-stamps the
+  // discovered-input key (don't flag the existing clusters stale).
+  const coverSearchCircle = useCallback(
+    (
+      coords: ReadonlyArray<readonly [number, number]>,
+      opts: { recenter: boolean },
+    ) => {
+      const next = coverCircle(
+        coords,
+        { center: params.center, radiusM: params.radiusM },
+        opts,
+      );
+      if (!next) return; // already covered → no state churn
+      programmaticSearchRef.current = true;
+      setParams((prev) => ({
+        ...prev,
+        center: next.center,
+        radiusM: next.radiusM,
+      }));
+      // Keep already-discovered clusters valid: this is an auto-frame, not a new
+      // search, so re-stamp the key the stale guard compares against.
+      setDiscoveredInputKey((prev) =>
+        prev === null
+          ? prev
+          : discoverInputKey(
+              { ...params, center: next.center, radiusM: next.radiusM },
+              planSettings,
+            ),
+      );
+      fitToCoordinates(coords);
+    },
+    [params, planSettings, setParams, fitToCoordinates],
+  );
+
   // Union the radius-bounded set with the boundary halo so every cluster member
   // resolves to a marker / coordinate (camera-fit, preview, carousel, export,
   // GPX). Halo is only present once clusters are discovered; before that this is
@@ -749,6 +802,44 @@ export default function App(): JSX.Element {
       ),
     [cachesQuery.data, haloCachesQuery.data, tourCaches],
   );
+
+  // Cover the opened saved tour with the search circle (recenter): its caches
+  // load and the circle frames it, instead of the circle staying at the old
+  // search area (the "weird behavior" on open). Once per opened tour;
+  // coverSearchCircle marks it programmatic so the tour isn't auto-closed.
+  useEffect(() => {
+    if (!openedPlan || !openTourId) {
+      coveredTourRef.current = null;
+      return;
+    }
+    if (coveredTourRef.current === openTourId) return;
+    coveredTourRef.current = openTourId;
+    coverSearchCircle(
+      openedPlan.polyline.coordinates as ReadonlyArray<[number, number]>,
+      { recenter: true },
+    );
+  }, [openTourId, openedPlan, coverSearchCircle]);
+
+  // Grow the search circle to cover the SELECTED cluster (incl. AL stages pulled
+  // in via "Add nearby Adventure Labs") so edge members beyond the original
+  // radius load and the circle encloses them. Keyed on the chosen cluster — NOT
+  // hover (focusedClusterId also changes on hover). Waits for the members'
+  // coords (halo query) before acting.
+  useEffect(() => {
+    if (!chosenClusterId || !clusters || !caches) return;
+    if (coveredClusterRef.current === chosenClusterId) return;
+    const target = clusters.find((c) => c.clusterId === chosenClusterId);
+    if (!target) return;
+    const byId = new Map(caches.map((c) => [c.id, c]));
+    const coords: [number, number][] = [];
+    for (const id of target.cacheIds) {
+      const c = byId.get(id);
+      if (c) coords.push(c.location.coordinates as [number, number]);
+    }
+    if (coords.length === 0) return; // members not loaded yet — retry on update
+    coveredClusterRef.current = chosenClusterId;
+    coverSearchCircle(coords, { recenter: false });
+  }, [chosenClusterId, clusters, caches, coverSearchCircle]);
 
   // Explicit "frame this cluster" — the ONLY place a cluster tap moves the
   // camera. Sets emphasis + picks it as the Tour context. Hover does NOT
