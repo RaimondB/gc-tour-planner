@@ -130,6 +130,10 @@ export function MapView({
       const hits = map.queryRenderedFeatures(e.point, {
         layers: [
           "gctp-caches-circle",
+          // The enlarged cache tap target (CachesLayer CACHES_HIT_LAYER) — a tap
+          // landing here opens a cache popup, so it must NOT also move the
+          // reticle/pick-center.
+          "gctp-caches-hit",
           "gctp-parking-preview-hit",
           "gctp-cluster-centroids-circle",
           "gctp-osm-parking-fill",

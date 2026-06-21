@@ -25,6 +25,14 @@ import { isDragGesture } from "./pointer-drag.js";
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
 const CACHES_AL_CIRCLE_LAYER = "gctp-caches-al-circle";
+// Transparent, generously-sized tap target over every cache. The cluster
+// preview paints emphasis markers LARGER than the real cache circle and on top
+// of it (ClustersPreviewLayer.FOCUS_CACHES_LAYER), so a finger tap landing on
+// the emphasised marker but outside the small real circle would hit nothing.
+// queryRenderedFeatures is geometry-based (opacity-0 is still hittable), so a
+// hit circle sized ≥ every painted/emphasis radius decouples the tap target
+// from the visible size — the click handler binds here, not the visible layers.
+const CACHES_HIT_LAYER = "gctp-caches-hit";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
 const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
@@ -328,6 +336,24 @@ export function CachesLayer({
           ["==", ["get", "alHidden"], 0],
         ],
         paint: AL_CIRCLE_PAINT,
+      });
+    }
+    // Invisible hit target (see CACHES_HIT_LAYER comment). Covers regular caches
+    // AND exploded AL stages (anything not collapsed into a pin: alHidden==0);
+    // the collapsed AL pin keeps its own handler. Radius ≥ the largest visible
+    // marker (cache 9, AL 8) and the cluster-emphasis marker (9), with a touch
+    // of fat-finger margin.
+    if (!map.getLayer(CACHES_HIT_LAYER)) {
+      map.addLayer({
+        id: CACHES_HIT_LAYER,
+        type: "circle",
+        source: CACHES_SOURCE,
+        filter: ["==", ["get", "alHidden"], 0],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 10, 14, 14],
+          "circle-color": "#000000",
+          "circle-opacity": 0,
+        },
       });
     }
     // "Z" overlay on disabled caches — matches the visual language
@@ -936,13 +962,12 @@ export function CachesLayer({
     };
     map.on("mousedown", rememberDown);
     map.on("touchstart", rememberDown);
-    map.on("click", CACHES_CIRCLE_LAYER, handler);
-    map.on("mouseenter", CACHES_CIRCLE_LAYER, enter);
-    map.on("mouseleave", CACHES_CIRCLE_LAYER, leave);
-    // Exploded AL stage circles share the cache popup + selection behaviour.
-    map.on("click", CACHES_AL_CIRCLE_LAYER, handler);
-    map.on("mouseenter", CACHES_AL_CIRCLE_LAYER, enter);
-    map.on("mouseleave", CACHES_AL_CIRCLE_LAYER, leave);
+    // One binding on the invisible hit layer covers regular caches AND exploded
+    // AL stages (same popup + selection behaviour); its radius exceeds the
+    // visible/emphasis markers so edge taps still register.
+    map.on("click", CACHES_HIT_LAYER, handler);
+    map.on("mouseenter", CACHES_HIT_LAYER, enter);
+    map.on("mouseleave", CACHES_HIT_LAYER, leave);
     map.on("click", AL_ADVENTURE_CIRCLE_LAYER, collapsedHandler);
     map.on("mouseenter", AL_ADVENTURE_CIRCLE_LAYER, enter);
     map.on("mouseleave", AL_ADVENTURE_CIRCLE_LAYER, leave);
@@ -952,12 +977,9 @@ export function CachesLayer({
     return () => {
       map.off("mousedown", rememberDown);
       map.off("touchstart", rememberDown);
-      map.off("click", CACHES_CIRCLE_LAYER, handler);
-      map.off("mouseenter", CACHES_CIRCLE_LAYER, enter);
-      map.off("mouseleave", CACHES_CIRCLE_LAYER, leave);
-      map.off("click", CACHES_AL_CIRCLE_LAYER, handler);
-      map.off("mouseenter", CACHES_AL_CIRCLE_LAYER, enter);
-      map.off("mouseleave", CACHES_AL_CIRCLE_LAYER, leave);
+      map.off("click", CACHES_HIT_LAYER, handler);
+      map.off("mouseenter", CACHES_HIT_LAYER, enter);
+      map.off("mouseleave", CACHES_HIT_LAYER, leave);
       map.off("click", AL_ADVENTURE_CIRCLE_LAYER, collapsedHandler);
       map.off("mouseenter", AL_ADVENTURE_CIRCLE_LAYER, enter);
       map.off("mouseleave", AL_ADVENTURE_CIRCLE_LAYER, leave);
