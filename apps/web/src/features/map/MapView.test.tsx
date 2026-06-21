@@ -192,4 +192,44 @@ describe("WebGL context loss", () => {
     // dead style.
     expect(getLayer).not.toHaveBeenCalled();
   });
+
+  it("recreates the map on refocus when the context was lost and never restored", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    // GPU reclaimed while backgrounded; `webglcontextrestored` never fires, so
+    // the style stays null (blank canvas).
+    act(() => first.loseContext());
+    expect(isMapStyleLive(first as never)).toBe(false);
+
+    // App regains focus → MapView detects the dead style and rebuilds the map.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).not.toBe(first); // a fresh map instance was built
+    expect(isMapStyleLive(lastMap as never)).toBe(true); // and it's live
+  });
+
+  it("does NOT recreate the map when the context restores normally", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    act(() => first.loseContext());
+    act(() => first.restoreContext()); // browser restores the same context
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).toBe(first); // same map — a repaint, not a rebuild
+  });
 });

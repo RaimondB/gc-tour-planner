@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { MapContext, type MapApi } from "./MapContext.js";
+import { MapContext, isMapStyleLive, type MapApi } from "./MapContext.js";
 import { exposeMapForE2E } from "../../lib/test-helpers.js";
 
 const DEFAULT_CENTER: [number, number] = [5.1214, 52.0907]; // Utrecht, NL — placeholder
@@ -75,6 +75,17 @@ export function MapView({
 }: MapViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [api, setApi] = useState<MapApi | null>(null);
+  // Bumping this rebuilds the map from scratch (keyed container below + effect
+  // dep). The recovery path of last resort: when the WebGL context is lost and
+  // the browser never fires `webglcontextrestored` (installed PWA backgrounded,
+  // OS reclaimed the GPU), MapLibre leaves `map.style` null — repaint can't help,
+  // the canvas is blank. On refocus we detect the dead style and recreate.
+  const [recreateKey, setRecreateKey] = useState(0);
+  // Last camera, so a recreate reopens where the user was (survives a dead style
+  // — `getCenter/getZoom` read the transform, not the style).
+  const cameraRef = useRef<{ center: [number, number]; zoom: number } | null>(
+    null,
+  );
   const onPickRef = useRef(onPickCenter);
   onPickRef.current = onPickCenter;
   const onReadyRef = useRef(onReady);
@@ -96,11 +107,14 @@ export function MapView({
       typeof styleEnv === "string" && styleEnv.length > 0
         ? styleEnv
         : FALLBACK_STYLE;
+    // A recreate (recreateKey bump) reopens at the last camera, not the prop
+    // defaults — so a context-loss recovery doesn't jump the user elsewhere.
+    const startCamera = cameraRef.current;
     const map = new maplibregl.Map({
       container,
       style: styleSource,
-      center: initialCenter,
-      zoom: initialZoom,
+      center: startCamera?.center ?? initialCenter,
+      zoom: startCamera?.zoom ?? initialZoom,
       // Keep the WebGL backbuffer readable so we can snapshot the canvas
       // (map.getCanvas().toBlob) for a saved tour's offline preview (FR-W4).
       // Small always-on memory cost; required because the buffer is otherwise
@@ -132,6 +146,7 @@ export function MapView({
     // extra debouncing needed.
     const onMoveEnd = () => {
       const c = map.getCenter();
+      cameraRef.current = { center: [c.lng, c.lat], zoom: map.getZoom() };
       onViewportRef.current?.({
         center: [c.lng, c.lat],
         zoom: map.getZoom(),
@@ -159,9 +174,38 @@ export function MapView({
     // `ready` so layers bail until the context is restored; on restore the
     // style is rebuilt, so flip back and force a re-measure/repaint. (See also
     // `isMapStyleLive` in MapContext, which guards the render path.)
-    const onMapContextLost = () =>
+    let contextLost = false;
+    // If the context never gets restored (the backgrounded-PWA / GPU-reclaim
+    // case — `webglcontextrestored` simply never fires), `map.style` stays null
+    // and the canvas is blank. Recreate the map from scratch (last resort).
+    // `getCenter`/`getZoom` still work (transform survives), so we reopen in
+    // place. Guard with `isMapStyleLive` so we never recreate a healthy map.
+    const recreateIfDead = (): boolean => {
+      if (!contextLost || isMapStyleLive(map)) return false;
+      try {
+        const c = map.getCenter();
+        cameraRef.current = { center: [c.lng, c.lat], zoom: map.getZoom() };
+      } catch {
+        /* transform unreadable — fall back to the last stored camera */
+      }
+      setRecreateKey((k) => k + 1);
+      return true;
+    };
+    let recreateTimer: ReturnType<typeof setTimeout> | undefined;
+    const onMapContextLost = () => {
+      contextLost = true;
       setApi((prev) => (prev?.ready ? { map: prev.map, ready: false } : prev));
+      // Foreground loss: give MapLibre a moment to restore on its own, then
+      // recreate if it didn't. (Backgrounded loss is handled on refocus below,
+      // since timers are throttled while hidden.)
+      clearTimeout(recreateTimer);
+      recreateTimer = setTimeout(() => {
+        if (document.visibilityState === "visible") recreateIfDead();
+      }, 1500);
+    };
     const onMapContextRestored = () => {
+      contextLost = false;
+      clearTimeout(recreateTimer);
       setApi((prev) => (prev ? { map: prev.map, ready: true } : prev));
       map.resize();
       map.triggerRepaint();
@@ -194,6 +238,9 @@ export function MapView({
     // `pageshow` with `persisted=true` covers the BFCache restore case
     // (mobile Safari especially).
     const recover = () => {
+      // A dead style (context lost, never restored) can't be repainted back —
+      // recreate the map instead. Otherwise just re-measure/repaint.
+      if (recreateIfDead()) return;
       map.resize();
       map.triggerRepaint();
     };
@@ -220,6 +267,7 @@ export function MapView({
     canvas.addEventListener("webglcontextrestored", onContextRestored);
 
     return () => {
+      clearTimeout(recreateTimer);
       ro.disconnect();
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
@@ -243,12 +291,14 @@ export function MapView({
       // immediately after this synchronous unmount flush completes.
       queueMicrotask(() => map.remove());
     };
-    // Effect runs once per mount; pan/zoom is user-driven after.
+    // Re-runs only when `recreateKey` bumps (context-loss recovery); pan/zoom is
+    // user-driven otherwise. The keyed container below gives the rebuilt map a
+    // fresh, empty div so the old (deferred) `map.remove()` can't race it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [recreateKey]);
 
   return (
-    <div ref={containerRef} className="map-view">
+    <div key={recreateKey} ref={containerRef} className="map-view">
       {api ? (
         <MapContext.Provider value={api}>{children}</MapContext.Provider>
       ) : null}
