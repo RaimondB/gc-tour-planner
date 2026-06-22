@@ -290,15 +290,16 @@ export function ensureExcludedRingIcon(map: maplibregl.Map): boolean {
 export const TOOL_BADGE_ICON = "gctp-tool-wrench";
 
 /**
- * Draw (once) a small dark disc with a white wrench and register it as a map
- * image — the tool-required adornment. A wrench ICON (not a "T" letter)
- * deliberately: a letter "T" would collide with the Traditional type glyph
- * (status = icons, identity = letters). Returns false when no 2D canvas is
- * available so the caller can skip the badge layer.
+ * Draw (once) a high-contrast disc with a bold white wrench — the tool-required
+ * adornment. A wrench ICON (not a "T" letter) deliberately: a "T" would collide
+ * with the Traditional type glyph (status = icons, identity = letters). The disc
+ * is CHARCOAL, not green: a green badge blended into the green basemap and into
+ * green caches. The wrench is drawn large and thick so it reads at badge size.
+ * Returns false when no 2D canvas is available so the caller can skip the layer.
  */
 export function ensureToolBadgeIcon(map: maplibregl.Map): boolean {
   if (map.hasImage(TOOL_BADGE_ICON)) return true;
-  const size = 24;
+  const size = 30;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -307,27 +308,79 @@ export function ensureToolBadgeIcon(map: maplibregl.Map): boolean {
   const c = size / 2;
   ctx.beginPath();
   ctx.arc(c, c, c - 1.5, 0, Math.PI * 2);
-  ctx.fillStyle = "#1b5e20"; // dark green disc — matches the legacy tool cue
+  ctx.fillStyle = "#263238"; // charcoal — high contrast on green map AND green caches
   ctx.fill();
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.strokeStyle = "#ffffff";
   ctx.stroke();
-  // A simple wrench glyph: a diagonal bar with an open-jaw head.
+  // Bold white wrench filling most of the disc: a thick diagonal handle with an
+  // open-jaw "C" head (the gap faces up-right, reading as a spanner).
   ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 2.4;
+  ctx.lineWidth = size * 0.16;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(size * 0.34, size * 0.66); // handle
-  ctx.lineTo(size * 0.62, size * 0.38);
+  ctx.beginPath(); // handle
+  ctx.moveTo(size * 0.34, size * 0.72);
+  ctx.lineTo(size * 0.58, size * 0.46);
   ctx.stroke();
-  ctx.beginPath(); // open jaw at the top-right
-  ctx.moveTo(size * 0.56, size * 0.3);
-  ctx.lineTo(size * 0.7, size * 0.3);
-  ctx.lineTo(size * 0.7, size * 0.44);
+  ctx.beginPath(); // open-jaw head
+  ctx.arc(size * 0.62, size * 0.4, size * 0.18, Math.PI * 0.55, Math.PI * 1.95);
   ctx.stroke();
   map.addImage(TOOL_BADGE_ICON, ctx.getImageData(0, 0, size, size), {
     pixelRatio: 2,
   });
+  return true;
+}
+
+/** addImage id for a mixed-type "stack" pie disc (collapsed tour stops). */
+export function pieImageId(colors: readonly string[]): string {
+  return `gctp-pie-${colors.map((x) => x.replace("#", "")).join("-")}`;
+}
+
+/**
+ * Draw (once) a disc split into equal wedges, one per DISTINCT member type
+ * colour — so a collapsed stack of different cache types shows the mix at a
+ * glance (a single flat colour hid it). A homogeneous stack is a solid disc, so
+ * it looks unchanged. Keyed by the (caller-sorted) colour list so each distinct
+ * mix is generated once. Returns false with no 2D canvas.
+ */
+export function ensurePieIcon(
+  map: maplibregl.Map,
+  colors: readonly string[],
+): boolean {
+  const id = pieImageId(colors);
+  if (map.hasImage(id)) return true;
+  const size = 44;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  const c = size / 2;
+  const r = c - 3;
+  if (colors.length <= 1) {
+    ctx.beginPath();
+    ctx.arc(c, c, r, 0, Math.PI * 2);
+    ctx.fillStyle = colors[0] ?? "#616161";
+    ctx.fill();
+  } else {
+    const seg = (Math.PI * 2) / colors.length;
+    let a = -Math.PI / 2;
+    for (const col of colors) {
+      ctx.beginPath();
+      ctx.moveTo(c, c);
+      ctx.arc(c, c, r, a, a + seg);
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.fill();
+      a += seg;
+    }
+  }
+  ctx.beginPath();
+  ctx.arc(c, c, r, 0, Math.PI * 2);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+  map.addImage(id, ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
   return true;
 }

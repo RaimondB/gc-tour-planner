@@ -457,7 +457,7 @@ export function CachesLayer({
         layout: {
           "icon-image": TOOL_BADGE_ICON,
           "icon-offset": cornerIconOffset("TR"),
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7],
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.55, 14, 0.95],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },

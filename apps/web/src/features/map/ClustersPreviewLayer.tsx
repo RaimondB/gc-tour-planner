@@ -5,6 +5,8 @@ import { useEffect, useMemo } from "react";
 import type maplibregl from "maplibre-gl";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { ClusterCandidate } from "@gctp/shared/tours";
+import { collapseByProximity } from "./marker-collapse.js";
+import { OVERLAP_PX } from "./pixel-cluster.js";
 import { useMap } from "./MapContext.js";
 
 const CENTROIDS_SOURCE = "gctp-cluster-centroids";
@@ -158,33 +160,20 @@ export function ClustersPreviewLayer({
     }
   }, [map, ready, candidates, focusedClusterId, deEmphasized]);
 
-  // --- Preview lines + emphasized cache markers, for every cluster ------
+  // --- Preview lines (every cluster) + emphasis rings (focused only) ----
   useEffect(() => {
     if (!ready) return;
 
+    // Preview "shape of the area" loops for EVERY cluster (zoom-independent).
     const lineFeatures: GeoJSON.Feature<
       GeoJSON.LineString,
       { clusterId: string; focused: number }
     >[] = [];
-    const cacheFeatures: GeoJSON.Feature<
-      GeoJSON.Point,
-      { clusterId: string; focused: number; code: string }
-    >[] = [];
-
     for (const cluster of candidates ?? []) {
       const focused = cluster.clusterId === focusedClusterId ? 1 : 0;
       const memberCaches = cluster.cacheIds
         .map((id) => cacheById.get(id))
         .filter((c): c is CacheSummaryDTO => c != null);
-
-      for (const c of memberCaches) {
-        cacheFeatures.push({
-          type: "Feature",
-          geometry: c.location,
-          properties: { clusterId: cluster.clusterId, focused, code: c.code },
-        });
-      }
-
       const sorted = sortCoordsByAngle(
         memberCaches.map((c) => c.location.coordinates),
         cluster.centroid.coordinates,
@@ -198,14 +187,9 @@ export function ClustersPreviewLayer({
         });
       }
     }
-
     upsertGeoJsonSource(map, PREVIEW_LINES_SOURCE, {
       type: "FeatureCollection",
       features: lineFeatures,
-    });
-    upsertGeoJsonSource(map, FOCUS_CACHES_SOURCE, {
-      type: "FeatureCollection",
-      features: cacheFeatures,
     });
 
     if (!map.getLayer(PREVIEW_LINES_LAYER)) {
@@ -233,24 +217,70 @@ export function ClustersPreviewLayer({
         type: "circle",
         source: FOCUS_CACHES_SOURCE,
         paint: {
-          "circle-radius": ["case", ["==", ["get", "focused"], 1], 9, 6],
-          "circle-color": "#fff7ed",
-          "circle-stroke-color": [
-            "case",
-            ["==", ["get", "focused"], 1],
-            "#d84315",
-            "#fdba74",
+          // A high-contrast ring OUTSIDE the cache (transparent fill so the
+          // cache's own colour/shape shows through), not a disc covering it.
+          // `collapsed` members get a slightly larger ring to sit around the
+          // collapsed AL pin.
+          "circle-radius": [
+            "+",
+            ["interpolate", ["linear"], ["zoom"], 9, 9, 14, 14],
+            ["case", ["==", ["get", "collapsed"], 1], 3, 0],
           ],
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "focused"], 1],
-            2.5,
-            1.5,
-          ],
-          "circle-opacity": ["case", ["==", ["get", "focused"], 1], 1, 0.65],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-color": "#d84315",
+          "circle-stroke-width": 4,
         },
       });
     }
+
+    // Emphasis rings for the FOCUSED cluster only (the non-highlighted view
+    // stays clean — just centroids + preview loops). AL members collapse with
+    // the SAME pixel-proximity logic as the plain caches layer, recomputed on
+    // zoom, so the ring sits on the collapsed pin rather than on hidden stages.
+    const focusedCluster =
+      (candidates ?? []).find((c) => c.clusterId === focusedClusterId) ?? null;
+    const computeEmphasis = (): void => {
+      const feats: GeoJSON.Feature<GeoJSON.Point, { collapsed: number }>[] = [];
+      if (focusedCluster) {
+        const members = focusedCluster.cacheIds
+          .map((id) => cacheById.get(id))
+          .filter((c): c is CacheSummaryDTO => c != null);
+        const ring = (coord: [number, number], collapsed: number): void => {
+          feats.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: coord },
+            properties: { collapsed },
+          });
+        };
+        // Regular caches never collapse (matches CachesLayer) — ring each.
+        for (const c of members.filter((m) => m.type !== "Adventure Lab")) {
+          ring(c.location.coordinates as [number, number], 0);
+        }
+        // AL stages collapse exactly like the plain layer.
+        const { singles, groups } = collapseByProximity(
+          members
+            .filter((m) => m.type === "Adventure Lab")
+            .map((c) => ({
+              lng: c.location.coordinates[0]!,
+              lat: c.location.coordinates[1]!,
+              item: c,
+            })),
+          (lngLat) => map.project(lngLat),
+          { thresholdPx: OVERLAP_PX },
+        );
+        for (const s of singles)
+          ring(s.location.coordinates as [number, number], 0);
+        for (const g of groups) ring(g.center, 1);
+      }
+      upsertGeoJsonSource(map, FOCUS_CACHES_SOURCE, {
+        type: "FeatureCollection",
+        features: feats,
+      });
+      map.triggerRepaint();
+    };
+    computeEmphasis();
+    map.on("zoom", computeEmphasis);
+
     // Recede behind an active tour (ADR-0035 context hierarchy).
     map.setPaintProperty(
       PREVIEW_LINES_LAYER,
@@ -259,9 +289,12 @@ export function ClustersPreviewLayer({
     );
     map.setPaintProperty(
       FOCUS_CACHES_LAYER,
-      "circle-opacity",
-      deEmphasized ? 0.2 : ["case", ["==", ["get", "focused"], 1], 1, 0.65],
+      "circle-stroke-opacity",
+      deEmphasized ? 0.2 : 1,
     );
+    return () => {
+      map.off("zoom", computeEmphasis);
+    };
   }, [map, ready, candidates, focusedClusterId, cacheById, deEmphasized]);
 
   // --- Centroid tap → frame + select; hover → emphasize (no camera) ----

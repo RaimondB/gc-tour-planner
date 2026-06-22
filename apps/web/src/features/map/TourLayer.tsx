@@ -17,6 +17,8 @@ import {
   TOOL_BADGE_ICON,
   ensureExcludedRingIcon,
   EXCLUDED_RING_ICON,
+  ensurePieIcon,
+  pieImageId,
   cornerIconOffset,
   cornerTextOffset,
 } from "./marker-style.js";
@@ -455,7 +457,7 @@ export function TourLayer({
         layout: {
           "icon-image": TOOL_BADGE_ICON,
           "icon-offset": cornerIconOffset("TR"),
-          "icon-size": 0.7,
+          "icon-size": 0.95,
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },
@@ -498,17 +500,35 @@ export function TourLayer({
         "circle-translate": [4, 4],
       },
     });
-    addLayerSafe(STOP_COLLAPSED_CIRCLE_LAYER, {
-      id: STOP_COLLAPSED_CIRCLE_LAYER,
-      type: "circle",
-      source: STOP_COLLAPSED_SOURCE,
-      paint: {
-        "circle-radius": 14,
-        "circle-color": ["get", "color"],
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-width": 2,
-      },
-    });
+    // Collapsed stack disc — a PIE of its distinct member type colours (so a
+    // mix of cache types is visible), or a solid disc when homogeneous. Circle
+    // fallback when no 2D canvas (jsdom). `stopAlIconOk` doubles as the
+    // canvas-available probe.
+    if (stopAlIconOk) {
+      addLayerSafe(STOP_COLLAPSED_CIRCLE_LAYER, {
+        id: STOP_COLLAPSED_CIRCLE_LAYER,
+        type: "symbol",
+        source: STOP_COLLAPSED_SOURCE,
+        layout: {
+          "icon-image": ["get", "pieIcon"],
+          "icon-size": 1.3,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+      });
+    } else {
+      addLayerSafe(STOP_COLLAPSED_CIRCLE_LAYER, {
+        id: STOP_COLLAPSED_CIRCLE_LAYER,
+        type: "circle",
+        source: STOP_COLLAPSED_SOURCE,
+        paint: {
+          "circle-radius": 14,
+          "circle-color": ["get", "color"],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      });
+    }
     addLayerSafe(STOP_COLLAPSED_LABEL_LAYER, {
       id: STOP_COLLAPSED_LABEL_LAYER,
       type: "symbol",
@@ -686,15 +706,23 @@ export function TourLayer({
           identityText: s.identityText,
         },
       }));
-      const groupFeatures: GeoJSON.Feature[] = groups.map((g) => ({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: g.center },
-        properties: {
-          count: g.count,
-          label: g.label,
-          color: g.members.every((m) => m.isAL) ? AL_STOP_COLOR : STOP_COLOR,
-        },
-      }));
+      const groupFeatures: GeoJSON.Feature[] = groups.map((g) => {
+        // Distinct member type colours (sorted → stable image key). A collapsed
+        // stack renders as a PIE of these, so a mix of cache types is visible
+        // rather than hidden behind one flat colour.
+        const colors = [...new Set(g.members.map((m) => m.color))].sort();
+        ensurePieIcon(map, colors);
+        return {
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: g.center },
+          properties: {
+            count: g.count,
+            label: g.label,
+            color: colors[0] ?? STOP_COLOR,
+            pieIcon: pieImageId(colors),
+          },
+        };
+      });
       setData(STOP_SOURCE, singleFeatures);
       setData(STOP_COLLAPSED_SOURCE, groupFeatures);
       map.triggerRepaint();
