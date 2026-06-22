@@ -117,6 +117,20 @@ const TYPE_COLORS: Record<CacheType, string> = {
 };
 
 /**
+ * Two independent dims that compose (applied to a marker's circle AND its
+ * label/badge so a found/disabled cache recedes as a whole):
+ *   * found-by-me → 0.35 (won't disappear, but recedes) — this is what dims a
+ *     completed Adventure Lab stage exactly like a found regular cache.
+ *   * disabled    → 0.50 (geocaching.com convention for temp-disabled).
+ * Combining both gives ~0.18, still visible.
+ */
+const FOUND_DISABLED_OPACITY: maplibregl.ExpressionSpecification = [
+  "*",
+  ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
+  ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
+];
+
+/**
  * Circle paint shared by the regular-cache layer and the (zoomed-in) Adventure
  * Lab stage layer, so both look identical — colour comes from the per-feature
  * `color` prop, and found/disabled dims compose the same way.
@@ -126,20 +140,8 @@ const CACHE_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
   "circle-color": ["get", "color"],
   "circle-stroke-color": "#ffffff",
   "circle-stroke-width": 1.5,
-  // Two independent dims compose:
-  //   * found-by-me → 0.35 (won't disappear, but recedes)
-  //   * disabled    → 0.50 (geocaching.com convention for temp-disabled).
-  //     Combining both gives ~0.18 which is still visible.
-  "circle-opacity": [
-    "*",
-    ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-    ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
-  ],
-  "circle-stroke-opacity": [
-    "*",
-    ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-    ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
-  ],
+  "circle-opacity": FOUND_DISABLED_OPACITY,
+  "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
 };
 
 /**
@@ -192,6 +194,8 @@ interface AlAdventureProps {
   /** Comma-joined member cache ids, for modifier-click whole-adventure toggle. */
   memberIds: string;
   color: string;
+  /** 1 when EVERY member stage is found — dim the pin like a found cache. */
+  foundByMe: number;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -444,7 +448,9 @@ export function CachesLayer({
             ["to-string", ["get", "stageSequence"]],
           ],
           "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 13],
+          // Slightly smaller so the "S{n}" sits within the (small) AL circle
+          // rather than overflowing it.
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 7, 14, 10],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-anchor": "center",
@@ -452,7 +458,9 @@ export function CachesLayer({
         paint: {
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
-          "text-halo-width": 1.8,
+          "text-halo-width": 1.6,
+          // Dim a completed (found) stage's label with its circle.
+          "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -478,6 +486,9 @@ export function CachesLayer({
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
           "circle-translate": AL_LINEAR_BADGE_OFFSET,
+          // Dim the badge with a completed (found) stage.
+          "circle-opacity": FOUND_DISABLED_OPACITY,
+          "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -496,7 +507,8 @@ export function CachesLayer({
         layout: {
           "text-field": ["to-string", ["get", "stageSequence"]],
           "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9, 16, 12],
+          // Slightly smaller so the number sits inside the badge disc.
+          "text-size": ["interpolate", ["linear"], ["zoom"], 12, 8, 16, 11],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-offset": [0, 0],
@@ -504,6 +516,8 @@ export function CachesLayer({
         paint: {
           "text-color": "#ffffff",
           "text-translate": AL_LINEAR_BADGE_OFFSET,
+          // Dim the badge number with a completed (found) stage.
+          "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -533,6 +547,8 @@ export function CachesLayer({
             3,
             1.5,
           ],
+          "circle-opacity": FOUND_DISABLED_OPACITY,
+          "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -559,6 +575,7 @@ export function CachesLayer({
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
           "text-halo-width": 1.6,
+          "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -679,6 +696,8 @@ export function CachesLayer({
             selected: members.some((m) => selectedCacheIds?.has(m.id)) ? 1 : 0,
             memberIds: members.map((m) => m.id).join(","),
             color: TYPE_COLORS["Adventure Lab"],
+            // Dim the whole collapsed adventure once every stage is found.
+            foundByMe: members.every((m) => m.foundByMe) ? 1 : 0,
           },
         });
       }
