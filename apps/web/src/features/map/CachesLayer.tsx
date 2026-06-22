@@ -18,6 +18,7 @@ import {
 import { mergeCachesById } from "../planning/halo-caches.js";
 import { OVERLAP_PX } from "./pixel-cluster.js";
 import { collapseByProximity } from "./marker-collapse.js";
+import { applyLayerOrder } from "./map-layers.js";
 import {
   TYPE_COLORS,
   TYPE_GLYPH,
@@ -673,12 +674,10 @@ export function CachesLayer({
       });
     }
 
-    // Keep the AL stage label on top of everything (incl. the collapsed AL pins,
-    // selection rings, and ClustersPreviewLayer's emphasis discs) so it stays
-    // readable. moveLayer() with no beforeId pops it to the very top.
-    if (map.getLayer(CACHES_CENTER_LABEL_LAYER)) {
-      map.moveLayer(CACHES_CENTER_LABEL_LAYER);
-    }
+    // Enforce the single declarative z-order (map-layers.ts) instead of ad-hoc
+    // moveLayer calls — this keeps the centre glyph / badges above the cache
+    // base, the cache layers under the tour, etc.
+    applyLayerOrder(map);
 
     // Build the cache features for the current zoom and (re)populate the sources.
     // Adventure Lab stages that overlap on screen collapse into one pin (the same

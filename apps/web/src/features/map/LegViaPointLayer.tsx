@@ -6,6 +6,7 @@ import type maplibregl from "maplibre-gl";
 import type { GeoJsonLineString } from "@gctp/shared/geo";
 import type { ViaRouteResponse } from "@gctp/shared/tours";
 import { fetchViaRoute } from "../../lib/api.js";
+import { applyLayerOrder } from "./map-layers.js";
 import { useMap } from "./MapContext.js";
 
 const SOURCE_LINE = "gctp-leg-via-live-line";
@@ -190,12 +191,9 @@ export function LegViaPointLayer({
         },
       });
     }
-    // Keep marker + line above the tour polyline so they're always
-    // visible. Idempotent — moveLayer is a no-op when the layer is
-    // already on top.
-    if (map.getLayer(LAYER_LINE)) map.moveLayer(LAYER_LINE);
-    if (map.getLayer(LAYER_MARKER_RING)) map.moveLayer(LAYER_MARKER_RING);
-    if (map.getLayer(LAYER_MARKER)) map.moveLayer(LAYER_MARKER);
+    // Keep marker + line above the tour polyline — the declarative registry
+    // (map-layers.ts) lists them among the top editing overlays.
+    applyLayerOrder(map);
   }, [map, ready, state]);
 
   // When `state` flips to null (user closed/reset), abort any in-flight

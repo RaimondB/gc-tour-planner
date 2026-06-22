@@ -7,6 +7,7 @@ import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { ClusterCandidate } from "@gctp/shared/tours";
 import { collapseByProximity } from "./marker-collapse.js";
 import { OVERLAP_PX } from "./pixel-cluster.js";
+import { applyLayerOrder } from "./map-layers.js";
 import { useMap } from "./MapContext.js";
 
 const CENTROIDS_SOURCE = "gctp-cluster-centroids";
@@ -140,24 +141,13 @@ export function ClustersPreviewLayer({
       deEmphasized ? 0.3 : 1,
     );
 
-    // Force the centroid + label to the top of the style every time the
-    // candidates change. `addLayer` without a `beforeId` only puts them
-    // on top *at the time of the call* — any layer mounted later in
-    // App.tsx (TourLayer, ParkingPreviewLayer, walking-graph debug,
-    // etc.) gets stacked above and steals the click target. Calling
-    // `moveLayer(id)` with no second arg pops the layer to the very
-    // top; label after circle so the number renders above the disc.
-    // BUT when a tour is active (deEmphasized) we DON'T pop above it — the
-    // tour is the primary context, so the centroids stay beneath it (no more
-    // cluster centroid floating over a routed loop).
-    if (!deEmphasized) {
-      if (map.getLayer(CENTROIDS_LAYER)) {
-        map.moveLayer(CENTROIDS_LAYER);
-      }
-      if (map.getLayer(CENTROIDS_LABEL_LAYER)) {
-        map.moveLayer(CENTROIDS_LABEL_LAYER);
-      }
-    }
+    // Z-order is the declarative registry's job (map-layers.ts): the centroids
+    // sit above the caches but below the tour. When no tour is planned the tour
+    // layers don't exist, so the centroids are effectively on top (tappable);
+    // once a tour exists they fall beneath it. The tour-active de-emphasis is
+    // OPACITY only (above), no longer a z-order flip — so no more centroid
+    // floating over a routed loop.
+    applyLayerOrder(map);
   }, [map, ready, candidates, focusedClusterId, deEmphasized]);
 
   // --- Preview lines (every cluster) + emphasis rings (focused only) ----
@@ -191,6 +181,14 @@ export function ClustersPreviewLayer({
       type: "FeatureCollection",
       features: lineFeatures,
     });
+    // Seed the emphasis source EMPTY before its layer attaches — computeEmphasis()
+    // (which actually fills it) runs after the addLayer below, and MapLibre
+    // rejects a layer whose source doesn't exist yet.
+    if (!map.getSource(FOCUS_CACHES_SOURCE))
+      upsertGeoJsonSource(map, FOCUS_CACHES_SOURCE, {
+        type: "FeatureCollection",
+        features: [],
+      });
 
     if (!map.getLayer(PREVIEW_LINES_LAYER)) {
       map.addLayer({
@@ -309,6 +307,7 @@ export function ClustersPreviewLayer({
       "circle-stroke-opacity",
       deEmphasized ? 0.2 : 1,
     );
+    applyLayerOrder(map);
     return () => {
       map.off("zoom", computeEmphasis);
     };

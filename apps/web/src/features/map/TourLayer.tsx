@@ -7,6 +7,7 @@ import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
 import { collapseByProximity } from "./marker-collapse.js";
+import { applyLayerOrder } from "./map-layers.js";
 import {
   TYPE_COLORS,
   TYPE_GLYPH,
@@ -599,6 +600,11 @@ export function TourLayer({
     } else if (map.getLayer(TOUR_HIT_LAYER)) {
       map.removeLayer(TOUR_HIT_LAYER);
     }
+
+    // Enforce the single declarative z-order (map-layers.ts): the tour sits
+    // above the caches + cluster preview; routed stops above the skipped
+    // (dropped) caches; the edit-mode hit line on top.
+    applyLayerOrder(map);
 
     // Some MapLibre builds don't schedule a redraw after addLayer+setData
     // when the map is in a quiescent state — the layer is in the style

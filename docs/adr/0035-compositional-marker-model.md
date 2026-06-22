@@ -95,9 +95,12 @@ available (jsdom in tests).
   but it's the colour-blind redundancy.
 - **New shared modules** `marker-style.ts` (palette, glyphs, slots, ring styles,
   image factories) and `marker-collapse.ts` centralise what three files duplicated.
-- **A declarative layer registry (one ordered z-order list replacing the scattered
-  `addLayer`/`moveLayer` juggling) is the natural next step** but was deferred — it
-  benefits from live z-order verification and is not user-visible.
+- **A declarative layer registry** (`map-layers.ts`) is the single source of truth
+  for z-order: one ordered `MAP_LAYER_ORDER` list + `applyLayerOrder(map)`, called at
+  the end of each layer component's setup effect, replacing the scattered
+  `moveLayer` juggling. The order is static — "tour outranks cluster" falls out
+  because the tour layers simply don't exist until a tour is planned, so the
+  tour-vs-cluster de-emphasis is opacity-only. Invariants are locked by a unit test.
 - Two shapes only: more cache *types* than shapes, by design — type rides colour +
   letter, not shape, so the shape set stays at two.
 
