@@ -55,6 +55,9 @@ const STOP_COLOR = "#d84315";
  * numbered circle and the conditional badge.
  */
 const STOP_TOOL_LAYER = "gctp-tour-stops-tool";
+// AL stage number as a superscript on a routed stop (FR-I18): the main label is
+// the tour visit order, this small upper-right number is the stage's own order.
+const STOP_AL_SUPER_LAYER = "gctp-tour-stops-al-super";
 const DROPPED_SOURCE = "gctp-tour-dropped";
 const DROPPED_CIRCLE_LAYER = "gctp-tour-dropped-circle";
 const DROPPED_LABEL_LAYER = "gctp-tour-dropped-label";
@@ -407,6 +410,29 @@ export function TourLayer({
         "text-halo-width": 2,
       },
     });
+    // AL stage number as a superscript at the stop's upper-right — so a routed
+    // Adventure Lab stop shows BOTH its tour visit order (the big centred number)
+    // and which stage of its adventure it is. Only on AL stops (stageSequence>0).
+    addLayerSafe(STOP_AL_SUPER_LAYER, {
+      id: STOP_AL_SUPER_LAYER,
+      type: "symbol",
+      source: STOP_SOURCE,
+      filter: [">", ["get", "stageSequence"], 0],
+      layout: {
+        "text-field": ["to-string", ["get", "stageSequence"]],
+        "text-font": SYMBOL_FONT,
+        "text-size": 9,
+        "text-offset": [0.95, -0.85],
+        "text-anchor": "center",
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": AL_STOP_COLOR,
+        "text-halo-width": 2,
+      },
+    });
     // Collapsed stop node — drawn when several stops overlap on screen. A
     // translucent offset "shadow" disc behind the main disc gives a stacked
     // look (the visual indication that it's a group), and the label shows the
@@ -526,6 +552,8 @@ export function TourLayer({
       code: string;
       hasTool: number;
       isAL: boolean;
+      /** AL stage number (0 for non-AL) — shown as a superscript on the stop. */
+      stageSequence: number;
       color: string;
       coord: [number, number];
     }
@@ -540,6 +568,7 @@ export function TourLayer({
               code: cache.code,
               hasTool: cache.requiresTool ? 1 : 0,
               isAL,
+              stageSequence: cache.stageSequence ?? 0,
               color: isAL ? AL_STOP_COLOR : STOP_COLOR,
               coord: cache.location.coordinates as [number, number],
             };
@@ -579,6 +608,7 @@ export function TourLayer({
               order: s.order,
               code: s.code,
               hasTool: s.hasTool,
+              stageSequence: s.stageSequence,
               color: s.color,
             },
           });

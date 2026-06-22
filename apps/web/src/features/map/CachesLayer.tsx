@@ -35,13 +35,9 @@ const CACHES_AL_CIRCLE_LAYER = "gctp-caches-al-circle";
 const CACHES_HIT_LAYER = "gctp-caches-hit";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
+// AL stage labels: "S{n}" (random-order) / "L{n}" (linear, FR-I18), centred on
+// the marker. The L/S prefix is the only difference between the two.
 const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
-// Linear Adventure Labs (FR-I18): their stages must be done in order, so each
-// stage shows its number at the pin's top-right — drawn the way the tool-cache
-// "T" badge is (a haloed glyph, NO background bubble), and kept on top so it's
-// readable over the cluster-emphasis discs. Distinguishes linear from the plain
-// centred S{n} of random-order ALs.
-const CACHES_AL_LINEAR_BADGE_LABEL_LAYER = "gctp-caches-al-linear-badge-label";
 const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
 // Collapsed Adventure Labs (FR-I17): AL stages that overlap on screen collapse
 // into one pin (the same pixel-proximity logic the planned tour uses — see
@@ -419,33 +415,33 @@ export function CachesLayer({
       });
     }
     // Adventure Lab stage number, drawn ON the marker as "S1", "S2", … . The
-    // "S" prefix is deliberate: the tour overlay (TourLayer) labels routed stops
-    // with bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being
-    // read as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both
-    // scopes this to lab stages and skips AL rows imported before stage metadata.
+    // Stage label centred on the marker: "S{n}" for a random-order Adventure
+    // Lab, "L{n}" for a linear one (the only difference is the prefix). The S/L
+    // prefix is deliberate: the tour overlay (TourLayer) labels routed stops with
+    // bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being read
+    // as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both scopes
+    // this to lab stages and skips AL rows imported before stage metadata.
     if (!map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
       map.addLayer({
         id: CACHES_AL_STAGE_LABEL_LAYER,
         type: "symbol",
         source: CACHES_SOURCE,
-        // The S{n} label is only legible once zoomed in; keep a floor so it
-        // doesn't clutter at low zoom, and skip stages collapsed into a pin.
+        // The label is only legible once zoomed in; keep a floor so it doesn't
+        // clutter at low zoom, and skip stages collapsed into a pin.
         minzoom: AL_STAGE_LABEL_MINZOOM,
         filter: [
           "all",
           [">", ["get", "stageSequence"], 0],
           ["==", ["get", "alHidden"], 0],
-          // Linear adventures get the distinct corner badge below instead.
-          ["!=", ["get", "adventureSequential"], 1],
         ],
         layout: {
           "text-field": [
             "concat",
-            "S",
+            ["case", ["==", ["get", "adventureSequential"], 1], "L", "S"],
             ["to-string", ["get", "stageSequence"]],
           ],
           "text-font": ["Noto Sans Bold"],
-          // Slightly smaller so the "S{n}" sits within the (small) AL circle
+          // Slightly smaller so the label sits within the (small) AL circle
           // rather than overflowing it.
           "text-size": ["interpolate", ["linear"], ["zoom"], 11, 7, 14, 10],
           "text-allow-overlap": true,
@@ -457,42 +453,6 @@ export function CachesLayer({
           "text-halo-color": "#7b1fa2",
           "text-halo-width": 1.6,
           // Dim a completed (found) stage's label with its circle.
-          "text-opacity": FOUND_DISABLED_OPACITY,
-        },
-      });
-    }
-    // Linear AL stages (FR-I18): the stage number at the pin's top-right, drawn
-    // like the tool-cache "T" badge — a haloed glyph with NO background bubble
-    // (text-offset in ems puts it in the corner; the purple halo carries it over
-    // the marker). Moved to the very top of the style after setup so the cluster
-    // -emphasis discs can't hide it.
-    if (!map.getLayer(CACHES_AL_LINEAR_BADGE_LABEL_LAYER)) {
-      map.addLayer({
-        id: CACHES_AL_LINEAR_BADGE_LABEL_LAYER,
-        type: "symbol",
-        source: CACHES_SOURCE,
-        minzoom: AL_STAGE_LABEL_MINZOOM,
-        filter: [
-          "all",
-          [">", ["get", "stageSequence"], 0],
-          ["==", ["get", "alHidden"], 0],
-          ["==", ["get", "adventureSequential"], 1],
-        ],
-        layout: {
-          "text-field": ["to-string", ["get", "stageSequence"]],
-          "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 12],
-          // Top-right corner, like the tool "T" badge (ems, not pixels).
-          "text-offset": [0.8, -0.8],
-          "text-anchor": "center",
-          "text-allow-overlap": true,
-          "text-ignore-placement": true,
-        },
-        paint: {
-          "text-color": "#ffffff",
-          "text-halo-color": "#7b1fa2",
-          "text-halo-width": 2,
-          // Dim the number with a completed (found) stage.
           "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
@@ -638,11 +598,11 @@ export function CachesLayer({
       });
     }
 
-    // Keep the linear-stage number on top of everything (incl. the collapsed AL
-    // pins, selection rings, and ClustersPreviewLayer's emphasis discs) so it's
-    // always readable. moveLayer() with no beforeId pops it to the very top.
-    if (map.getLayer(CACHES_AL_LINEAR_BADGE_LABEL_LAYER)) {
-      map.moveLayer(CACHES_AL_LINEAR_BADGE_LABEL_LAYER);
+    // Keep the AL stage label on top of everything (incl. the collapsed AL pins,
+    // selection rings, and ClustersPreviewLayer's emphasis discs) so it stays
+    // readable. moveLayer() with no beforeId pops it to the very top.
+    if (map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
+      map.moveLayer(CACHES_AL_STAGE_LABEL_LAYER);
     }
 
     // Build the cache features for the current zoom and (re)populate the sources.
