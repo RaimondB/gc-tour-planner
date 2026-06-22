@@ -240,6 +240,33 @@ describe("WebGL context loss", () => {
     expect(isMapStyleLive(lastMap as never)).toBe(true); // and it's live
   });
 
+  it("rebuilds on refocus when the WebGL context died WITHOUT a webglcontextlost event (silent loss)", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    // Some Android PWAs discard the GPU context on background WITHOUT firing
+    // `webglcontextlost` — so the style stays "live" (non-null) yet the canvas
+    // is dead. The event-driven recreate path can't see this; MapView must probe
+    // the live GL context directly. Simulate it: no loseContext() event, but the
+    // canvas reports its context lost.
+    expect(isMapStyleLive(first as never)).toBe(true);
+    vi.spyOn(first.getCanvas(), "getContext").mockReturnValue({
+      isContextLost: () => true,
+    } as never);
+
+    // App regains focus → MapView probes the context, sees it's dead, rebuilds.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).not.toBe(first); // a fresh map instance was built
+    expect(isMapStyleLive(lastMap as never)).toBe(true);
+  });
+
   it("waits for the restored style to load before re-enabling layers (no addSource on an unloaded style)", async () => {
     let ready: boolean | null = null;
     function Probe(): null {
