@@ -36,12 +36,20 @@ export function ClustersPreviewLayer({
   candidates,
   caches,
   focusedClusterId,
+  deEmphasized = false,
   onCentroidClick,
   onCentroidHover,
 }: {
   candidates: ClusterCandidate[] | null;
   caches: readonly CacheSummaryDTO[] | undefined;
   focusedClusterId: string | null;
+  /**
+   * When a tour is active, the cluster preview is NOT the primary context
+   * (ADR-0035 context hierarchy: tour > cluster > plain). De-emphasised, it
+   * recedes (lower opacity) and stops forcing its centroids above the tour —
+   * which is what kept a cluster centroid floating over a routed loop.
+   */
+  deEmphasized?: boolean;
   /** Single tap — frame the cluster + select it as the Tour context. */
   onCentroidClick: (clusterId: string) => void;
   /** Hover (desktop) — emphasize the cluster without moving the camera. */
@@ -96,6 +104,17 @@ export function ClustersPreviewLayer({
         },
       });
     }
+    // Context hierarchy (ADR-0035): when a tour owns the view, recede.
+    map.setPaintProperty(
+      CENTROIDS_LAYER,
+      "circle-opacity",
+      deEmphasized ? 0.3 : 0.9,
+    );
+    map.setPaintProperty(
+      CENTROIDS_LAYER,
+      "circle-stroke-opacity",
+      deEmphasized ? 0.3 : 1,
+    );
     if (!map.getLayer(CENTROIDS_LABEL_LAYER)) {
       map.addLayer({
         id: CENTROIDS_LABEL_LAYER,
@@ -113,6 +132,12 @@ export function ClustersPreviewLayer({
       });
     }
 
+    map.setPaintProperty(
+      CENTROIDS_LABEL_LAYER,
+      "text-opacity",
+      deEmphasized ? 0.3 : 1,
+    );
+
     // Force the centroid + label to the top of the style every time the
     // candidates change. `addLayer` without a `beforeId` only puts them
     // on top *at the time of the call* — any layer mounted later in
@@ -120,13 +145,18 @@ export function ClustersPreviewLayer({
     // etc.) gets stacked above and steals the click target. Calling
     // `moveLayer(id)` with no second arg pops the layer to the very
     // top; label after circle so the number renders above the disc.
-    if (map.getLayer(CENTROIDS_LAYER)) {
-      map.moveLayer(CENTROIDS_LAYER);
+    // BUT when a tour is active (deEmphasized) we DON'T pop above it — the
+    // tour is the primary context, so the centroids stay beneath it (no more
+    // cluster centroid floating over a routed loop).
+    if (!deEmphasized) {
+      if (map.getLayer(CENTROIDS_LAYER)) {
+        map.moveLayer(CENTROIDS_LAYER);
+      }
+      if (map.getLayer(CENTROIDS_LABEL_LAYER)) {
+        map.moveLayer(CENTROIDS_LABEL_LAYER);
+      }
     }
-    if (map.getLayer(CENTROIDS_LABEL_LAYER)) {
-      map.moveLayer(CENTROIDS_LABEL_LAYER);
-    }
-  }, [map, ready, candidates, focusedClusterId]);
+  }, [map, ready, candidates, focusedClusterId, deEmphasized]);
 
   // --- Preview lines + emphasized cache markers, for every cluster ------
   useEffect(() => {
@@ -221,7 +251,18 @@ export function ClustersPreviewLayer({
         },
       });
     }
-  }, [map, ready, candidates, focusedClusterId, cacheById]);
+    // Recede behind an active tour (ADR-0035 context hierarchy).
+    map.setPaintProperty(
+      PREVIEW_LINES_LAYER,
+      "line-opacity",
+      deEmphasized ? 0.2 : ["case", ["==", ["get", "focused"], 1], 0.95, 0.55],
+    );
+    map.setPaintProperty(
+      FOCUS_CACHES_LAYER,
+      "circle-opacity",
+      deEmphasized ? 0.2 : ["case", ["==", ["get", "focused"], 1], 1, 0.65],
+    );
+  }, [map, ready, candidates, focusedClusterId, cacheById, deEmphasized]);
 
   // --- Centroid tap → frame + select; hover → emphasize (no camera) ----
   useEffect(() => {

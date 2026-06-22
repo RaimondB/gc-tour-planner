@@ -6,7 +6,20 @@ import type maplibregl from "maplibre-gl";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";
-import { clusterByPixelProximity } from "./pixel-cluster.js";
+import { collapseByProximity } from "./marker-collapse.js";
+import {
+  TYPE_COLORS,
+  TYPE_GLYPH,
+  TOUR_ACCENT,
+  ensureMarkerImage,
+  markerImageId,
+  ensureToolBadgeIcon,
+  TOOL_BADGE_ICON,
+  ensureExcludedRingIcon,
+  EXCLUDED_RING_ICON,
+  cornerIconOffset,
+  cornerTextOffset,
+} from "./marker-style.js";
 import { useMap } from "./MapContext.js";
 
 const TOUR_SOURCE = "gctp-tour";
@@ -32,6 +45,7 @@ const COLLIDE_PX = 22;
 const OFFSET_PX: [number, number] = [14, -14];
 const STOP_SOURCE = "gctp-tour-stops";
 const STOP_CIRCLE_LAYER = "gctp-tour-stops-circle";
+const STOP_AL_ICON_LAYER = "gctp-tour-stops-al-icon";
 const STOP_LABEL_LAYER = "gctp-tour-stops-label";
 // Collapsed-stop overlay: stops whose markers overlap on screen at the current
 // zoom merge into one "stacked" node (shadow + disc + range/count label) until
@@ -44,23 +58,29 @@ const STOP_COLLAPSED_CIRCLE_LAYER = "gctp-tour-stops-collapsed-circle";
 const STOP_COLLAPSED_LABEL_LAYER = "gctp-tour-stops-collapsed-label";
 /** Centre-to-centre screen distance under which two ~12px-radius stops overlap. */
 const COLLAPSE_PX = 20;
-/** Adventure Lab stop colour (matches CachesLayer's TYPE_COLORS["Adventure Lab"]). */
-const AL_STOP_COLOR = "#7b1fa2";
-/** Default routed-stop colour. */
-const STOP_COLOR = "#d84315";
+/** Adventure Lab stop colour (shared kind colour). */
+const AL_STOP_COLOR = TYPE_COLORS["Adventure Lab"];
+/** Default routed-stop colour (tour accent). */
+const STOP_COLOR = TOUR_ACCENT;
 /**
- * FR-SF5: small "T" badge rendered on the upper-right of a stop
- * circle when the cache needs equipment (`hasToolRequirement` true).
- * Filtered by feature property so a single source feeds both the
- * numbered circle and the conditional badge.
+ * FR-SF5: a wrench badge in the reserved TR corner of a stop when the cache
+ * needs equipment. An ICON (not a "T" letter) — a letter would collide with the
+ * Traditional type glyph (status = icons, identity = letters; ADR-0035).
  */
 const STOP_TOOL_LAYER = "gctp-tour-stops-tool";
-// AL stage number as a superscript on a routed stop (FR-I18): the main label is
-// the tour visit order, this small upper-right number is the stage's own order.
-const STOP_AL_SUPER_LAYER = "gctp-tour-stops-al-super";
+// Demoted identity badge in the reserved BR corner of a routed stop (ADR-0035):
+// the centre shows the tour visit order for EVERY stop, so the cache's identity
+// (its type letter, or "S{n}"/"L{n}" for an AL stage) moves to this corner.
+const STOP_IDENTITY_LAYER = "gctp-tour-stops-identity";
+/** Tour AL stops are squircles like every AL marker — icon-size for radius ~12. */
+const STOP_AL_ICON = markerImageId("al", AL_STOP_COLOR);
+const STOP_AL_ICON_SIZE = 1.6;
 const DROPPED_SOURCE = "gctp-tour-dropped";
+const DROPPED_RING_LAYER = "gctp-tour-dropped-ring";
 const DROPPED_CIRCLE_LAYER = "gctp-tour-dropped-circle";
 const DROPPED_LABEL_LAYER = "gctp-tour-dropped-label";
+/** Dropped candidates recede behind routed stops (excluded-but-recognisable). */
+const DROPPED_OPACITY = 0.55;
 
 // Single font, not a stack. MapLibre encodes `text-font: [a, b, c]` as a
 // comma-joined `{glyphs}/a,b,c/0-255.pbf` request, and demotiles (the
@@ -195,11 +215,19 @@ export function TourLayer({
             .map<GeoJSON.Feature | null>((id) => {
               const cache = cacheById.get(id);
               if (!cache) return null;
+              const isAL = cache.type === "Adventure Lab";
+              const stageSequence = cache.stageSequence ?? 0;
               return {
                 type: "Feature",
                 geometry: cache.location,
                 properties: {
                   code: cache.code,
+                  // Keep type colour + identity (ADR-0035): a dropped candidate
+                  // stays recognisable; the dashed ring + dim mark it excluded.
+                  color: TYPE_COLORS[cache.type] ?? TYPE_COLORS.Other,
+                  identityText: isAL
+                    ? `${cache.adventureSequential ? "L" : "S"}${stageSequence}`
+                    : (TYPE_GLYPH[cache.type] ?? TYPE_GLYPH.Other),
                 },
               };
             })
@@ -353,23 +381,53 @@ export function TourLayer({
         "text-color": "#ffffff",
       },
     });
-    // Numbered visit-order badges. Bigger circle than the cache markers
-    // CachesLayer paints so the order is visible without zooming in;
-    // text-allow-overlap so they never get culled even when caches sit
-    // closely together.
+    // Routed-stop base marker (ADR-0035): the cache's own SHAPE + type COLOUR,
+    // bigger than the caches-layer marker so the visit order is readable without
+    // zooming. A circle for regular caches, a purple squircle for AL stages —
+    // the same kind shapes used everywhere. CachesLayer hides the underlying
+    // cache (tour-owned), so this is the single authority for routed stops.
+    const stopAlIconOk = ensureMarkerImage(map, "al", AL_STOP_COLOR);
     addLayerSafe(STOP_CIRCLE_LAYER, {
       id: STOP_CIRCLE_LAYER,
       type: "circle",
       source: STOP_SOURCE,
+      // Non-AL stops; AL stops render as the squircle icon below.
+      filter: ["==", ["get", "stageSequence"], 0],
       paint: {
         "circle-radius": 12,
-        // Adventure Lab stops render purple to flag their type; everything
-        // else keeps the routed-stop red. Colour rides on the feature prop.
         "circle-color": ["get", "color"],
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 2,
       },
     });
+    if (stopAlIconOk) {
+      addLayerSafe(STOP_AL_ICON_LAYER, {
+        id: STOP_AL_ICON_LAYER,
+        type: "symbol",
+        source: STOP_SOURCE,
+        filter: [">", ["get", "stageSequence"], 0],
+        layout: {
+          "icon-image": STOP_AL_ICON,
+          "icon-size": STOP_AL_ICON_SIZE,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+      });
+    } else {
+      // No-canvas fallback (jsdom): a purple circle so AL stops still appear.
+      addLayerSafe(STOP_AL_ICON_LAYER, {
+        id: STOP_AL_ICON_LAYER,
+        type: "circle",
+        source: STOP_SOURCE,
+        filter: [">", ["get", "stageSequence"], 0],
+        paint: {
+          "circle-radius": 12,
+          "circle-color": ["get", "color"],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      });
+    }
     addLayerSafe(STOP_LABEL_LAYER, {
       id: STOP_LABEL_LAYER,
       type: "symbol",
@@ -385,51 +443,43 @@ export function TourLayer({
         "text-color": "#ffffff",
       },
     });
-    // FR-SF5: small "T" badge in the upper-right of a stop circle
-    // when that cache requires equipment. Letter "T" instead of an
-    // emoji wrench so it renders in the bundled Noto Sans Bold (no
-    // emoji glyph would render as a fallback box). Green halo
-    // distinguishes from the red stop circle.
-    addLayerSafe(STOP_TOOL_LAYER, {
-      id: STOP_TOOL_LAYER,
+    // FR-SF5: a wrench badge in the reserved TR corner when the cache needs
+    // equipment. An icon (not "T") so it can't be read as the Traditional type
+    // glyph (status = icons, identity = letters). Canvas image, like CachesLayer.
+    if (ensureToolBadgeIcon(map)) {
+      addLayerSafe(STOP_TOOL_LAYER, {
+        id: STOP_TOOL_LAYER,
+        type: "symbol",
+        source: STOP_SOURCE,
+        filter: ["==", ["get", "hasTool"], 1],
+        layout: {
+          "icon-image": TOOL_BADGE_ICON,
+          "icon-offset": cornerIconOffset("TR"),
+          "icon-size": 0.7,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+      });
+    }
+    // Demoted identity badge in the reserved BR corner (ADR-0035): the centre of
+    // every stop is the tour visit order, so the cache's identity moves here —
+    // the type letter for a regular cache, "S{n}"/"L{n}" for an AL stage. Haloed
+    // by the stop's own type colour so the white glyph reads on any basemap.
+    addLayerSafe(STOP_IDENTITY_LAYER, {
+      id: STOP_IDENTITY_LAYER,
       type: "symbol",
       source: STOP_SOURCE,
-      filter: ["==", ["get", "hasTool"], 1],
       layout: {
-        "text-field": "T",
-        "text-font": SYMBOL_FONT,
-        "text-size": 11,
-        "text-offset": [0.9, -0.9],
-        "text-anchor": "center",
-        "text-allow-overlap": true,
-        "text-ignore-placement": true,
-      },
-      paint: {
-        "text-color": "#ffffff",
-        "text-halo-color": "#1b5e20",
-        "text-halo-width": 2,
-      },
-    });
-    // AL stage number as a superscript at the stop's upper-right — so a routed
-    // Adventure Lab stop shows BOTH its tour visit order (the big centred number)
-    // and which stage of its adventure it is. Only on AL stops (stageSequence>0).
-    addLayerSafe(STOP_AL_SUPER_LAYER, {
-      id: STOP_AL_SUPER_LAYER,
-      type: "symbol",
-      source: STOP_SOURCE,
-      filter: [">", ["get", "stageSequence"], 0],
-      layout: {
-        "text-field": ["to-string", ["get", "stageSequence"]],
+        "text-field": ["get", "identityText"],
         "text-font": SYMBOL_FONT,
         "text-size": 9,
-        "text-offset": [0.95, -0.85],
-        "text-anchor": "center",
+        "text-offset": cornerTextOffset("BR"),
         "text-allow-overlap": true,
         "text-ignore-placement": true,
       },
       paint: {
         "text-color": "#ffffff",
-        "text-halo-color": AL_STOP_COLOR,
+        "text-halo-color": ["get", "color"],
         "text-halo-width": 2,
       },
     });
@@ -474,36 +524,54 @@ export function TourLayer({
         "text-color": "#ffffff",
       },
     });
-    // Trimmed-by-planner caches. Gray fill with a bright stroke
-    // (visually muted vs. the red numbered stops, but stands out vs.
-    // the small caches-layer markers — "we deliberately skipped this").
-    // Label is a single 'x' to read as "not visited"; size matches
-    // the stops so users can pick it out at any zoom level.
+    // Trimmed-by-planner caches (ADR-0035). They KEEP their type colour and
+    // identity (so you can still see what you skipped), but recede via reduced
+    // opacity and are marked excluded by a DASHED red ring (dashed-vs-solid is
+    // the colour-blind-safe channel). No visit-order number — the centre shows
+    // the identity letter / stage-id, which is how you tell a dropped candidate
+    // from a routed stop.
     addLayerSafe(DROPPED_CIRCLE_LAYER, {
       id: DROPPED_CIRCLE_LAYER,
       type: "circle",
       source: DROPPED_SOURCE,
       paint: {
-        "circle-radius": 12,
-        "circle-color": "#9e9e9e",
-        "circle-stroke-color": "#d84315",
-        "circle-stroke-width": 2,
-        "circle-opacity": 0.85,
+        "circle-radius": 11,
+        "circle-color": ["get", "color"],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1.5,
+        "circle-opacity": DROPPED_OPACITY,
+        "circle-stroke-opacity": DROPPED_OPACITY,
       },
     });
+    if (ensureExcludedRingIcon(map)) {
+      addLayerSafe(DROPPED_RING_LAYER, {
+        id: DROPPED_RING_LAYER,
+        type: "symbol",
+        source: DROPPED_SOURCE,
+        layout: {
+          "icon-image": EXCLUDED_RING_ICON,
+          "icon-size": 0.7,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+      });
+    }
     addLayerSafe(DROPPED_LABEL_LAYER, {
       id: DROPPED_LABEL_LAYER,
       type: "symbol",
       source: DROPPED_SOURCE,
       layout: {
-        "text-field": "x",
+        "text-field": ["get", "identityText"],
         "text-font": SYMBOL_FONT,
-        "text-size": 14,
+        "text-size": 11,
         "text-allow-overlap": true,
         "text-ignore-placement": true,
       },
       paint: {
         "text-color": "#ffffff",
+        "text-halo-color": ["get", "color"],
+        "text-halo-width": 1.4,
+        "text-opacity": DROPPED_OPACITY,
       },
     });
 
@@ -552,9 +620,12 @@ export function TourLayer({
       code: string;
       hasTool: number;
       isAL: boolean;
-      /** AL stage number (0 for non-AL) — shown as a superscript on the stop. */
+      /** AL stage number (0 for non-AL). */
       stageSequence: number;
+      /** Per-type fill colour, PRESERVED in the tour (ADR-0035) — not blanket red. */
       color: string;
+      /** Demoted identity for the BR corner badge: type letter / "S{n}"/"L{n}". */
+      identityText: string;
       coord: [number, number];
     }
     const stops: Stop[] = result
@@ -563,13 +634,17 @@ export function TourLayer({
             const cache = byId.get(id);
             if (!cache) return null;
             const isAL = cache.type === "Adventure Lab";
+            const stageSequence = cache.stageSequence ?? 0;
             return {
               order: i + 1,
               code: cache.code,
               hasTool: cache.requiresTool ? 1 : 0,
               isAL,
-              stageSequence: cache.stageSequence ?? 0,
-              color: isAL ? AL_STOP_COLOR : STOP_COLOR,
+              stageSequence,
+              color: TYPE_COLORS[cache.type] ?? TYPE_COLORS.Other,
+              identityText: isAL
+                ? `${cache.adventureSequential ? "L" : "S"}${stageSequence}`
+                : (TYPE_GLYPH[cache.type] ?? TYPE_GLYPH.Other),
               coord: cache.location.coordinates as [number, number],
             };
           })
@@ -591,46 +666,37 @@ export function TourLayer({
         setData(STOP_COLLAPSED_SOURCE, []);
         return;
       }
-      const clusters = clusterByPixelProximity(
+      // Unified pixel-proximity collapse (shared with CachesLayer's AL pins):
+      // singletons render as numbered stops, merged groups as one stacked node
+      // with a contiguous-range or ×count label.
+      const { singles, groups } = collapseByProximity(
         stops.map((s) => ({ lng: s.coord[0], lat: s.coord[1], item: s })),
         (lngLat) => map.project(lngLat),
-        COLLAPSE_PX,
+        { thresholdPx: COLLAPSE_PX, order: (s) => s.order },
       );
-      const singles: GeoJSON.Feature[] = [];
-      const groups: GeoJSON.Feature[] = [];
-      for (const { members: ms, center } of clusters) {
-        if (ms.length === 1) {
-          const s = ms[0]!;
-          singles.push({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: s.coord },
-            properties: {
-              order: s.order,
-              code: s.code,
-              hasTool: s.hasTool,
-              stageSequence: s.stageSequence,
-              color: s.color,
-            },
-          });
-        } else {
-          const orders = ms.map((m) => m.order).sort((a, b) => a - b);
-          const min = orders[0]!;
-          const max = orders[orders.length - 1]!;
-          const contiguous = max - min + 1 === orders.length;
-          groups.push({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: center },
-            properties: {
-              count: ms.length,
-              // Contiguous run → "3–7"; otherwise a plain count "×4".
-              label: contiguous ? `${min}–${max}` : `×${ms.length}`,
-              color: ms.every((m) => m.isAL) ? AL_STOP_COLOR : STOP_COLOR,
-            },
-          });
-        }
-      }
-      setData(STOP_SOURCE, singles);
-      setData(STOP_COLLAPSED_SOURCE, groups);
+      const singleFeatures: GeoJSON.Feature[] = singles.map((s) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: s.coord },
+        properties: {
+          order: s.order,
+          code: s.code,
+          hasTool: s.hasTool,
+          stageSequence: s.stageSequence,
+          color: s.color,
+          identityText: s.identityText,
+        },
+      }));
+      const groupFeatures: GeoJSON.Feature[] = groups.map((g) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: g.center },
+        properties: {
+          count: g.count,
+          label: g.label,
+          color: g.members.every((m) => m.isAL) ? AL_STOP_COLOR : STOP_COLOR,
+        },
+      }));
+      setData(STOP_SOURCE, singleFeatures);
+      setData(STOP_COLLAPSED_SOURCE, groupFeatures);
       map.triggerRepaint();
     };
 
