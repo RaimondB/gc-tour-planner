@@ -221,10 +221,19 @@ export function ClustersPreviewLayer({
           // pin. The FOCUSED cluster rings are redder + thicker so it stands
           // out; non-focused stay a clean saturated orange (high enough contrast
           // on the basemap, unlike the old pale cream disc).
+          //
+          // The zoom interpolate MUST be top-level (a `["zoom"]` expression
+          // can't be nested inside another expression like "+", or MapLibre
+          // rejects the layer at addLayer) — so the per-feature `collapsed`
+          // boost rides in the interpolate's OUTPUTS, not as an outer sum.
           "circle-radius": [
-            "+",
-            ["interpolate", ["linear"], ["zoom"], 9, 9, 14, 14],
-            ["case", ["==", ["get", "collapsed"], 1], 3, 0],
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            ["case", ["==", ["get", "collapsed"], 1], 12, 9],
+            14,
+            ["case", ["==", ["get", "collapsed"], 1], 17, 14],
           ],
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-color": [
