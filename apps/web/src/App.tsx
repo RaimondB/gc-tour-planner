@@ -1761,6 +1761,7 @@ export default function App(): JSX.Element {
               candidates={clusters}
               caches={caches}
               focusedClusterId={focusedClusterId}
+              chosenClusterId={chosenClusterId}
               deEmphasized={planResult !== null}
               onCentroidClick={frameClusterById}
               onCentroidHover={setFocusedClusterId}

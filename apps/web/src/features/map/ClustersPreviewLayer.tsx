@@ -39,6 +39,7 @@ export function ClustersPreviewLayer({
   candidates,
   caches,
   focusedClusterId,
+  chosenClusterId = null,
   deEmphasized = false,
   onCentroidClick,
   onCentroidHover,
@@ -46,6 +47,10 @@ export function ClustersPreviewLayer({
   candidates: ClusterCandidate[] | null;
   caches: readonly CacheSummaryDTO[] | undefined;
   focusedClusterId: string | null;
+  /** The picked cluster (the one shown in the picker). Its member rings are the
+   *  prominent ones; every other cluster's rings are soft, so the selection
+   *  stands out. Hovering a cluster also promotes it. */
+  chosenClusterId?: string | null;
   /**
    * When a tour is active, the cluster preview is NOT the primary context
    * (ADR-0035 context hierarchy: tour > cluster > plain). De-emphasised, it
@@ -216,11 +221,11 @@ export function ClustersPreviewLayer({
         source: FOCUS_CACHES_SOURCE,
         paint: {
           // A ring OUTSIDE the cache (transparent fill so the cache's own
-          // colour/shape shows through), not a disc covering it. `collapsed`
-          // members get a slightly larger ring to sit around the collapsed AL
-          // pin. The FOCUSED cluster rings are redder + thicker so it stands
-          // out; non-focused stay a clean saturated orange (high enough contrast
-          // on the basemap, unlike the old pale cream disc).
+          // colour/shape shows through), sitting SNUG around the marker (the
+          // cache circle is ~9px at z14; the ring is ~11). The ACTIVE cluster
+          // (picked, or hovered) gets a redder, thicker ring; every other
+          // cluster's ring is a soft, thin orange — so the selection stands out
+          // instead of every cluster screaming equally.
           //
           // The zoom interpolate MUST be top-level (a `["zoom"]` expression
           // can't be nested inside another expression like "+", or MapLibre
@@ -231,22 +236,22 @@ export function ClustersPreviewLayer({
             ["linear"],
             ["zoom"],
             9,
-            ["case", ["==", ["get", "collapsed"], 1], 12, 9],
+            ["case", ["==", ["get", "collapsed"], 1], 8, 6],
             14,
-            ["case", ["==", ["get", "collapsed"], 1], 17, 14],
+            ["case", ["==", ["get", "collapsed"], 1], 13, 11],
           ],
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-color": [
             "case",
-            ["==", ["get", "focused"], 1],
+            ["==", ["get", "active"], 1],
             "#d84315",
-            "#ea580c",
+            "#f0a878",
           ],
           "circle-stroke-width": [
             "case",
-            ["==", ["get", "focused"], 1],
-            4,
-            2.5,
+            ["==", ["get", "active"], 1],
+            2.8,
+            1.6,
           ],
         },
       });
@@ -260,10 +265,16 @@ export function ClustersPreviewLayer({
     const computeEmphasis = (): void => {
       const feats: GeoJSON.Feature<
         GeoJSON.Point,
-        { focused: number; collapsed: number }
+        { active: number; collapsed: number }
       >[] = [];
       for (const cluster of candidates ?? []) {
-        const focused = cluster.clusterId === focusedClusterId ? 1 : 0;
+        // The picked cluster (or the hovered one) is the "active" one — its
+        // rings are prominent so the selection is obvious; the rest are soft.
+        const active =
+          cluster.clusterId === chosenClusterId ||
+          cluster.clusterId === focusedClusterId
+            ? 1
+            : 0;
         const members = cluster.cacheIds
           .map((id) => cacheById.get(id))
           .filter((c): c is CacheSummaryDTO => c != null);
@@ -271,7 +282,7 @@ export function ClustersPreviewLayer({
           feats.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: coord },
-            properties: { focused, collapsed },
+            properties: { active, collapsed },
           });
         };
         // Regular caches never collapse (matches CachesLayer) — ring each.
@@ -294,8 +305,8 @@ export function ClustersPreviewLayer({
           ring(s.location.coordinates as [number, number], 0);
         for (const g of groups) ring(g.center, 1);
       }
-      // Focused rings last → drawn on top of non-focused ones.
-      feats.sort((a, b) => a.properties.focused - b.properties.focused);
+      // Active rings last → drawn on top of the soft ones.
+      feats.sort((a, b) => a.properties.active - b.properties.active);
       upsertGeoJsonSource(map, FOCUS_CACHES_SOURCE, {
         type: "FeatureCollection",
         features: feats,
@@ -320,7 +331,15 @@ export function ClustersPreviewLayer({
     return () => {
       map.off("zoom", computeEmphasis);
     };
-  }, [map, ready, candidates, focusedClusterId, cacheById, deEmphasized]);
+  }, [
+    map,
+    ready,
+    candidates,
+    focusedClusterId,
+    chosenClusterId,
+    cacheById,
+    deEmphasized,
+  ]);
 
   // --- Centroid tap → frame + select; hover → emphasize (no camera) ----
   useEffect(() => {
