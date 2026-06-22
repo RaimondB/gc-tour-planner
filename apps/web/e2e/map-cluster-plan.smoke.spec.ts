@@ -74,7 +74,9 @@ test("upload → discover clusters → focus → plan a loop", async ({ page }) 
 
   // --- precondition: caches must exist before Discover does anything ---
   await page.locator('input[type="file"]').setInputFiles(FIXTURE);
-  await expect(page.locator(".dropzone__success")).toContainText("3 caches", {
+  // Fresh "3 caches" OR "Already uploaded" (the dev DB may already hold the
+  // fixture from a prior run) — both leave the caches present.
+  await expect(page.locator(".dropzone__success")).toBeVisible({
     timeout: 15_000,
   });
 
@@ -98,8 +100,8 @@ test("upload → discover clusters → focus → plan a loop", async ({ page }) 
   // --- Discover clusters ---
   await sidebar.getByRole("button", { name: "Discover clusters" }).click();
 
-  const clusterRows = page.locator("li.cluster");
-  await expect(page.locator(".cluster-picker")).toBeVisible({
+  const clusterRows = page.locator(".cluster-card");
+  await expect(page.locator(".cluster-carousel")).toBeVisible({
     timeout: 30_000,
   });
   await expect(clusterRows.first()).toBeVisible();
@@ -113,7 +115,7 @@ test("upload → discover clusters → focus → plan a loop", async ({ page }) 
 
   // --- plan a loop: tapping the row frames + picks the cluster; the peek's
   //     "Plan cluster #N" button then routes it (→ Plan & export step) ---
-  await firstRow.locator(".cluster-row-main").click();
+  await firstRow.locator(".cluster-card__main").click();
   const planButton = page.getByRole("button", { name: /Plan cluster #/ });
   await expect(planButton).toBeVisible({ timeout: 10_000 });
   await planButton.click();

@@ -182,6 +182,7 @@ LOG_LEVEL="${LOG_LEVEL:-info}" \
 
 VITE_API_URL="http://localhost:$API_PORT_DEV" \
 VITE_TURNSTILE_SITE_KEY="${VITE_TURNSTILE_SITE_KEY:-}" \
+VITE_E2E="${VITE_E2E:-1}" \
   run_prefixed web pnpm --filter @gctp/web dev &
 
 wait
