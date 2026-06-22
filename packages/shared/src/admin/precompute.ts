@@ -93,3 +93,18 @@ export const RetriggerOneRequest = z.object({
   kind: PrecomputeKind,
 });
 export type RetriggerOneRequest = z.infer<typeof RetriggerOneRequest>;
+
+/**
+ * Walking-precompute health for Adventure Lab stages only (FR-I20). `counts`
+ * buckets every AL stage by walking-precompute state (so `missing` = stages with
+ * no `route_legs` yet, isolated in the walking graph); `total` is the AL stage
+ * count. Backed by `GET /admin/precompute/adventure-labs`.
+ */
+export const AdventureLabWalkingStatus = z.object({
+  counts: PrecomputeKindCounts,
+  total: z.number().int().nonnegative(),
+  osrmVersion: z.string(),
+});
+export type AdventureLabWalkingStatus = z.infer<
+  typeof AdventureLabWalkingStatus
+>;

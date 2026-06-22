@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState, type JSX } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
   TestRouteResponse,
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import type { SearchParams } from "../../lib/search-params.js";
-import { backfillAdventureLabIds } from "../../lib/api.js";
+import {
+  backfillAdventureLabIds,
+  backfillAdventureLabWalking,
+  fetchAdventureLabWalkingStatus,
+} from "../../lib/api.js";
 import {
   ClusterLabPanel,
   DebugOverlaysPanel,
@@ -82,6 +86,7 @@ export function AdminToolsPanel({
           </p>
           <AdminPrecomputePanel />
           <AdventureLabBackfillPanel />
+          <AdventureLabWalkingPanel />
           <DebugOverlaysPanel
             search={search}
             settings={settings}
@@ -137,6 +142,82 @@ function AdventureLabBackfillPanel(): JSX.Element {
           <p className="muted">
             Job <code>{mutation.data.jobId}</code> enqueued — watch it in
             Bull-Board (link at the top).
+          </p>
+        ) : null}
+        {mutation.isError ? (
+          <p className="error">{(mutation.error as Error).message}</p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * FR-I20: check + backfill walking paths (route_legs) for Adventure Lab stages.
+ * A stage with no walking precompute is isolated in the walking graph and can't
+ * cluster/plan; this counts them and enqueues precompute for the ones that need
+ * it (missing / stale / failed). Opening the panel loads the current counts.
+ */
+function AdventureLabWalkingPanel(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const status = useQuery({
+    queryKey: ["al-walking-status"],
+    queryFn: fetchAdventureLabWalkingStatus,
+    enabled: open,
+  });
+  const mutation = useMutation({
+    mutationFn: backfillAdventureLabWalking,
+    onSuccess: () => status.refetch(),
+  });
+  const c = status.data?.counts;
+  const needs = c
+    ? c.missing + c.stale + c.failed + c.pending + c.in_progress
+    : 0;
+  return (
+    <details
+      className="admin-precompute"
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>Adventure Lab walking paths (admin)</summary>
+      <div className="admin-precompute__body">
+        <p className="muted">
+          Adventure Lab stages need precomputed walking legs (
+          <code>route_legs</code>) or they&rsquo;re isolated in the walking
+          graph and can&rsquo;t be clustered/planned. Check the counts and
+          backfill the ones missing them (runs as background jobs).
+        </p>
+        {status.isLoading ? <p className="muted">Loading…</p> : null}
+        {status.isError ? (
+          <p className="error">{(status.error as Error).message}</p>
+        ) : null}
+        {c ? (
+          <p className="muted">
+            {status.data!.total} AL stage(s): <strong>{c.fresh}</strong> ready,{" "}
+            <strong>{c.missing}</strong> missing, {c.stale} stale, {c.failed}{" "}
+            failed
+            {c.in_progress + c.pending > 0
+              ? `, ${c.in_progress + c.pending} in progress`
+              : ""}
+            .
+          </p>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending || (status.isSuccess && needs === 0)}
+        >
+          {mutation.isPending
+            ? "Enqueuing…"
+            : needs > 0
+              ? `Backfill ${needs} stage(s)`
+              : "Backfill walking paths"}
+        </button>
+        {mutation.isSuccess ? (
+          <p className="muted">
+            Enqueued <code>{mutation.data.enqueued}</code> stage(s) in{" "}
+            {mutation.data.jobIds.length} job(s) — watch Bull-Board (link
+            above).
           </p>
         ) : null}
         {mutation.isError ? (

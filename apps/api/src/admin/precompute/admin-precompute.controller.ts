@@ -72,6 +72,27 @@ export class AdminPrecomputeController {
     return this.service.retriggerStale(parsed.data.kind);
   }
 
+  @Get("adventure-labs")
+  @ApiOperation({
+    summary: "Walking-precompute health for Adventure Lab stages (FR-I20)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "AL stage walking-precompute counts.",
+  })
+  async adventureLabs(): Promise<Admin.AdventureLabWalkingStatus> {
+    return this.service.adventureLabWalkingStatus();
+  }
+
+  @Post("adventure-labs/backfill")
+  @ApiOperation({
+    summary: "Backfill walking paths for Adventure Lab stages that lack them",
+  })
+  @ApiResponse({ status: 201, description: "Jobs enqueued." })
+  async backfillAdventureLabs(): Promise<Admin.RetriggerStaleResponse> {
+    return this.service.backfillAdventureLabWalking();
+  }
+
   @Post("retrigger-one")
   @ApiOperation({
     summary: "Enqueue a single-cache retry from a failed-list row",

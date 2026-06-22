@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  AdventureLabWalkingStatus,
   type PrecomputeKind,
   PrecomputeSummary,
   type RetriggerOneRequest,
@@ -525,6 +526,21 @@ export async function backfillAdventureLabIds(): Promise<{ jobId: string }> {
   return request<{ jobId: string }>("/admin/adventure-labs/backfill-ids", {
     method: "POST",
   });
+}
+
+/** FR-I20: walking-precompute health for Adventure Lab stages (the "check"). */
+export async function fetchAdventureLabWalkingStatus(): Promise<AdventureLabWalkingStatus> {
+  const raw = await request<unknown>("/admin/precompute/adventure-labs");
+  return AdventureLabWalkingStatus.parse(raw);
+}
+
+/** FR-I20: backfill walking paths for AL stages that lack them. */
+export async function backfillAdventureLabWalking(): Promise<RetriggerStaleResponse> {
+  const raw = await request<unknown>(
+    "/admin/precompute/adventure-labs/backfill",
+    { method: "POST" },
+  );
+  return RetriggerStaleResponse.parse(raw);
 }
 
 export async function retriggerOne(input: RetriggerOneRequest) {
