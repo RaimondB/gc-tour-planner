@@ -30,6 +30,22 @@ public class Cache {
      */
     private String adventureId;
 
+    /**
+     * 1-based stage position within {@link #adventureId}, or {@code null} for a
+     * plain cache. Only meaningful when {@link #adventureSequential} is true —
+     * the ordering constraint requires a *linear* adventure's stages to appear
+     * in ascending stageSequence order in the visit list.
+     */
+    private Integer stageSequence;
+
+    /**
+     * True when this cache belongs to a *linear* Adventure Lab whose stages must
+     * be completed in {@link #stageSequence} order. Ordinary caches and
+     * random-order AL stages are false. Drives the ordering constraint; it is
+     * data-driven (per cache), so no tour-level flag is needed.
+     */
+    private boolean adventureSequential;
+
     public Cache() {
     }
 
@@ -78,6 +94,22 @@ public class Cache {
 
     public void setAdventureId(String adventureId) {
         this.adventureId = adventureId;
+    }
+
+    public Integer getStageSequence() {
+        return stageSequence;
+    }
+
+    public void setStageSequence(Integer stageSequence) {
+        this.stageSequence = stageSequence;
+    }
+
+    public boolean isAdventureSequential() {
+        return adventureSequential;
+    }
+
+    public void setAdventureSequential(boolean adventureSequential) {
+        this.adventureSequential = adventureSequential;
     }
 
     @Override

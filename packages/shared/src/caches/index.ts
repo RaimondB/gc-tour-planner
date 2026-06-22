@@ -126,6 +126,13 @@ export const CacheDTO = z.object({
   stageSequence: z.number().int().positive().nullable().default(null),
   /** Adventure Lab total stage count (the "M" in "Stage N of M"); `null` otherwise. */
   stageTotal: z.number().int().positive().nullable().default(null),
+  /**
+   * True for a *linear* Adventure Lab stage (stages must be visited in
+   * `stageSequence` order); `false` for a random-order AL stage; `null` for
+   * ordinary caches. Drives the solver's stage-ordering constraint and the
+   * "linear" badge. Defaulted for back-compat with pre-linear responses.
+   */
+  adventureSequential: z.boolean().nullable().default(null),
 });
 export type CacheDTO = z.infer<typeof CacheDTO>;
 
@@ -229,6 +236,8 @@ export const CacheSummaryDTO = z.object({
   stageSequence: z.number().int().positive().nullable().default(null),
   /** AL total stage count — denominator for tour completion. */
   stageTotal: z.number().int().positive().nullable().default(null),
+  /** True for a linear AL stage; `false` random-order; `null` non-AL. Drives the "linear" badge. */
+  adventureSequential: z.boolean().nullable().default(null),
 });
 export type CacheSummaryDTO = z.infer<typeof CacheSummaryDTO>;
 
@@ -255,5 +264,6 @@ export function toCacheSummary(c: CacheDTO): CacheSummaryDTO {
     adventureId: c.adventureId,
     stageSequence: c.stageSequence,
     stageTotal: c.stageTotal,
+    adventureSequential: c.adventureSequential,
   };
 }

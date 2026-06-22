@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState, type FormEvent, type JSX } from "react";
+import { useEffect, useState, type FormEvent, type JSX } from "react";
 import { Link } from "@tanstack/react-router";
 import { Password } from "@gctp/shared/auth";
-import { setPassword } from "../../lib/api.js";
+import { fetchProfile, setPassword, updateProfile } from "../../lib/api.js";
 import { useAuth } from "./AuthProvider.js";
 import { setPasswordErrorMessage } from "./auth-messages.js";
 import { OfflineBadge } from "../shell/OfflineBadge.js";
@@ -25,6 +25,44 @@ export function AccountPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [pending, setPending] = useState(false);
+
+  // Geocaching account GUID (FR-I19) — used to fetch Adventure Lab completion.
+  const [gcGuid, setGcGuid] = useState("");
+  const [gcError, setGcError] = useState<string | null>(null);
+  const [gcDone, setGcDone] = useState(false);
+  const [gcSaving, setGcSaving] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    fetchProfile()
+      .then((p) => {
+        if (live) setGcGuid(p.gcUserGuid ?? "");
+      })
+      .catch(() => {
+        /* leave the field empty if the profile can't be loaded */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const onSaveGuid = async (e: FormEvent) => {
+    e.preventDefault();
+    setGcError(null);
+    setGcDone(false);
+    setGcSaving(true);
+    try {
+      const res = await updateProfile({ gcUserGuid: gcGuid.trim() || null });
+      setGcGuid(res.gcUserGuid ?? "");
+      setGcDone(true);
+    } catch {
+      setGcError(
+        "Couldn't save — enter your Geocaching account GUID (the UUID from your profile URL), or leave it blank.",
+      );
+    } finally {
+      setGcSaving(false);
+    }
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -146,6 +184,53 @@ export function AccountPage(): JSX.Element {
           }
         >
           {pending ? "Saving…" : "Save password"}
+        </button>
+      </form>
+
+      <form className="auth-card" onSubmit={onSaveGuid} noValidate>
+        <h2 className="auth-card__title">Geocaching account</h2>
+        <p className="auth-card__subtitle">
+          Add your Geocaching account GUID to pull Adventure Lab progress: when
+          Adventure Labs are imported, completed stages are crossed off — fully
+          done adventures drop out of clustering (like any found cache), and a
+          partly-done one keeps its remaining stages. Find the GUID in your
+          geocaching.com profile page URL.
+        </p>
+
+        {gcDone && (
+          <p className="auth-success" role="status">
+            Saved.
+          </p>
+        )}
+        {gcError && (
+          <p className="auth-error" role="alert">
+            {gcError}
+          </p>
+        )}
+
+        <label className="auth-field">
+          <span>Geocaching user GUID</span>
+          <input
+            type="text"
+            name="gc-user-guid"
+            inputMode="text"
+            autoComplete="off"
+            placeholder="00000000-0000-0000-0000-000000000000"
+            value={gcGuid}
+            onChange={(e) => setGcGuid(e.target.value)}
+          />
+          <small className="auth-field__hint">
+            Leave blank to disable completion sync.
+          </small>
+        </label>
+
+        <button
+          type="submit"
+          className="auth-submit"
+          disabled={gcSaving || !online}
+          title={online ? undefined : "Saving needs a connection."}
+        >
+          {gcSaving ? "Saving…" : "Save GUID"}
         </button>
       </form>
     </div>

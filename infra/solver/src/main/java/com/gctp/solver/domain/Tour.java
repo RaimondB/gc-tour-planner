@@ -296,4 +296,33 @@ public class Tour {
         }
         return penalty;
     }
+
+    /**
+     * Ordering penalty for *linear* adventures: walking the visit order, the
+     * number of times a sequential AL stage appears after a same-adventure stage
+     * with a higher {@code stageSequence} (an inversion). Zero when every linear
+     * adventure's stages are in ascending sequence order — foreign caches may
+     * still interleave between them. Data-driven per cache
+     * ({@link Cache#isAdventureSequential()}); no tour-level flag.
+     */
+    public long orderingViolationPenalty() {
+        Map<String, Integer> lastSeq = new HashMap<>();
+        long penalty = 0L;
+        for (Cache c : visitOrder) {
+            if (!c.isAdventureSequential() || c.getStageSequence() == null) {
+                continue;
+            }
+            String aid = c.getAdventureId();
+            if (aid == null) {
+                continue;
+            }
+            Integer prev = lastSeq.get(aid);
+            int seq = c.getStageSequence();
+            if (prev != null && seq < prev) {
+                penalty++;
+            }
+            lastSeq.put(aid, seq);
+        }
+        return penalty;
+    }
 }

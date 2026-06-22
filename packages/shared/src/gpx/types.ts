@@ -57,6 +57,22 @@ export const ParsedCache = z.object({
    * caches.
    */
   stageTotal: z.number().int().positive().nullable().default(null),
+  /**
+   * True when this stage belongs to a *linear* Adventure Lab — one whose stages
+   * must be completed in `stageSequence` order. Parsed from the `[L] ` prefix
+   * Lab2Gpx's `mark` mode prepends to a linear adventure's `<groundspeak:name>`
+   * (the GC `IsLinear` flag). `false` for a random-order AL stage, `null` for
+   * ordinary caches. Drives the solver's stage-ordering constraint.
+   */
+  adventureSequential: z.boolean().nullable().default(null),
+  /**
+   * True when the source GPX marked this cache as found — `<sym>…Found</sym>`.
+   * For Adventure Lab stages this is Lab2Gpx's per-stage completion (only when
+   * fetched with a userGuid); the AL enrichment path crosses these off (FR-I19).
+   * The ordinary upload path ignores it (it uses the My-Finds / markAsFound
+   * flow), so this never changes regular-PQ behaviour. Defaults to false.
+   */
+  found: z.boolean().default(false),
 });
 export type ParsedCache = z.infer<typeof ParsedCache>;
 

@@ -5,6 +5,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AdminAdventureLabsModule } from "./admin/adventure-labs/admin-adventure-labs.module.js";
+import { AdventureLabsModule } from "./adventure-labs/adventure-labs.module.js";
 import { AdminLanduseModule } from "./admin/landuse/admin-landuse.module.js";
 import { AdminPrecomputeModule } from "./admin/precompute/admin-precompute.module.js";
 import { AdminUploadsModule } from "./admin/uploads/admin-uploads.module.js";
@@ -65,6 +66,7 @@ import { ToursModule } from "./tours/tours.module.js";
     ToursModule,
     WalkingPrecomputeModule,
     AdventureLabImportModule,
+    AdventureLabsModule,
     AdminPrecomputeModule,
     AdminLanduseModule,
     AdminUploadsModule,

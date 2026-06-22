@@ -5,6 +5,8 @@ node_modules/
 # Build output
 dist/
 build/
+# Java solver (Maven) build output — created by local `mvn`/Docker test runs
+target/
 .next/
 out/
 

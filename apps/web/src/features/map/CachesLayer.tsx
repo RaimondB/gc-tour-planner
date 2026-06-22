@@ -25,8 +25,18 @@ import { isDragGesture } from "./pointer-drag.js";
 const CACHES_SOURCE = "gctp-caches";
 const CACHES_CIRCLE_LAYER = "gctp-caches-circle";
 const CACHES_AL_CIRCLE_LAYER = "gctp-caches-al-circle";
+// Transparent, generously-sized tap target over every cache. The cluster
+// preview paints emphasis markers LARGER than the real cache circle and on top
+// of it (ClustersPreviewLayer.FOCUS_CACHES_LAYER), so a finger tap landing on
+// the emphasised marker but outside the small real circle would hit nothing.
+// queryRenderedFeatures is geometry-based (opacity-0 is still hittable), so a
+// hit circle sized ≥ every painted/emphasis radius decouples the tap target
+// from the visible size — the click handler binds here, not the visible layers.
+const CACHES_HIT_LAYER = "gctp-caches-hit";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
+// AL stage labels: "S{n}" (random-order) / "L{n}" (linear, FR-I18), centred on
+// the marker. The L/S prefix is the only difference between the two.
 const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
 const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
 // Collapsed Adventure Labs (FR-I17): AL stages that overlap on screen collapse
@@ -100,6 +110,20 @@ const TYPE_COLORS: Record<CacheType, string> = {
 };
 
 /**
+ * Two independent dims that compose (applied to a marker's circle AND its
+ * label/badge so a found/disabled cache recedes as a whole):
+ *   * found-by-me → 0.35 (won't disappear, but recedes) — this is what dims a
+ *     completed Adventure Lab stage exactly like a found regular cache.
+ *   * disabled    → 0.50 (geocaching.com convention for temp-disabled).
+ * Combining both gives ~0.18, still visible.
+ */
+const FOUND_DISABLED_OPACITY: maplibregl.ExpressionSpecification = [
+  "*",
+  ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
+  ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
+];
+
+/**
  * Circle paint shared by the regular-cache layer and the (zoomed-in) Adventure
  * Lab stage layer, so both look identical — colour comes from the per-feature
  * `color` prop, and found/disabled dims compose the same way.
@@ -109,20 +133,8 @@ const CACHE_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
   "circle-color": ["get", "color"],
   "circle-stroke-color": "#ffffff",
   "circle-stroke-width": 1.5,
-  // Two independent dims compose:
-  //   * found-by-me → 0.35 (won't disappear, but recedes)
-  //   * disabled    → 0.50 (geocaching.com convention for temp-disabled).
-  //     Combining both gives ~0.18 which is still visible.
-  "circle-opacity": [
-    "*",
-    ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-    ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
-  ],
-  "circle-stroke-opacity": [
-    "*",
-    ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-    ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
-  ],
+  "circle-opacity": FOUND_DISABLED_OPACITY,
+  "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
 };
 
 /**
@@ -157,6 +169,8 @@ interface CacheProps {
   stageSequence: number;
   /** AL total stage count; 0 for non-AL. */
   stageTotal: number;
+  /** 1 when this is a linear AL stage (visited in order); 0 otherwise/non-AL. */
+  adventureSequential: number;
   /** 1 when this AL stage is part of an on-screen overlap cluster (rendered as
    *  the collapsed pin instead); 0 otherwise and for every non-AL cache. */
   alHidden: number;
@@ -173,6 +187,8 @@ interface AlAdventureProps {
   /** Comma-joined member cache ids, for modifier-click whole-adventure toggle. */
   memberIds: string;
   color: string;
+  /** 1 when EVERY member stage is found — dim the pin like a found cache. */
+  foundByMe: number;
 }
 
 const SELECTED_LAYER = "gctp-caches-selected";
@@ -241,6 +257,10 @@ export function CachesLayer({
   // the live drop-reason map through a ref instead of rebinding the layer.
   const droppedByIdRef = useRef(droppedById);
   droppedByIdRef.current = droppedById;
+
+  // Latest rendered caches, for the popup's Adventure-Lab completion rollup
+  // (FR-I19) — the click handler can't see `renderCaches`'s local `caches`.
+  const cachesRef = useRef<readonly CacheSummaryDTO[]>([]);
   // Screen point of the last pointer-down, used to tell a tap from a pan so a
   // pan that happens to end on a marker doesn't open its popup. See the click
   // handlers below and ./pointer-drag.
@@ -262,6 +282,7 @@ export function CachesLayer({
     // Union the radius query with any explicit extras (saved-tour snapshots),
     // query data winning on id collisions (it carries the full live fields).
     const caches = mergeCachesById(query.data?.caches, extraCaches) ?? [];
+    cachesRef.current = caches;
 
     // Parking waypoints (static; not zoom-dependent).
     const parkingFeatures: GeoJSON.Feature<
@@ -312,6 +333,24 @@ export function CachesLayer({
           ["==", ["get", "alHidden"], 0],
         ],
         paint: AL_CIRCLE_PAINT,
+      });
+    }
+    // Invisible hit target (see CACHES_HIT_LAYER comment). Covers regular caches
+    // AND exploded AL stages (anything not collapsed into a pin: alHidden==0);
+    // the collapsed AL pin keeps its own handler. Radius ≥ the largest visible
+    // marker (cache 9, AL 8) and the cluster-emphasis marker (9), with a touch
+    // of fat-finger margin.
+    if (!map.getLayer(CACHES_HIT_LAYER)) {
+      map.addLayer({
+        id: CACHES_HIT_LAYER,
+        type: "circle",
+        source: CACHES_SOURCE,
+        filter: ["==", ["get", "alHidden"], 0],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 10, 14, 14],
+          "circle-color": "#000000",
+          "circle-opacity": 0,
+        },
       });
     }
     // "Z" overlay on disabled caches — matches the visual language
@@ -376,17 +415,19 @@ export function CachesLayer({
       });
     }
     // Adventure Lab stage number, drawn ON the marker as "S1", "S2", … . The
-    // "S" prefix is deliberate: the tour overlay (TourLayer) labels routed stops
-    // with bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being
-    // read as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both
-    // scopes this to lab stages and skips AL rows imported before stage metadata.
+    // Stage label centred on the marker: "S{n}" for a random-order Adventure
+    // Lab, "L{n}" for a linear one (the only difference is the prefix). The S/L
+    // prefix is deliberate: the tour overlay (TourLayer) labels routed stops with
+    // bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being read
+    // as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both scopes
+    // this to lab stages and skips AL rows imported before stage metadata.
     if (!map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
       map.addLayer({
         id: CACHES_AL_STAGE_LABEL_LAYER,
         type: "symbol",
         source: CACHES_SOURCE,
-        // The S{n} label is only legible once zoomed in; keep a floor so it
-        // doesn't clutter at low zoom, and skip stages collapsed into a pin.
+        // The label is only legible once zoomed in; keep a floor so it doesn't
+        // clutter at low zoom, and skip stages collapsed into a pin.
         minzoom: AL_STAGE_LABEL_MINZOOM,
         filter: [
           "all",
@@ -396,11 +437,13 @@ export function CachesLayer({
         layout: {
           "text-field": [
             "concat",
-            "S",
+            ["case", ["==", ["get", "adventureSequential"], 1], "L", "S"],
             ["to-string", ["get", "stageSequence"]],
           ],
           "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 14, 13],
+          // Slightly smaller so the label sits within the (small) AL circle
+          // rather than overflowing it.
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 7, 14, 10],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-anchor": "center",
@@ -408,7 +451,9 @@ export function CachesLayer({
         paint: {
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
-          "text-halo-width": 1.8,
+          "text-halo-width": 1.6,
+          // Dim a completed (found) stage's label with its circle.
+          "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -438,6 +483,8 @@ export function CachesLayer({
             3,
             1.5,
           ],
+          "circle-opacity": FOUND_DISABLED_OPACITY,
+          "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -464,6 +511,7 @@ export function CachesLayer({
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
           "text-halo-width": 1.6,
+          "text-opacity": FOUND_DISABLED_OPACITY,
         },
       });
     }
@@ -550,6 +598,13 @@ export function CachesLayer({
       });
     }
 
+    // Keep the AL stage label on top of everything (incl. the collapsed AL pins,
+    // selection rings, and ClustersPreviewLayer's emphasis discs) so it stays
+    // readable. moveLayer() with no beforeId pops it to the very top.
+    if (map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
+      map.moveLayer(CACHES_AL_STAGE_LABEL_LAYER);
+    }
+
     // Build the cache features for the current zoom and (re)populate the sources.
     // Adventure Lab stages that overlap on screen collapse into one pin (the same
     // pixel-proximity logic the planned tour uses); non-AL caches are NEVER
@@ -584,6 +639,8 @@ export function CachesLayer({
             selected: members.some((m) => selectedCacheIds?.has(m.id)) ? 1 : 0,
             memberIds: members.map((m) => m.id).join(","),
             color: TYPE_COLORS["Adventure Lab"],
+            // Dim the whole collapsed adventure once every stage is found.
+            foundByMe: members.every((m) => m.foundByMe) ? 1 : 0,
           },
         });
       }
@@ -607,6 +664,7 @@ export function CachesLayer({
           adventureId: c.adventureId ?? null,
           stageSequence: c.stageSequence ?? 0,
           stageTotal: c.stageTotal ?? 0,
+          adventureSequential: c.adventureSequential ? 1 : 0,
           alHidden: hidden.has(c.id) ? 1 : 0,
         },
       }));
@@ -686,6 +744,16 @@ export function CachesLayer({
       let detail: CacheDTO | null = null;
       let found = props.foundByMe === 1;
       let solved = props.solved === 1;
+      // Adventure-Lab completion rollup (FR-I19): how many of this adventure's
+      // stages the user has found, for the "not started / partly / done" badge.
+      const advId = props.adventureId;
+      const advStages = advId
+        ? cachesRef.current.filter((c) => c.adventureId === advId)
+        : [];
+      const adventureStageCount = advId
+        ? props.stageTotal || advStages.length
+        : 0;
+      const adventureFoundCount = advStages.filter((c) => c.foundByMe).length;
       const renderPopup = () => {
         const drop = droppedByIdRef.current?.get(id) ?? null;
         root.render(
@@ -702,6 +770,9 @@ export function CachesLayer({
             adventureId={props.adventureId}
             stageSequence={props.stageSequence || null}
             stageTotal={props.stageTotal || null}
+            adventureSequential={props.adventureSequential === 1}
+            adventureFoundCount={adventureFoundCount}
+            adventureStageCount={adventureStageCount}
             solved={solved}
             loadingDetail={detail === null}
             online={onlineRef.current}
@@ -853,13 +924,12 @@ export function CachesLayer({
     };
     map.on("mousedown", rememberDown);
     map.on("touchstart", rememberDown);
-    map.on("click", CACHES_CIRCLE_LAYER, handler);
-    map.on("mouseenter", CACHES_CIRCLE_LAYER, enter);
-    map.on("mouseleave", CACHES_CIRCLE_LAYER, leave);
-    // Exploded AL stage circles share the cache popup + selection behaviour.
-    map.on("click", CACHES_AL_CIRCLE_LAYER, handler);
-    map.on("mouseenter", CACHES_AL_CIRCLE_LAYER, enter);
-    map.on("mouseleave", CACHES_AL_CIRCLE_LAYER, leave);
+    // One binding on the invisible hit layer covers regular caches AND exploded
+    // AL stages (same popup + selection behaviour); its radius exceeds the
+    // visible/emphasis markers so edge taps still register.
+    map.on("click", CACHES_HIT_LAYER, handler);
+    map.on("mouseenter", CACHES_HIT_LAYER, enter);
+    map.on("mouseleave", CACHES_HIT_LAYER, leave);
     map.on("click", AL_ADVENTURE_CIRCLE_LAYER, collapsedHandler);
     map.on("mouseenter", AL_ADVENTURE_CIRCLE_LAYER, enter);
     map.on("mouseleave", AL_ADVENTURE_CIRCLE_LAYER, leave);
@@ -869,12 +939,9 @@ export function CachesLayer({
     return () => {
       map.off("mousedown", rememberDown);
       map.off("touchstart", rememberDown);
-      map.off("click", CACHES_CIRCLE_LAYER, handler);
-      map.off("mouseenter", CACHES_CIRCLE_LAYER, enter);
-      map.off("mouseleave", CACHES_CIRCLE_LAYER, leave);
-      map.off("click", CACHES_AL_CIRCLE_LAYER, handler);
-      map.off("mouseenter", CACHES_AL_CIRCLE_LAYER, enter);
-      map.off("mouseleave", CACHES_AL_CIRCLE_LAYER, leave);
+      map.off("click", CACHES_HIT_LAYER, handler);
+      map.off("mouseenter", CACHES_HIT_LAYER, enter);
+      map.off("mouseleave", CACHES_HIT_LAYER, leave);
       map.off("click", AL_ADVENTURE_CIRCLE_LAYER, collapsedHandler);
       map.off("mouseenter", AL_ADVENTURE_CIRCLE_LAYER, enter);
       map.off("mouseleave", AL_ADVENTURE_CIRCLE_LAYER, leave);

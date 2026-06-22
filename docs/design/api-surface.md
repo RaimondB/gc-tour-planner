@@ -373,6 +373,8 @@ Full design — session model, guard swap, the normative public-endpoint invento
 | `POST /auth/login` | public | — | Sets session + `csrf` cookies |
 | `POST /auth/logout` | session | yes | Clears cookies (+ deletes Valkey session) |
 | `GET /auth/me` | session | — | Backs the web auth context |
+| `GET /auth/profile` | session | — | Editable settings — the GC account GUID (FR-I19) |
+| `POST /auth/profile` | session | yes | Update profile (GC account GUID for AL completion, FR-I19) |
 | `GET /auth/google` → `GET /auth/google/callback` | public | — | OAuth, link-by-verified-email (FR-P4.3) |
 | `POST /tours` | session | yes | Save a `PlanResult` (FR-P1) |
 | `GET /tours` | session | — | Owner-scoped summaries (FR-P2) |
@@ -382,6 +384,8 @@ Full design — session model, guard swap, the normative public-endpoint invento
 | `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
 | `GET /shared/:slug` | public | — | Read-only snapshot; no owner identity ([ADR-0022](../adr/0022-tour-sharing-link-security.md)) |
+| `POST /adventure-labs/sync` | session | yes | Enqueue an Adventure Lab sync for an area; returns a job id (FR-I19) |
+| `GET /adventure-labs/sync/:jobId` | session | — | Poll sync progress (owner-scoped; cross-user → 404) |
 
 ```ts
 const SaveTourInput = z.object({

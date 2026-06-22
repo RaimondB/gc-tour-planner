@@ -146,5 +146,14 @@ export const PlanInput = z.object({
    * The chosen strategy is echoed back in `ClusterDiagnostics.strategyUsed`.
    */
   clusteringStrategy: ClusteringStrategyName.optional(),
+  /**
+   * Whether Adventure Lab stages take part in Pass-1 cluster forming. Default
+   * `true` — each adventure is collapsed to one node at its centroid (FR-I17)
+   * and clustered with ordinary caches. Set `false` to drop ALs from the
+   * candidate pool entirely, so clusters form from ordinary caches only; plan
+   * adventures deliberately via the manual-cluster editor or the nearby-AL
+   * pull-in instead.
+   */
+  includeAdventuresInClustering: z.boolean().default(true),
 });
 export type PlanInput = z.infer<typeof PlanInput>;

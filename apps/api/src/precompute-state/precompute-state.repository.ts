@@ -247,4 +247,84 @@ export class PrecomputeStateRepository {
     `.execute(this.db);
     return rows.rows.map((r) => Number(r.cache_id));
   }
+
+  /**
+   * Walking-precompute freshness counts for Adventure Lab stages only
+   * (`caches.type = 'Adventure Lab'`). Same bucket rules as {@link summary},
+   * scoped to ALs so an operator can check whether imported/synced stages have
+   * their `route_legs` (without which they're isolated in the walking graph and
+   * can't cluster/plan). Returns the per-bucket counts plus the AL stage total.
+   */
+  async adventureLabWalkingSummary(args: {
+    currentOsrmVersion: string;
+    staleTtlDays: number;
+  }): Promise<{ counts: CountsByState; total: number }> {
+    const rows = await sql<{ bucket: keyof CountsByState; n: string }>`
+      WITH classified AS (
+        SELECT
+          CASE
+            WHEN v.missing THEN 'missing'
+            WHEN v.state = 'failed'      THEN 'failed'
+            WHEN v.state = 'in_progress' THEN 'in_progress'
+            WHEN v.state = 'pending'     THEN 'pending'
+            WHEN v.osrm_version IS DISTINCT FROM ${args.currentOsrmVersion}
+              THEN 'stale'
+            WHEN v.fetched_at IS NULL THEN 'stale'
+            WHEN v.fetched_at < now() - (${args.staleTtlDays}::int || ' days')::interval
+              THEN 'stale'
+            ELSE 'fresh'
+          END AS bucket
+        FROM v_cache_precompute_state v
+        JOIN caches c ON c.id = v.cache_id
+        WHERE v.kind = 'walking' AND c.type = 'Adventure Lab'
+      )
+      SELECT bucket, COUNT(*)::text AS n FROM classified GROUP BY 1
+    `.execute(this.db);
+    const counts: CountsByState = {
+      fresh: 0,
+      stale: 0,
+      failed: 0,
+      in_progress: 0,
+      pending: 0,
+      missing: 0,
+    };
+    let total = 0;
+    for (const r of rows.rows) {
+      counts[r.bucket] = Number(r.n);
+      total += Number(r.n);
+    }
+    return { counts, total };
+  }
+
+  /**
+   * Owner-scoped Adventure Lab stage ids whose walking precompute is NOT fresh
+   * (missing / failed / pending / in_progress / version-mismatch / past TTL) —
+   * the set to (re-)precompute when backfilling AL walking paths. Unlike
+   * {@link staleCacheIds} this is restricted to `type = 'Adventure Lab'` and to
+   * owned caches (precompute jobs are owner-scoped).
+   */
+  async adventureLabWalkingIdsNeedingPrecompute(args: {
+    currentOsrmVersion: string;
+    staleTtlDays: number;
+    limit: number;
+  }): Promise<number[]> {
+    const rows = await sql<{ cache_id: string }>`
+      SELECT v.cache_id
+        FROM v_cache_precompute_state v
+        JOIN caches c ON c.id = v.cache_id
+       WHERE v.kind = 'walking'
+         AND c.type = 'Adventure Lab'
+         AND c.owner_id IS NOT NULL
+         AND (
+           v.missing
+           OR v.state IN ('failed','pending','in_progress')
+           OR v.osrm_version IS DISTINCT FROM ${args.currentOsrmVersion}
+           OR v.fetched_at IS NULL
+           OR v.fetched_at < now() - (${args.staleTtlDays}::int || ' days')::interval
+         )
+       ORDER BY v.cache_id
+       LIMIT ${args.limit}
+    `.execute(this.db);
+    return rows.rows.map((r) => Number(r.cache_id));
+  }
 }

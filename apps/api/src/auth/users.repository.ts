@@ -12,6 +12,8 @@ export interface UserRow {
   displayName: string;
   passwordHash: string | null;
   isAdmin: boolean;
+  /** Public GC account GUID for Lab2Gpx completion (FR-I19); null when unset. */
+  gcUserGuid: string | null;
 }
 
 /** Postgres unique-violation SQLSTATE. */
@@ -38,7 +40,14 @@ export class UsersRepository {
   async findByEmail(email: string): Promise<UserRow | undefined> {
     const row = await this.db
       .selectFrom("users")
-      .select(["id", "email", "display_name", "password_hash", "is_admin"])
+      .select([
+        "id",
+        "email",
+        "display_name",
+        "password_hash",
+        "is_admin",
+        "gc_user_guid",
+      ])
       .where("email", "=", email)
       .executeTakeFirst();
     return row ? this.toRow(row) : undefined;
@@ -47,7 +56,14 @@ export class UsersRepository {
   async findById(id: string): Promise<UserRow | undefined> {
     const row = await this.db
       .selectFrom("users")
-      .select(["id", "email", "display_name", "password_hash", "is_admin"])
+      .select([
+        "id",
+        "email",
+        "display_name",
+        "password_hash",
+        "is_admin",
+        "gc_user_guid",
+      ])
       .where("id", "=", id)
       .executeTakeFirst();
     return row ? this.toRow(row) : undefined;
@@ -70,7 +86,14 @@ export class UsersRepository {
           display_name: input.displayName,
           password_hash: input.passwordHash,
         })
-        .returning(["id", "email", "display_name", "password_hash", "is_admin"])
+        .returning([
+          "id",
+          "email",
+          "display_name",
+          "password_hash",
+          "is_admin",
+          "gc_user_guid",
+        ])
         .executeTakeFirstOrThrow();
       return this.toRow(row);
     } catch (err) {
@@ -92,12 +115,25 @@ export class UsersRepository {
       .execute();
   }
 
+  /**
+   * Set (or clear) the user's public Geocaching account GUID (FR-I19). Pass
+   * `null` to clear it. Stored verbatim — it's a public identifier, not a secret.
+   */
+  async setGcUserGuid(id: string, gcUserGuid: string | null): Promise<void> {
+    await this.db
+      .updateTable("users")
+      .set({ gc_user_guid: gcUserGuid })
+      .where("id", "=", id)
+      .execute();
+  }
+
   private toRow(row: {
     id: string;
     email: string;
     display_name: string;
     password_hash: string | null;
     is_admin: boolean;
+    gc_user_guid: string | null;
   }): UserRow {
     return {
       id: row.id,
@@ -105,6 +141,7 @@ export class UsersRepository {
       displayName: row.display_name,
       passwordHash: row.password_hash,
       isAdmin: row.is_admin,
+      gcUserGuid: row.gc_user_guid,
     };
   }
 }

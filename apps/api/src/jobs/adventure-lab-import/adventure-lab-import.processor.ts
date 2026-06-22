@@ -15,10 +15,14 @@ import type {
   AdventureLabImportJobData,
   AdventureLabImportJobResult,
   AdventureLabQueueData,
+  AdventureLabSyncJobData,
+  AdventureLabSyncJobResult,
 } from "./adventure-lab-import.types.js";
 
 /** Queue job name for the adventure_id backfill (FR-I17). */
 export const BACKFILL_JOB_NAME = "backfill-ids";
+/** Queue job name for the user-triggered area sync (FR-I19). */
+export const SYNC_JOB_NAME = "sync";
 /** Lab2Gpx adventures fetched per re-fetch — small; we centre on one adventure. */
 const BACKFILL_LIMIT_ADVENTURES = 8;
 
@@ -50,6 +54,9 @@ export class AdventureLabImportProcessor extends WorkerHost {
       const { ownerId } = job.data as AdventureLabBackfillJobData;
       return this.backfillAdventureIds(ownerId);
     }
+    if (job.name === SYNC_JOB_NAME) {
+      return this.syncArea(job as Job, job.data as AdventureLabSyncJobData);
+    }
     const { ownerId, center, radiusM, maxAdventures } =
       job.data as AdventureLabImportJobData;
     const result = await this.enricher.enrich(
@@ -63,6 +70,35 @@ export class AdventureLabImportProcessor extends WorkerHost {
         `maxAdventures=${maxAdventures}): ${importedCaches} stage(s) upserted`,
     );
     return { importedCaches };
+  }
+
+  /**
+   * FR-I19 area sync: refresh every Adventure Lab in the area from Lab2Gpx and
+   * cross off the user's completed stages, reporting coarse progress phases so
+   * the web button can show a live status. Reuses the enricher (same import path
+   * as the admin bulk import); idempotent, so a retry is safe.
+   */
+  private async syncArea(
+    job: Job,
+    data: AdventureLabSyncJobData,
+  ): Promise<AdventureLabSyncJobResult> {
+    await job.updateProgress({ phase: "queued" });
+    const result = await this.enricher.enrich(
+      data.ownerId,
+      { center: data.center, radiusM: data.radiusM },
+      {},
+      (phase) => void job.updateProgress({ phase }),
+    );
+    await job.updateProgress({ phase: "done" });
+    const out = {
+      importedCaches: result?.importedCaches ?? 0,
+      crossedOff: result?.crossedOff ?? 0,
+    };
+    this.logger.log(
+      `Adventure Lab sync (owner=${data.ownerId}, r=${data.radiusM}m): ` +
+        `${out.importedCaches} stage(s) upserted, ${out.crossedOff} crossed off`,
+    );
+    return out;
   }
 
   /**
