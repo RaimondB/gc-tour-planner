@@ -256,36 +256,6 @@ export function ensureSolvedBadgeIcon(map: maplibregl.Map): boolean {
   return true;
 }
 
-/** addImage id for the dashed "excluded" ring (planner-dropped candidates). */
-export const EXCLUDED_RING_ICON = "gctp-excluded-ring";
-
-/**
- * Draw (once) a DASHED red ring on a transparent disc — the "excluded" context
- * marker for a planner-dropped candidate (ADR-0035). Dashed-vs-solid is the
- * non-colour channel that survives colour-blindness (MapLibre circle strokes
- * can't be dashed, so this is an icon overlay). Returns false with no 2D canvas.
- */
-export function ensureExcludedRingIcon(map: maplibregl.Map): boolean {
-  if (map.hasImage(EXCLUDED_RING_ICON)) return true;
-  const size = 40;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return false;
-  const c = size / 2;
-  ctx.setLineDash([5, 4]);
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = TOUR_ACCENT;
-  ctx.beginPath();
-  ctx.arc(c, c, c - 3, 0, Math.PI * 2);
-  ctx.stroke();
-  map.addImage(EXCLUDED_RING_ICON, ctx.getImageData(0, 0, size, size), {
-    pixelRatio: 2,
-  });
-  return true;
-}
-
 /** addImage id for the canvas-drawn tool-required wrench badge. */
 export const TOOL_BADGE_ICON = "gctp-tool-wrench";
 

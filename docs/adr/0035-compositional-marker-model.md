@@ -56,10 +56,11 @@ badges**, each channel independent so contexts layer predictably.
    stops + dropped candidates) are hidden in `CachesLayer` (their *hit* target
    stays, so the popup still opens); `TourLayer` is the single authority for how a
    routed/dropped cache renders. No double-draw, no `S{n}`-over-order bleed.
-7. **Dropped candidates** keep type colour + identity but recede (reduced opacity)
-   and are marked excluded by a **dashed** red ring (dashed-vs-solid is the
-   colour-blind-safe channel; MapLibre circle strokes can't dash, so it's an icon
-   overlay) with **no** visit-order number.
+7. **Dropped candidates are GREYED OUT** (`#757575`) with **no** visit-order
+   number — the grey reads as "excluded" while the kind shape (circle / gray
+   squircle) + the centre identity letter still say what it was. (An earlier
+   dashed-red-ring version was too faint to read against the basemap; grey is the
+   clearer, colour-independent signal.) They collapse on zoom like the stops.
 8. **Context hierarchy** `tour > cluster > plain`: when a tour is active the
    cluster preview de-emphasises (lower opacity) and stops forcing its centroids
    above the tour.

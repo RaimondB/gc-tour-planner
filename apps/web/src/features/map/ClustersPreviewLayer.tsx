@@ -217,39 +217,54 @@ export function ClustersPreviewLayer({
         type: "circle",
         source: FOCUS_CACHES_SOURCE,
         paint: {
-          // A high-contrast ring OUTSIDE the cache (transparent fill so the
-          // cache's own colour/shape shows through), not a disc covering it.
-          // `collapsed` members get a slightly larger ring to sit around the
-          // collapsed AL pin.
+          // A ring OUTSIDE the cache (transparent fill so the cache's own
+          // colour/shape shows through), not a disc covering it. `collapsed`
+          // members get a slightly larger ring to sit around the collapsed AL
+          // pin. The FOCUSED cluster rings are redder + thicker so it stands
+          // out; non-focused stay a clean saturated orange (high enough contrast
+          // on the basemap, unlike the old pale cream disc).
           "circle-radius": [
             "+",
             ["interpolate", ["linear"], ["zoom"], 9, 9, 14, 14],
             ["case", ["==", ["get", "collapsed"], 1], 3, 0],
           ],
           "circle-color": "rgba(0,0,0,0)",
-          "circle-stroke-color": "#d84315",
-          "circle-stroke-width": 4,
+          "circle-stroke-color": [
+            "case",
+            ["==", ["get", "focused"], 1],
+            "#d84315",
+            "#ea580c",
+          ],
+          "circle-stroke-width": [
+            "case",
+            ["==", ["get", "focused"], 1],
+            4,
+            2.5,
+          ],
         },
       });
     }
 
-    // Emphasis rings for the FOCUSED cluster only (the non-highlighted view
-    // stays clean — just centroids + preview loops). AL members collapse with
-    // the SAME pixel-proximity logic as the plain caches layer, recomputed on
-    // zoom, so the ring sits on the collapsed pin rather than on hidden stages.
-    const focusedCluster =
-      (candidates ?? []).find((c) => c.clusterId === focusedClusterId) ?? null;
+    // Emphasis rings for EVERY cluster's members (the non-highlighted clusters
+    // need to be visible too — without this they're just a lone centroid). AL
+    // members collapse with the SAME pixel-proximity logic as the plain caches
+    // layer, recomputed on zoom, so the ring sits on the collapsed pin rather
+    // than on hidden stages. Focused rings are drawn last so they sit on top.
     const computeEmphasis = (): void => {
-      const feats: GeoJSON.Feature<GeoJSON.Point, { collapsed: number }>[] = [];
-      if (focusedCluster) {
-        const members = focusedCluster.cacheIds
+      const feats: GeoJSON.Feature<
+        GeoJSON.Point,
+        { focused: number; collapsed: number }
+      >[] = [];
+      for (const cluster of candidates ?? []) {
+        const focused = cluster.clusterId === focusedClusterId ? 1 : 0;
+        const members = cluster.cacheIds
           .map((id) => cacheById.get(id))
           .filter((c): c is CacheSummaryDTO => c != null);
         const ring = (coord: [number, number], collapsed: number): void => {
           feats.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: coord },
-            properties: { collapsed },
+            properties: { focused, collapsed },
           });
         };
         // Regular caches never collapse (matches CachesLayer) — ring each.
@@ -272,6 +287,8 @@ export function ClustersPreviewLayer({
           ring(s.location.coordinates as [number, number], 0);
         for (const g of groups) ring(g.center, 1);
       }
+      // Focused rings last → drawn on top of non-focused ones.
+      feats.sort((a, b) => a.properties.focused - b.properties.focused);
       upsertGeoJsonSource(map, FOCUS_CACHES_SOURCE, {
         type: "FeatureCollection",
         features: feats,
