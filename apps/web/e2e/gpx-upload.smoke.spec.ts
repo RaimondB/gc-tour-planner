@@ -39,7 +39,13 @@ test("GPX upload ingests caches and unlocks the Pick-a-cluster step", async ({
   // flips between runs while the total stays 3.
   const summary = page.locator(".dropzone__success");
   await expect(summary).toBeVisible({ timeout: 15_000 });
-  await expect(summary).toContainText("3 caches");
+  // A warm dev DB short-circuits an IDENTICAL re-upload by file hash ("Already
+  // uploaded") rather than re-ingesting — force it so we exercise the ingest
+  // count this smoke is about.
+  if (await summary.getByText(/Already uploaded/).count()) {
+    await summary.getByRole("button", { name: "Upload anyway" }).click();
+  }
+  await expect(summary).toContainText("3 caches", { timeout: 15_000 });
 
   // The uploaded caches round-trip through the /caches query and flip the
   // Pick-a-cluster journey step enabled — the "flow unlocks" gate for this smoke.

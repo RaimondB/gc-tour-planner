@@ -16,7 +16,22 @@ import {
   type ListCachesParams,
 } from "../../lib/api.js";
 import { mergeCachesById } from "../planning/halo-caches.js";
-import { clusterByPixelProximity, OVERLAP_PX } from "./pixel-cluster.js";
+import { OVERLAP_PX } from "./pixel-cluster.js";
+import { collapseByProximity } from "./marker-collapse.js";
+import { applyLayerOrder } from "./map-layers.js";
+import {
+  TYPE_COLORS,
+  TYPE_GLYPH,
+  dimOpacityExpression,
+  ensureSolvedBadgeIcon,
+  SOLVED_BADGE_ICON,
+  ensureToolBadgeIcon,
+  TOOL_BADGE_ICON,
+  ensureMarkerImage,
+  markerImageId,
+  cornerIconOffset,
+  cornerTextOffset,
+} from "./marker-style.js";
 import { useMap } from "./MapContext.js";
 import { CachePopup } from "./CachePopup.js";
 import { PARKING_MIN_ZOOM } from "./parking-zoom.js";
@@ -35,9 +50,10 @@ const CACHES_AL_CIRCLE_LAYER = "gctp-caches-al-circle";
 const CACHES_HIT_LAYER = "gctp-caches-hit";
 const CACHES_DISABLED_LABEL_LAYER = "gctp-caches-disabled-label";
 const CACHES_SOLVED_BADGE_LAYER = "gctp-caches-solved-badge";
-// AL stage labels: "S{n}" (random-order) / "L{n}" (linear, FR-I18), centred on
-// the marker. The L/S prefix is the only difference between the two.
-const CACHES_AL_STAGE_LABEL_LAYER = "gctp-caches-al-stage-label";
+const CACHES_TOOL_BADGE_LAYER = "gctp-caches-tool-badge";
+// Unified centre-slot label (ADR-0035): the type letter for a regular cache,
+// "S{n}"/"L{n}" stage-id for an AL stage. Driven by the per-feature `centerText`.
+const CACHES_CENTER_LABEL_LAYER = "gctp-caches-center-label";
 const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
 // Collapsed Adventure Labs (FR-I17): AL stages that overlap on screen collapse
 // into one pin (the same pixel-proximity logic the planned tour uses — see
@@ -45,83 +61,14 @@ const SELECTED_AL_STAGE_LAYER = "gctp-caches-selected-al-stage";
 // Non-AL caches are never collapsed, so density/cluster patterns stay readable.
 const AL_ADVENTURES_SOURCE = "gctp-al-adventures";
 const AL_ADVENTURE_CIRCLE_LAYER = "gctp-al-adventure-circle";
+const AL_ADVENTURE_SELECTED_LAYER = "gctp-al-adventure-selected";
 const AL_ADVENTURE_COUNT_LAYER = "gctp-al-adventure-count";
 /** Below this zoom an S{n} stage label / collapsed-pin count is illegible. */
 const AL_STAGE_LABEL_MINZOOM = PARKING_MIN_ZOOM;
 /** Zoom a collapsed-pin click jumps to, to separate its overlapping stages. */
 const AL_EXPLODE_ZOOM = PARKING_MIN_ZOOM;
-/** addImage id for the canvas-drawn solved checkmark badge. */
-const SOLVED_BADGE_ICON = "gctp-solved-check";
-
-/**
- * Draw (once) a small green disc with a white checkmark and register it as a
- * map image, so the solved badge is a real checkmark. We can't use a "✓" text
- * glyph: the style's glyph source (demotiles) only serves basic-Latin ranges,
- * so U+2713 would 404 and render nothing. A canvas icon is glyph-independent.
- * Returns false when no 2D canvas is available (e.g. jsdom in tests) so the
- * caller can skip the badge layer rather than reference a missing image.
- */
-function ensureSolvedBadgeIcon(map: maplibregl.Map): boolean {
-  if (map.hasImage(SOLVED_BADGE_ICON)) return true;
-  const size = 24;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return false;
-  const c = size / 2;
-  ctx.beginPath();
-  ctx.arc(c, c, c - 1.5, 0, Math.PI * 2);
-  ctx.fillStyle = "#2e7d32"; // solved green — distinct from the red selection ring
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = "#ffffff";
-  ctx.stroke();
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(size * 0.28, size * 0.52);
-  ctx.lineTo(size * 0.44, size * 0.69);
-  ctx.lineTo(size * 0.74, size * 0.32);
-  ctx.stroke();
-  map.addImage(SOLVED_BADGE_ICON, ctx.getImageData(0, 0, size, size), {
-    pixelRatio: 2,
-  });
-  return true;
-}
 const PARKING_SOURCE = "gctp-parking";
 const PARKING_LAYER = "gctp-parking-circle";
-
-const TYPE_COLORS: Record<CacheType, string> = {
-  Traditional: "#2e7d32",
-  Multi: "#f9a825",
-  Mystery: "#1565c0",
-  Letterbox: "#6a1b9a",
-  EarthCache: "#4e342e",
-  Event: "#c62828",
-  Virtual: "#00838f",
-  Webcam: "#558b2f",
-  Wherigo: "#283593",
-  CITO: "#2e7d32",
-  "Adventure Lab": "#7b1fa2",
-  Other: "#616161",
-};
-
-/**
- * Two independent dims that compose (applied to a marker's circle AND its
- * label/badge so a found/disabled cache recedes as a whole):
- *   * found-by-me → 0.35 (won't disappear, but recedes) — this is what dims a
- *     completed Adventure Lab stage exactly like a found regular cache.
- *   * disabled    → 0.50 (geocaching.com convention for temp-disabled).
- * Combining both gives ~0.18, still visible.
- */
-const FOUND_DISABLED_OPACITY: maplibregl.ExpressionSpecification = [
-  "*",
-  ["case", ["==", ["get", "foundByMe"], 1], 0.35, 1],
-  ["case", ["==", ["get", "disabled"], 1], 0.5, 1],
-];
 
 /**
  * Circle paint shared by the regular-cache layer and the (zoomed-in) Adventure
@@ -133,8 +80,8 @@ const CACHE_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
   "circle-color": ["get", "color"],
   "circle-stroke-color": "#ffffff",
   "circle-stroke-width": 1.5,
-  "circle-opacity": FOUND_DISABLED_OPACITY,
-  "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
+  "circle-opacity": dimOpacityExpression(),
+  "circle-stroke-opacity": dimOpacityExpression(),
 };
 
 /**
@@ -148,6 +95,40 @@ const AL_CIRCLE_PAINT: maplibregl.CircleLayerSpecification["paint"] = {
   ...CACHE_CIRCLE_PAINT,
   "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 8],
 };
+
+/**
+ * Adventure-Lab marker SHAPE (ADR-0035): AL stages render as a purple squircle
+ * (a generated icon) so kind is distinguishable from a regular cache (circle)
+ * without relying on colour — the colour-blind-safe second channel. The image is
+ * a single purple squircle (AL is always purple), reused for the individual
+ * stage and the collapsed adventure pin. `icon-size` is tuned to match the old
+ * AL circle footprint (z9→~6px, z14→~16px diameter).
+ */
+const AL_COLOR = TYPE_COLORS["Adventure Lab"];
+const AL_SQUIRCLE_ICON = markerImageId("al", AL_COLOR);
+const AL_ICON_SIZE: maplibregl.ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  9,
+  0.4,
+  14,
+  1.05,
+];
+
+/**
+ * Centre-slot text for a marker (ADR-0035, plain/cluster context): an AL stage
+ * shows its identity "S{n}" (random-order) / "L{n}" (linear); a regular cache
+ * shows its type letter (the colour-blind-safe redundancy for the type colour).
+ * In a tour the centre becomes the visit-order number instead — that's owned by
+ * TourLayer, which renders its own stops.
+ */
+function centerTextFor(c: CacheSummaryDTO): string {
+  if ((c.stageSequence ?? 0) > 0) {
+    return `${c.adventureSequential ? "L" : "S"}${c.stageSequence}`;
+  }
+  return TYPE_GLYPH[c.type] ?? TYPE_GLYPH.Other;
+}
 
 interface CacheProps {
   id: CacheDTO["id"];
@@ -174,6 +155,15 @@ interface CacheProps {
   /** 1 when this AL stage is part of an on-screen overlap cluster (rendered as
    *  the collapsed pin instead); 0 otherwise and for every non-AL cache. */
   alHidden: number;
+  /** 1 when the cache needs equipment (FR-SF5) — drives the tool wrench badge. */
+  hasTool: number;
+  /** Centre-slot text (ADR-0035): the type letter for a cache, "S{n}"/"L{n}"
+   *  for an AL stage. "" when there's nothing to draw. */
+  centerText: string;
+  /** 1 when an active tour OWNS this cache (a routed stop or a dropped
+   *  candidate). TourLayer draws it instead, so the caches layer hides its
+   *  VISIBLE marker (the hit target stays, so the popup still opens). */
+  tourOwned: number;
 }
 
 /** Props for a collapsed Adventure Lab pin (one per on-screen overlap cluster). */
@@ -215,6 +205,13 @@ export interface CachesLayerProps {
   extraCaches?: readonly CacheSummaryDTO[];
   /** Manual selection from the Cluster Lab — drives the highlight ring. */
   selectedCacheIds?: ReadonlySet<number>;
+  /**
+   * Cache ids OWNED by the active tour (routed stops + dropped candidates).
+   * Their visible markers are hidden here so TourLayer is the single authority
+   * for how a routed/dropped cache looks — no double-draw, no S{n}-over-order
+   * bleed. Empty/absent when no tour is shown.
+   */
+  tourOwnedIds?: ReadonlySet<number>;
   /** Shift-click toggles a cache in/out of the selection. */
   onSelectionChange?: (next: ReadonlySet<number>) => void;
   /**
@@ -242,6 +239,7 @@ export function CachesLayer({
   queryInput,
   extraCaches,
   selectedCacheIds,
+  tourOwnedIds,
   onSelectionChange,
   onParkingSelect,
   online = true,
@@ -313,8 +311,13 @@ export function CachesLayer({
         type: "circle",
         source: CACHES_SOURCE,
         // Non-AL caches only; Adventure Lab stages render via CACHES_AL_CIRCLE_LAYER
-        // (un-collapsed stages) or the collapsed AL pin (FR-I17).
-        filter: ["==", ["get", "stageSequence"], 0],
+        // (un-collapsed stages) or the collapsed AL pin (FR-I17). Tour-owned
+        // caches are hidden here — TourLayer draws them.
+        filter: [
+          "all",
+          ["==", ["get", "stageSequence"], 0],
+          ["==", ["get", "tourOwned"], 0],
+        ],
         paint: CACHE_CIRCLE_PAINT,
       });
     }
@@ -322,18 +325,39 @@ export function CachesLayer({
     // renderCaches() for stages that are part of an on-screen overlap cluster
     // (shown as the collapsed pin instead); the rest render like regular caches
     // (purple via the `color` prop) and separate out as the user zooms in.
+    const alIconOk = ensureMarkerImage(map, "al", AL_COLOR);
     if (!map.getLayer(CACHES_AL_CIRCLE_LAYER)) {
-      map.addLayer({
-        id: CACHES_AL_CIRCLE_LAYER,
-        type: "circle",
-        source: CACHES_SOURCE,
-        filter: [
-          "all",
-          [">", ["get", "stageSequence"], 0],
-          ["==", ["get", "alHidden"], 0],
-        ],
-        paint: AL_CIRCLE_PAINT,
-      });
+      const alFilter: maplibregl.FilterSpecification = [
+        "all",
+        [">", ["get", "stageSequence"], 0],
+        ["==", ["get", "alHidden"], 0],
+        ["==", ["get", "tourOwned"], 0],
+      ];
+      // Squircle icon when a 2D canvas is available; circle fallback otherwise
+      // (jsdom in tests — the icon image can't be generated there).
+      map.addLayer(
+        alIconOk
+          ? {
+              id: CACHES_AL_CIRCLE_LAYER,
+              type: "symbol",
+              source: CACHES_SOURCE,
+              filter: alFilter,
+              layout: {
+                "icon-image": AL_SQUIRCLE_ICON,
+                "icon-size": AL_ICON_SIZE,
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+              },
+              paint: { "icon-opacity": dimOpacityExpression() },
+            }
+          : {
+              id: CACHES_AL_CIRCLE_LAYER,
+              type: "circle",
+              source: CACHES_SOURCE,
+              filter: alFilter,
+              paint: AL_CIRCLE_PAINT,
+            },
+      );
     }
     // Invisible hit target (see CACHES_HIT_LAYER comment). Covers regular caches
     // AND exploded AL stages (anything not collapsed into a pin: alHidden==0);
@@ -368,6 +392,7 @@ export function CachesLayer({
           "all",
           ["==", ["get", "disabled"], 1],
           ["!=", ["get", "alHidden"], 1],
+          ["==", ["get", "tourOwned"], 0],
         ],
         layout: {
           "text-field": "Z",
@@ -375,7 +400,8 @@ export function CachesLayer({
           "text-size": ["interpolate", ["linear"], ["zoom"], 11, 8, 14, 12],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
-          "text-anchor": "center",
+          // Reserved BL corner so the disabled cue never fights the centre glyph.
+          "text-offset": cornerTextOffset("BL"),
         },
         paint: {
           "text-color": "#ffffff",
@@ -384,11 +410,11 @@ export function CachesLayer({
         },
       });
     }
-    // Solved-coordinate cue: a small green checkmark badge on the upper-right
-    // of caches whose plotted location is the user's solved/corrected
-    // coordinate (Mystery solution or Multi final) — same idea as the tour
-    // stop's green "T" tool badge, distinct from the red Cluster-Lab selection
-    // ring. The icon is a canvas image (see ensureSolvedBadgeIcon) so it
+    // Solved-coordinate cue: a small green checkmark badge in the reserved TL
+    // corner of caches whose plotted location is the user's solved/corrected
+    // coordinate (Mystery solution or Multi final), distinct from the red
+    // Cluster-Lab selection ring. The icon is a canvas image (see
+    // ensureSolvedBadgeIcon) so it
     // doesn't depend on the glyph source's symbol range.
     if (
       ensureSolvedBadgeIcon(map) &&
@@ -402,91 +428,139 @@ export function CachesLayer({
           "all",
           ["==", ["get", "solved"], 1],
           ["!=", ["get", "alHidden"], 1],
+          ["==", ["get", "tourOwned"], 0],
         ],
         layout: {
           "icon-image": SOLVED_BADGE_ICON,
-          // upper-right of the marker; offset is in the 24px icon space and
-          // then scaled by icon-size.
-          "icon-offset": [11, -11],
+          // Reserved TL corner (icon-space offset, scaled by icon-size).
+          "icon-offset": cornerIconOffset("TL"),
           "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },
       });
     }
-    // Adventure Lab stage number, drawn ON the marker as "S1", "S2", … . The
-    // Stage label centred on the marker: "S{n}" for a random-order Adventure
-    // Lab, "L{n}" for a linear one (the only difference is the prefix). The S/L
-    // prefix is deliberate: the tour overlay (TourLayer) labels routed stops with
-    // bare numbers (1, 2, 3…), so prefixing keeps stage numbers from being read
-    // as stop order. `stageSequence` is 0 for non-AL caches, so `> 0` both scopes
-    // this to lab stages and skips AL rows imported before stage metadata.
-    if (!map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
+    // Tool-required cue (FR-SF5): a wrench badge in the reserved TR corner of any
+    // cache that needs equipment. An ICON (not a "T" letter) deliberately — a "T"
+    // would collide with the Traditional type glyph (status = icons, identity =
+    // letters). Same canvas-image technique as the solved badge.
+    if (ensureToolBadgeIcon(map) && !map.getLayer(CACHES_TOOL_BADGE_LAYER)) {
       map.addLayer({
-        id: CACHES_AL_STAGE_LABEL_LAYER,
+        id: CACHES_TOOL_BADGE_LAYER,
         type: "symbol",
         source: CACHES_SOURCE,
-        // The label is only legible once zoomed in; keep a floor so it doesn't
-        // clutter at low zoom, and skip stages collapsed into a pin.
+        filter: [
+          "all",
+          ["==", ["get", "hasTool"], 1],
+          ["!=", ["get", "alHidden"], 1],
+          ["==", ["get", "tourOwned"], 0],
+        ],
+        layout: {
+          "icon-image": TOOL_BADGE_ICON,
+          "icon-offset": cornerIconOffset("TR"),
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.55, 14, 0.95],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: { "icon-opacity": dimOpacityExpression() },
+      });
+    }
+    // Centre-slot label drawn ON the marker (ADR-0035): the type letter for a
+    // regular cache, "S{n}"/"L{n}" for an AL stage (see centerTextFor). The S/L
+    // prefix keeps AL stage numbers from being read as tour stop order — the
+    // tour overlay (TourLayer) labels routed stops with bare numbers.
+    if (!map.getLayer(CACHES_CENTER_LABEL_LAYER)) {
+      map.addLayer({
+        id: CACHES_CENTER_LABEL_LAYER,
+        type: "symbol",
+        source: CACHES_SOURCE,
+        // Only legible once zoomed in; keep a floor so the letters don't clutter
+        // the overview, and skip AL stages collapsed into a pin (empty centre
+        // text is also skipped via the filter).
         minzoom: AL_STAGE_LABEL_MINZOOM,
         filter: [
           "all",
-          [">", ["get", "stageSequence"], 0],
           ["==", ["get", "alHidden"], 0],
+          ["!=", ["get", "centerText"], ""],
+          ["==", ["get", "tourOwned"], 0],
         ],
         layout: {
-          "text-field": [
-            "concat",
-            ["case", ["==", ["get", "adventureSequential"], 1], "L", "S"],
-            ["to-string", ["get", "stageSequence"]],
-          ],
+          "text-field": ["get", "centerText"],
           "text-font": ["Noto Sans Bold"],
-          // Slightly smaller so the label sits within the (small) AL circle
-          // rather than overflowing it.
+          // Small enough to sit within the (small) marker rather than overflow.
           "text-size": ["interpolate", ["linear"], ["zoom"], 11, 7, 14, 10],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
           "text-anchor": "center",
         },
         paint: {
+          // White glyph haloed by the marker's own colour, so it reads on the
+          // fill in every context (the colour-blind-safe type/identity cue).
           "text-color": "#ffffff",
-          "text-halo-color": "#7b1fa2",
+          "text-halo-color": ["get", "color"],
           "text-halo-width": 1.6,
-          // Dim a completed (found) stage's label with its circle.
-          "text-opacity": FOUND_DISABLED_OPACITY,
+          // Dim a completed (found)/disabled marker's label with its base.
+          "text-opacity": dimOpacityExpression(),
         },
       });
     }
-    // Collapsed Adventure Lab pin — one purple disc per on-screen overlap
-    // cluster of stages (populated by renderCaches). A red ring marks a cluster
-    // with any selected stage (mirrors SELECTED_LAYER).
-    if (!map.getLayer(AL_ADVENTURE_CIRCLE_LAYER)) {
+    // Selection ring for the collapsed pin — a separate circle layer (the
+    // squircle icon can't carry a conditional stroke). Drawn before the icon so
+    // the icon sits on top; the count label is moved above both further down.
+    if (!map.getLayer(AL_ADVENTURE_SELECTED_LAYER)) {
       map.addLayer({
-        id: AL_ADVENTURE_CIRCLE_LAYER,
+        id: AL_ADVENTURE_SELECTED_LAYER,
         type: "circle",
         source: AL_ADVENTURES_SOURCE,
+        filter: ["==", ["get", "selected"], 1],
         paint: {
-          // Slightly SMALLER than a regular cache (which is z9→4, z14→9) so a
-          // collapsed adventure reads as "a cache, plus more behind it" rather
-          // than dominating the overview.
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 8],
-          "circle-color": ["get", "color"],
-          "circle-stroke-color": [
-            "case",
-            ["==", ["get", "selected"], 1],
-            "#ff1744",
-            "#ffffff",
-          ],
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "selected"], 1],
-            3,
-            1.5,
-          ],
-          "circle-opacity": FOUND_DISABLED_OPACITY,
-          "circle-stroke-opacity": FOUND_DISABLED_OPACITY,
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 7, 14, 12],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-color": "#ff1744",
+          "circle-stroke-width": 3,
         },
       });
+    }
+    // Collapsed Adventure Lab pin — one purple SQUIRCLE per on-screen overlap
+    // cluster of stages (populated by renderCaches), so a collapsed adventure
+    // reads as the same AL shape, "plus more behind it".
+    if (!map.getLayer(AL_ADVENTURE_CIRCLE_LAYER)) {
+      map.addLayer(
+        alIconOk
+          ? {
+              id: AL_ADVENTURE_CIRCLE_LAYER,
+              type: "symbol",
+              source: AL_ADVENTURES_SOURCE,
+              layout: {
+                "icon-image": AL_SQUIRCLE_ICON,
+                "icon-size": AL_ICON_SIZE,
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+              },
+              paint: { "icon-opacity": dimOpacityExpression() },
+            }
+          : {
+              id: AL_ADVENTURE_CIRCLE_LAYER,
+              type: "circle",
+              source: AL_ADVENTURES_SOURCE,
+              paint: {
+                "circle-radius": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  9,
+                  3,
+                  14,
+                  8,
+                ],
+                "circle-color": ["get", "color"],
+                "circle-stroke-color": "#ffffff",
+                "circle-stroke-width": 1.5,
+                "circle-opacity": dimOpacityExpression(),
+                "circle-stroke-opacity": dimOpacityExpression(),
+              },
+            },
+      );
     }
     // Stage count badge on the collapsed pin, so a multi-stage adventure is
     // visibly a group rather than a lone cache.
@@ -511,7 +585,7 @@ export function CachesLayer({
           "text-color": "#ffffff",
           "text-halo-color": "#7b1fa2",
           "text-halo-width": 1.6,
-          "text-opacity": FOUND_DISABLED_OPACITY,
+          "text-opacity": dimOpacityExpression(),
         },
       });
     }
@@ -567,6 +641,7 @@ export function CachesLayer({
           "all",
           ["==", ["get", "selected"], 1],
           ["==", ["get", "stageSequence"], 0],
+          ["==", ["get", "tourOwned"], 0],
         ],
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 8, 14, 14],
@@ -588,6 +663,7 @@ export function CachesLayer({
           ["==", ["get", "selected"], 1],
           [">", ["get", "stageSequence"], 0],
           ["==", ["get", "alHidden"], 0],
+          ["==", ["get", "tourOwned"], 0],
         ],
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 8, 14, 14],
@@ -598,12 +674,10 @@ export function CachesLayer({
       });
     }
 
-    // Keep the AL stage label on top of everything (incl. the collapsed AL pins,
-    // selection rings, and ClustersPreviewLayer's emphasis discs) so it stays
-    // readable. moveLayer() with no beforeId pops it to the very top.
-    if (map.getLayer(CACHES_AL_STAGE_LABEL_LAYER)) {
-      map.moveLayer(CACHES_AL_STAGE_LABEL_LAYER);
-    }
+    // Enforce the single declarative z-order (map-layers.ts) instead of ad-hoc
+    // moveLayer calls — this keeps the centre glyph / badges above the cache
+    // base, the cache layers under the tour, etc.
+    applyLayerOrder(map);
 
     // Build the cache features for the current zoom and (re)populate the sources.
     // Adventure Lab stages that overlap on screen collapse into one pin (the same
@@ -611,7 +685,10 @@ export function CachesLayer({
     // collapsed, so density/cluster patterns stay readable. Recomputed on zoom so
     // overlapping stages separate as you zoom in. Non-AL never sets alHidden.
     const renderCaches = (): void => {
-      const alClusters = clusterByPixelProximity(
+      // Unified pixel-proximity collapse (shared with the tour's stop collapse):
+      // only merged groups (≥2 stages) become a collapsed pin; lone stages render
+      // individually via CACHES_AL_CIRCLE_LAYER. `groups` excludes singletons.
+      const { groups: alGroups } = collapseByProximity(
         caches
           .filter((c) => c.type === "Adventure Lab")
           .map((c) => ({
@@ -620,22 +697,21 @@ export function CachesLayer({
             item: c,
           })),
         (lngLat) => map.project(lngLat),
-        OVERLAP_PX,
+        { thresholdPx: OVERLAP_PX },
       );
       const hidden = new Set<number>();
       const adventureFeatures: GeoJSON.Feature<
         GeoJSON.Point,
         AlAdventureProps
       >[] = [];
-      for (const { members, center } of alClusters) {
-        if (members.length < 2) continue; // a lone stage renders individually
+      for (const { members, center, count } of alGroups) {
         for (const m of members) hidden.add(m.id);
         adventureFeatures.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: center },
           properties: {
             adventureId: members[0]!.adventureId ?? "",
-            count: members.length,
+            count,
             selected: members.some((m) => selectedCacheIds?.has(m.id)) ? 1 : 0,
             memberIds: members.map((m) => m.id).join(","),
             color: TYPE_COLORS["Adventure Lab"],
@@ -666,6 +742,9 @@ export function CachesLayer({
           stageTotal: c.stageTotal ?? 0,
           adventureSequential: c.adventureSequential ? 1 : 0,
           alHidden: hidden.has(c.id) ? 1 : 0,
+          hasTool: c.requiresTool ? 1 : 0,
+          centerText: centerTextFor(c),
+          tourOwned: tourOwnedIds?.has(c.id) ? 1 : 0,
         },
       }));
       upsertGeoJsonSource(map, CACHES_SOURCE, cachesFeatures);
@@ -681,7 +760,7 @@ export function CachesLayer({
     return () => {
       map.off("zoomend", renderCaches);
     };
-  }, [map, ready, query.data, extraCaches, selectedCacheIds]);
+  }, [map, ready, query.data, extraCaches, selectedCacheIds, tourOwnedIds]);
 
   // Click handler — bound once. Reads from current source data, not the
   // closure, so it stays correct as the query refreshes.

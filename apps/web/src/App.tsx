@@ -630,6 +630,17 @@ export default function App(): JSX.Element {
     [planResult],
   );
 
+  // Cache ids OWNED by the active tour (routed stops + dropped candidates).
+  // CachesLayer hides their markers so TourLayer is the single authority for how
+  // a routed/dropped cache renders (ADR-0035 — no double-draw or S{n}-over-order).
+  const tourOwnedIds = useMemo<ReadonlySet<number>>(() => {
+    if (!planResult) return new Set();
+    return new Set<number>([
+      ...planResult.orderedCacheIds,
+      ...planResult.droppedCaches.map((d) => d.id),
+    ]);
+  }, [planResult]);
+
   // Canonical caches-query input (server-relevant params only).
   const cacheQueryInput = useMemo<ListCachesParams>(
     () => ({
@@ -1740,6 +1751,7 @@ export default function App(): JSX.Element {
               queryInput={debouncedCacheInput}
               extraCaches={tourCaches ?? undefined}
               selectedCacheIds={selectedCacheIds}
+              tourOwnedIds={tourOwnedIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
               online={online}
@@ -1749,6 +1761,8 @@ export default function App(): JSX.Element {
               candidates={clusters}
               caches={caches}
               focusedClusterId={focusedClusterId}
+              chosenClusterId={chosenClusterId}
+              deEmphasized={planResult !== null}
               onCentroidClick={frameClusterById}
               onCentroidHover={setFocusedClusterId}
             />
