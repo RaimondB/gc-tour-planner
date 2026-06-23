@@ -171,14 +171,15 @@ export class AdminPrecomputeService {
    * aren't fresh (missing / stale / failed / …). Scoped to ALs so it doesn't
    * re-warm the whole DB; grouped by owner + chunked like {@link retriggerStale}.
    *
-   * Two complementary detectors are unioned so no isolated stage slips through:
+   * Two complementary detectors are unioned so no stage slips through:
    *   1. precompute_state freshness (no row / pending / failed / version drift);
-   *   2. actual `route_legs` absence at the current OSRM version — catches
-   *      stages marked `fresh` that nonetheless hold zero real legs (an old run
-   *      before the full-pairwise guarantee, or a neighbourhood that all routed
-   *      `noroute`). The re-warm now also fills the full intra-adventure pairwise
-   *      matrix (walking-precompute.processor), so one flagged stage repairs its
-   *      whole adventure.
+   *   2. incomplete intra-adventure pairwise at the current OSRM version —
+   *      catches adventures whose stages are all `fresh` yet still miss sibling
+   *      pairs (an old run before the full-pairwise guarantee, or a k-NN
+   *      neighbourhood that never linked distant stages); subsumes fully-isolated
+   *      stages. The re-warm fills the full intra-adventure pairwise matrix
+   *      (walking-precompute.processor), so one flagged stage repairs its whole
+   *      adventure.
    */
   async backfillAdventureLabWalking(): Promise<Admin.RetriggerStaleResponse> {
     const chunkSize = this.envInt(
@@ -186,18 +187,18 @@ export class AdminPrecomputeService {
       DEFAULT_RETRIGGER_CHUNK,
     );
     const osrmVersion = this.osrmVersion.getVersion();
-    const [staleIds, missingLegIds] = await Promise.all([
+    const [staleIds, incompletePairwiseIds] = await Promise.all([
       this.state.adventureLabWalkingIdsNeedingPrecompute({
         currentOsrmVersion: osrmVersion,
         staleTtlDays: this.staleTtlDays(),
         limit: RETRIGGER_HARD_MAX,
       }),
-      this.routing.adventureLabStageIdsMissingLegs(
+      this.routing.adventureLabStageIdsWithIncompletePairwise(
         osrmVersion,
         RETRIGGER_HARD_MAX,
       ),
     ]);
-    const ids = Array.from(new Set([...staleIds, ...missingLegIds]));
+    const ids = Array.from(new Set([...staleIds, ...incompletePairwiseIds]));
     const jobIds: string[] = [];
     let totalEnqueued = 0;
     if (ids.length > 0) {

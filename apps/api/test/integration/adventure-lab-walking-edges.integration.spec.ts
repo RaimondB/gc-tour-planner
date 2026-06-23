@@ -182,13 +182,13 @@ describe("Adventure Lab walking edges (full pairwise + repair)", () => {
 
     // 3 stages → 3×2 = 6 directed legs, all present.
     expect(await pairwiseLegCount(stages)).toBe(6);
-    for (const id of stages) {
-      const missing = await routing.adventureLabStageIdsMissingLegs(
-        osrmVersion.getVersion(),
-        100,
-      );
-      expect(missing).not.toContain(id);
-    }
+    // The adventure is now fully pairwise → none of its stages are flagged for
+    // repair.
+    const flagged = await routing.adventureLabStageIdsWithIncompletePairwise(
+      osrmVersion.getVersion(),
+      100,
+    );
+    for (const id of stages) expect(flagged).not.toContain(id);
   });
 
   it("restores a relocated stage's sibling legs on the re-warm", async () => {
@@ -227,45 +227,100 @@ describe("Adventure Lab walking edges (full pairwise + repair)", () => {
     expect(await pairwiseLegCount(stages)).toBe(6);
   });
 
-  it("adventureLabStageIdsMissingLegs flags only AL stages with no foot legs at the current version", async () => {
+  it("adventureLabStageIdsWithIncompletePairwise flags multi-stage adventures missing a sibling pair", async () => {
     const version = osrmVersion.getVersion();
-    // A fresh, never-precomputed AL stage in its own (single-stage) adventure.
+    // A 2-stage adventure: full pairwise needs 2 directed legs (a→b, b→a).
+    const a = await seedStage({
+      owner: ownerId,
+      code: "PAIR-A",
+      adventureId: "ADV-PAIR",
+      lng: 4.0,
+      lat: 51.0,
+    });
+    const b = await seedStage({
+      owner: ownerId,
+      code: "PAIR-B",
+      adventureId: "ADV-PAIR",
+      lng: 4.001,
+      lat: 51.0,
+    });
+    // A single-stage adventure (k=1, expected 0 pairs) must never be flagged.
     const lonely = await seedStage({
       owner: ownerId,
-      code: "LONELY-1",
-      adventureId: "ADV-LONELY",
+      code: "SOLO-1",
+      adventureId: "ADV-SOLO",
       lng: 4.0,
       lat: 51.0,
     });
-    // A non-AL cache with no legs must never be flagged.
-    const plain = await seedStage({
+
+    const insertLeg = (from: number, to: number) =>
+      pg.db
+        .insertInto("route_legs")
+        .values({
+          from_cache_id: from,
+          to_cache_id: to,
+          profile: "foot",
+          meters: 70,
+          seconds: 50,
+          source: "table",
+          osrm_version: version,
+          geom: null,
+        })
+        .execute();
+
+    // Only one of the two directed legs present → incomplete.
+    await insertLeg(a, b);
+    let flagged = await routing.adventureLabStageIdsWithIncompletePairwise(
+      version,
+      500,
+    );
+    expect(flagged).toEqual(expect.arrayContaining([a, b]));
+    expect(flagged).not.toContain(lonely);
+
+    // Add the reverse leg → adventure is fully pairwise → no longer flagged.
+    await insertLeg(b, a);
+    flagged = await routing.adventureLabStageIdsWithIncompletePairwise(
+      version,
+      500,
+    );
+    expect(flagged).not.toContain(a);
+    expect(flagged).not.toContain(b);
+
+    // A `noroute` row counts as covered (OSRM already asked) — so an adventure
+    // whose only "missing" pair is a known no-route is NOT re-flagged.
+    const c = await seedStage({
       owner: ownerId,
-      code: "PLAIN-NOLEG",
-      adventureId: null,
-      lng: 4.0,
-      lat: 51.0,
-      type: "Traditional",
+      code: "NR-A",
+      adventureId: "ADV-NR",
+      lng: 4.2,
+      lat: 51.2,
     });
-
-    const missing = await routing.adventureLabStageIdsMissingLegs(version, 500);
-    expect(missing).toContain(lonely);
-    expect(missing).not.toContain(plain);
-
-    // Give the lonely stage one leg → it drops out of the missing set.
+    const d = await seedStage({
+      owner: ownerId,
+      code: "NR-B",
+      adventureId: "ADV-NR",
+      lng: 4.201,
+      lat: 51.2,
+    });
+    await insertLeg(c, d);
     await pg.db
       .insertInto("route_legs")
       .values({
-        from_cache_id: lonely,
-        to_cache_id: plain,
+        from_cache_id: d,
+        to_cache_id: c,
         profile: "foot",
-        meters: 12,
-        seconds: 9,
-        source: "table",
+        meters: null,
+        seconds: null,
+        source: "noroute",
         osrm_version: version,
         geom: null,
       })
       .execute();
-    const after = await routing.adventureLabStageIdsMissingLegs(version, 500);
-    expect(after).not.toContain(lonely);
+    flagged = await routing.adventureLabStageIdsWithIncompletePairwise(
+      version,
+      500,
+    );
+    expect(flagged).not.toContain(c);
+    expect(flagged).not.toContain(d);
   });
 });

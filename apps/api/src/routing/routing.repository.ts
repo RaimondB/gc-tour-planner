@@ -465,31 +465,48 @@ export class RoutingRepository {
   }
 
   /**
-   * FR-I20 repair: Adventure Lab stage ids that have NO outgoing walking leg in
-   * `route_legs` at the current OSRM version (`profile='foot'`) — i.e. they are
-   * isolated in the walking graph and can't cluster/plan. Complements the
-   * precompute_state-based `adventureLabWalkingIdsNeedingPrecompute`: a stage
-   * can be marked `fresh` (the job ran) yet still hold zero real legs (its
-   * neighbourhood all routed `noroute`, or an old run predates the
-   * full-pairwise guarantee). A `noroute` row counts as "has a leg" — OSRM was
-   * asked, so re-asking is pointless. Owner-agnostic (the caller groups by
-   * owner); ordered + limited for bounded job sizes.
+   * FR-I20 repair: stage ids of multi-stage Adventure Labs whose intra-adventure
+   * walking matrix is NOT fully pairwise at the current OSRM version
+   * (`profile='foot'`). For an adventure of `k` stages a complete matrix has
+   * `k*(k-1)` directed legs among its own stages; if fewer rows exist, some
+   * sibling pair is uncovered and the stages need a re-warm (the precompute then
+   * fills the whole pairwise). Subsumes the "fully isolated stage" case — an
+   * adventure with zero legs is trivially incomplete.
+   *
+   * Complements the precompute_state-based `adventureLabWalkingIdsNeedingPrecompute`:
+   * an adventure's stages can all be marked `fresh` yet still miss sibling pairs
+   * (an old run predating the full-pairwise guarantee, or a k-NN neighbourhood
+   * that never linked distant stages). A `noroute` row counts as covered — OSRM
+   * was already asked for that pair, so re-asking is pointless. Owner-agnostic
+   * (the caller groups by owner); ordered + limited for bounded job sizes.
    */
-  async adventureLabStageIdsMissingLegs(
+  async adventureLabStageIdsWithIncompletePairwise(
     osrmVersion: string,
     limit: number,
   ): Promise<number[]> {
     const { rows } = await sql<{ id: string }>`
-      SELECT c.id
-        FROM caches c
-        LEFT JOIN route_legs rl
-          ON rl.from_cache_id = c.id
-         AND rl.profile = 'foot'
-         AND rl.osrm_version = ${osrmVersion}
-       WHERE c.type = 'Adventure Lab'
-         AND c.owner_id IS NOT NULL
-         AND rl.from_cache_id IS NULL
-       ORDER BY c.id
+      WITH al AS (
+        SELECT array_agg(id) AS ids, count(*) AS k
+          FROM caches
+         WHERE type = 'Adventure Lab'
+           AND owner_id IS NOT NULL
+           AND adventure_id IS NOT NULL AND adventure_id <> ''
+         GROUP BY owner_id, adventure_id
+        HAVING count(*) >= 2
+      ),
+      incomplete AS (
+        SELECT a.ids
+          FROM al a
+         WHERE (
+           SELECT count(*) FROM route_legs rl
+            WHERE rl.profile = 'foot'
+              AND rl.osrm_version = ${osrmVersion}
+              AND rl.from_cache_id = ANY(a.ids)
+              AND rl.to_cache_id = ANY(a.ids)
+         ) < a.k * (a.k - 1)
+      )
+      SELECT DISTINCT unnest(ids) AS id FROM incomplete
+       ORDER BY id
        LIMIT ${limit}
     `.execute(this.db);
     return rows.map((r) => Number(r.id));
