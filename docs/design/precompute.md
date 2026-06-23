@@ -20,21 +20,23 @@ For the landuse-side daily replication, see the separate `landuse-replication` q
 
 Job payload: `{ ownerId: string; newCacheIds: number[]; reason: 'upload' | 'retrigger-stale' | 'retrigger-one' }`.
 
-1. **Resolve scope.** Fetch the new caches' locations. Find every existing cache within `PLANNER_PRECOMPUTE_RADIUS_M` (default 4000 m, aligned with the runtime walking-graph cap of `min(maxLinkMeters*2, 4000)`) of any new cache via `ST_DWithin(..., 4000)` — these are the "affected" caches. The in-scope set is `new ∪ affected`.
+1. **Resolve scope.** Fetch the new caches' locations. Find every existing cache within `PLANNER_PRECOMPUTE_RADIUS_M` (default 4000 m, aligned with the runtime walking-graph cap of `min(maxLinkMeters*2, 4000)`) of any new cache via `ST_DWithin(..., 4000)` — these are the "affected" caches. Then pull in **every sibling stage of any touched Adventure Lab** (`CachesRepository.findAdventureGroupsForCaches`): a single imported/relocated stage drags in its whole adventure, regardless of distance. The in-scope set is `new ∪ affected ∪ adventure-siblings`.
 
 2. **Mark in-scope as `in_progress`** in `cache_precompute_state` (kind='walking'). Single bulk UPSERT.
 
 3. **Fetch haversine neighbours per in-scope cache.** For each in-scope cache, find its top `k_candidates = max(PLANNER_KNN_K*3, PLANNER_KNN_K+5) = 36` nearest neighbours by haversine within `PLANNER_PRECOMPUTE_RADIUS_M` (4 km default) via `<->` ordered PostGIS query. The 36 matches the runtime over-fetch in [walking-graph.ts](../../apps/api/src/tours/strategies/greedy/walking-graph.ts) exactly — no semantic drift.
 
-4. **De-dupe and chunk pair set.** Convert to a directed `(from, to)` set, de-dupe, sort. Chunk by origin: at most 100 origins per OSRM `/table` call. Each chunk is one HTTP request.
+4. **Force full pairwise within each touched adventure.** k-NN alone never guarantees an Adventure Lab's stages reach each other — adventures are collapsed to one representative for clustering (FR-I17), and in dense areas a stage's siblings fall outside its top-36. So add the **complete directed stage→stage matrix** for every touched adventure (≤ ~90 pairs for 10 stages) on top of the k-NN pairs. This makes "every AL stage has walking edges" an invariant of the import/refresh path and keeps atomic-adventure solver routing (FR-I16) fully cache-warm. Because the relocation invalidation (below) deletes **all** legs touching a moved stage, the same full-pairwise rebuild restores its sibling edges on the re-warm.
 
-5. **Filter already-fresh pairs.** Drop pairs already in `route_legs` with `osrm_version == current_version`. The remaining set is what we actually call OSRM for.
+5. **De-dupe and chunk pair set.** Convert to a directed `(from, to)` set, de-dupe, sort. Chunk by origin: at most 100 origins per OSRM `/table` call. Each chunk is one HTTP request.
 
-6. **Call OSRM `/table` per chunk.** Use the existing `OsrmClient.table([origin, ...dests], 'foot')`. For each non-null cell, emit a `route_legs` row with `source='table'`, `geom=NULL`, `osrm_version=current`. Persist via `RoutingRepository.upsertMatrixCells(cells, osrmVersion)` (already chunked at 5k rows internally).
+6. **Filter already-fresh pairs.** Drop pairs already in `route_legs` with `osrm_version == current_version`. The remaining set is what we actually call OSRM for.
 
-7. **Mark in-scope as `fresh`** in `cache_precompute_state` with current `osrm_version` and `fetched_at = now()`. On any chunk failure, mark only the affected caches as `failed` with `error_text`; the rest succeed independently (chunk-level transactions, not job-level).
+7. **Call OSRM `/table` per chunk.** Use the existing `OsrmClient.table([origin, ...dests], 'foot')`. For each non-null cell, emit a `route_legs` row with `source='table'`, `geom=NULL`, `osrm_version=current`. Persist via `RoutingRepository.upsertMatrixCells(cells, osrmVersion)` (already chunked at 5k rows internally).
 
-8. **Log a one-liner**: how many caches processed, how many pairs fetched, how many were already fresh.
+8. **Mark in-scope as `fresh`** in `cache_precompute_state` with current `osrm_version` and `fetched_at = now()`. On any chunk failure, mark only the affected caches as `failed` with `error_text`; the rest succeed independently (chunk-level transactions, not job-level).
+
+9. **Log a one-liner**: how many caches processed, how many pairs fetched, how many were already fresh.
 
 ## `landuse-replication` algorithm (ADR-0009)
 
@@ -106,6 +108,8 @@ Gated by the existing dev-user middleware (revisit when M6 ships auth).
 - `GET /admin/precompute/stale?kind=walking&limit=200` — paginated list of stale `cache_id`s + last `error_text`.
 - `POST /admin/precompute/retrigger-stale` — `{ kind: 'walking' | 'landuse' | 'all' }`. Selects stale ids via `v_stale_caches`, chunks at 50/job, enqueues. Returns `{ enqueued, jobIds }`.
 - `POST /admin/precompute/retrigger-one` — `{ cacheId, kind }`. Single-cache retry from the failed-list row.
+- `GET /admin/precompute/adventure-labs` (FR-I20) — walking-precompute health for Adventure Lab stages only: per-bucket counts + AL total.
+- `POST /admin/precompute/adventure-labs/backfill` (FR-I20) — **repair for AL stages missing walking edges.** Unions two detectors so no isolated stage slips through: (1) `cache_precompute_state` freshness (`adventureLabWalkingIdsNeedingPrecompute` — no row / pending / failed / version drift / past TTL) and (2) **actual `route_legs` absence** at the current `osrm_version` (`RoutingRepository.adventureLabStageIdsMissingLegs` — a `LEFT JOIN route_legs … IS NULL`, catching stages marked `fresh` that nonetheless hold zero real legs). Re-warming each flagged stage repairs its whole adventure via the full-pairwise step above. Chunks + enqueues like `retrigger-stale`; returns `{ enqueued, jobIds }`.
 
 ## Operator dashboards
 

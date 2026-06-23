@@ -230,4 +230,66 @@ describe("CachesRepository.findAdventureStages (FR-I16)", () => {
     const ids = survivors.map((s) => s.id).sort((a, b) => a - b);
     expect(ids).toEqual([keep, solo].sort((a, b) => a - b));
   });
+
+  // Walking-precompute support: given any stage of an adventure, recover ALL of
+  // its sibling stage ids so the precompute can guarantee full pairwise edges.
+  it("findAdventureGroupsForCaches returns every sibling of a touched adventure, owner-scoped", async () => {
+    const g1 = await seedStage({
+      owner: ownerId,
+      code: "GRP-1",
+      adventureId: "ADV-GRP",
+      stageSequence: 1,
+      lng: 7.1,
+      lat: 53.1,
+    });
+    const g2 = await seedStage({
+      owner: ownerId,
+      code: "GRP-2",
+      adventureId: "ADV-GRP",
+      stageSequence: 2,
+      lng: 7.1,
+      lat: 53.1,
+    });
+    // Archived stages still count — they can appear in a selected cluster.
+    const g3 = await seedStage({
+      owner: ownerId,
+      code: "GRP-3",
+      adventureId: "ADV-GRP",
+      stageSequence: 3,
+      archived: true,
+      lng: 7.1,
+      lat: 53.1,
+    });
+    // Foreign owner's stage of the same adventure must NOT leak.
+    await seedStage({
+      owner: otherOwnerId,
+      code: "GRP-FOREIGN",
+      adventureId: "ADV-GRP",
+      stageSequence: 1,
+      lng: 7.1,
+      lat: 53.1,
+    });
+    const plain = await seedStage({
+      owner: ownerId,
+      code: "GRP-PLAIN",
+      adventureId: null,
+      stageSequence: null,
+      lng: 7.1,
+      lat: 53.1,
+    });
+
+    // Passing just ONE stage (g1) recovers the whole owned adventure.
+    const groups = await repo.findAdventureGroupsForCaches(ownerId, [g1]);
+    const grp = groups.find((x) => x.adventureId === "ADV-GRP");
+    expect(grp).toBeDefined();
+    expect(grp!.stageIds.sort((a, b) => a - b)).toEqual(
+      [g1, g2, g3].sort((a, b) => a - b),
+    );
+
+    // A non-adventure cache id contributes no group; empty input → [].
+    expect(await repo.findAdventureGroupsForCaches(ownerId, [plain])).toEqual(
+      [],
+    );
+    expect(await repo.findAdventureGroupsForCaches(ownerId, [])).toEqual([]);
+  });
 });
