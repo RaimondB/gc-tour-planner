@@ -41,7 +41,7 @@
     "kysely": "0.29.2",
     "nestjs-zod": "5.4.0",
     "pino": "10.3.1",
-    "piscina": "^5.1.4",
+    "piscina": "^5.2.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "zod": "4.4.3"
