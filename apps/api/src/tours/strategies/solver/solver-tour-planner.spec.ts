@@ -3,6 +3,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
+import { Tours as ToursSchema } from "@gctp/shared";
 import type { CachesService } from "../../../caches/caches.service.js";
 import type { RoutingService } from "../../../routing/routing.service.js";
 import type { OsrmClient } from "../../../routing/osrm.client.js";
@@ -158,8 +159,13 @@ describe("SolverTourPlanner — determinism", () => {
     cacheIds: [101, 102, 103],
     distanceBudgetMeters: 8000,
     timePerCacheMinutes: 5,
+    alStageVisitMinutes: 2,
+    toolBonusMinutes: 5,
     startPreference: "parking-waypoint",
-  };
+    // 101↔103 is 1700 m (> maxLink), but 101↔102 (800) + 102↔103 (900) chain
+    // them into one walk-connected component, so the pre-filter keeps all three.
+    maxLinkMeters: 1500,
+  } as unknown as Tours.PlanLoopInput;
 
   it("returns the same PlanResult on repeated runs", async () => {
     const a = await planner.planLoop(ownerId, input);
@@ -193,6 +199,102 @@ describe("SolverTourPlanner — determinism", () => {
     const result = await planner.discoverClusters(ownerId, planInput);
     expect(result).toBe(sentinel);
     expect(greedy.discoverClusters).toHaveBeenCalledWith(ownerId, planInput);
+  });
+
+  it("classifies a solver-omitted but reachable cache as a `budget` drop", async () => {
+    // Solver returns only 2 of the 3 candidates (count-vs-length trade-off).
+    // Cache 103 is fully reachable, so the omission reads as a budget choice.
+    // A tight budget keeps the re-add pass from reclaiming it: the [101,102]
+    // loop fits, but re-adding 103 (~2 km) would exceed 1300 m.
+    const tightBudget = {
+      ...input,
+      distanceBudgetMeters: 1300,
+    } as unknown as Tours.PlanLoopInput;
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, tightBudget);
+    expect(res.orderedCacheIds).not.toContain(103);
+    expect(res.droppedCacheIds).toContain(103);
+    expect(res.droppedCaches).toContainEqual({ id: 103, reason: "budget" });
+    // The two lists stay in lock-step.
+    expect(res.droppedCaches.map((d) => d.id).sort()).toEqual(
+      [...res.droppedCacheIds].sort(),
+    );
+  });
+
+  it("re-adds a budget-dropped reachable cache when the budget has room", async () => {
+    // Same solver omission as above, but the default 8 km budget leaves plenty
+    // of room — the budget-fill re-add pass reclaims 103 (FR-T13 Part 2).
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, input);
+    expect(res.orderedCacheIds).toContain(103);
+    expect(res.droppedCacheIds).not.toContain(103);
+  });
+
+  it("never emits a non-finite number when a null-leg cache is trimmed", async () => {
+    // 102→103 is unrouteable but 101 links to both, so all 3 stay in one
+    // component (pre-filter keeps them). The solved order [101,102,103] then has
+    // a null consecutive leg → the trim's savedMeters / a drop's marginal go
+    // Infinity. Those must NOT reach the wire (Infinity → JSON null → the web's
+    // PlanResult.parse rejects the whole plan → "no result").
+    const nullLegMatrix: Routing.Matrix = {
+      ...matrix,
+      legs: matrix.legs.map((row, i) =>
+        row.map((cell, j) => {
+          if ((i === 1 && j === 2) || (i === 2 && j === 1)) return null;
+          return cell;
+        }),
+      ),
+    };
+    (
+      routingService.getMatrix as ReturnType<typeof vi.fn>
+    ).mockResolvedValueOnce(nullLegMatrix);
+    const res = await planner.planLoop(ownerId, input);
+    // The result must round-trip through JSON + the wire schema unscathed.
+    const wire = JSON.parse(JSON.stringify(res));
+    expect(() => ToursSchema.PlanResult.parse(wire)).not.toThrow();
+    expect(Number.isFinite(res.scoreBreakdown.marginalTrimSavedMeters)).toBe(
+      true,
+    );
+    for (const d of res.droppedCaches) {
+      if (d.neededBudgetMeters !== undefined) {
+        expect(Number.isFinite(d.neededBudgetMeters)).toBe(true);
+      }
+    }
+  });
+
+  it("classifies a solver-omitted unrouteable cache as `unreachable`", async () => {
+    // 103 has no finite matrix neighbour (null to/from everyone), but 101↔102
+    // keep the loop viable. The solver omits 103 → reason `unreachable`.
+    const brokenMatrix: Routing.Matrix = {
+      ...matrix,
+      legs: matrix.legs.map((row, i) =>
+        row.map((cell, j) => (i === 2 || j === 2 ? null : cell)),
+      ),
+    };
+    (
+      routingService.getMatrix as ReturnType<typeof vi.fn>
+    ).mockResolvedValueOnce(brokenMatrix);
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, input);
+    expect(res.droppedCaches).toContainEqual({
+      id: 103,
+      reason: "unreachable",
+    });
   });
 
   it("posts the matrix with null cells preserved for unreachable pairs", async () => {

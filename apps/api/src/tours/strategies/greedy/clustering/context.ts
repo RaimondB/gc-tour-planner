@@ -141,16 +141,27 @@ export async function prepareClusteringContext(
   });
   if (caches.length < 2) return null;
 
+  // Adventure-Lab participation in cluster forming is a user choice. Default
+  // keeps them (collapsed below); when the user opts out, drop every AL stage
+  // from the candidate pool so clusters form from ordinary caches only — the
+  // user plans adventures deliberately via the manual-cluster editor or the
+  // nearby-AL pull-in instead.
+  const pooledCaches = input.includeAdventuresInClustering
+    ? caches
+    : caches.filter((c) => c.type !== "Adventure Lab");
+  if (pooledCaches.length < 2) return null;
+
   // Collapse each Adventure Lab's stages into one representative node (FR-I17)
   // BEFORE the pool cap and the walking graph, so an adventure counts as a
   // single place rather than 5-10 near-co-located caches that would otherwise
   // form their own dense micro-cluster. The chosen cluster's ids are expanded
-  // back to every stage in `computeClusters`. No-op when no AL is in the pool.
+  // back to every stage in `computeClusters`. No-op when no AL is in the pool
+  // (which includes the AL-excluded case above).
   const { collapsed, expansion: adventureExpansion } =
-    collapseAdventures(caches);
-  if (collapsed.length < caches.length) {
+    collapseAdventures(pooledCaches);
+  if (collapsed.length < pooledCaches.length) {
     deps.logger.debug(
-      `adventure collapse: ${caches.length - collapsed.length} AL stage(s) → ${adventureExpansion.size} adventure node(s)`,
+      `adventure collapse: ${pooledCaches.length - collapsed.length} AL stage(s) → ${adventureExpansion.size} adventure node(s)`,
     );
   }
   if (stats) {

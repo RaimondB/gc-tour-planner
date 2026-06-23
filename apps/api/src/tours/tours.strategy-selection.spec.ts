@@ -3,9 +3,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { ServiceUnavailableException } from "@nestjs/common";
-import type { Caches, Tours } from "@gctp/shared";
+import type { Caches, Routing, Tours } from "@gctp/shared";
 import type { ConfigService } from "@nestjs/config";
 import type { CachesRepository } from "../caches/caches.repository.js";
+import type { RoutingService } from "../routing/routing.service.js";
 import { ToursService } from "./tours.service.js";
 
 /** Minimal CacheDTO-ish stub — only the fields planLoop selection reads. */
@@ -23,15 +24,37 @@ const PLAN: Tours.PlanResult = {
 } as unknown as Tours.PlanResult;
 
 /**
- * Per-request planner selection (FR-I16): the solver routes only when the
- * candidate set contains an Adventure Lab; a solver outage falls back to greedy
- * so an AL plan still returns. `TOUR_PLANNER` (auto|greedy|solver) overrides.
+ * Fully-connected (or custom) walking matrix over the requested ids. Default
+ * 100 m everywhere → every adventure passes the cohesion gate, so the existing
+ * strategy-selection assertions are unaffected. A test can pass `unreachableIds`
+ * to strand specific stages (no edge to anything).
  */
+function makeMatrix(
+  ids: readonly number[],
+  unreachable: ReadonlySet<number>,
+): Routing.Matrix {
+  const list = [...ids];
+  return {
+    profile: "foot",
+    cacheIds: list,
+    legs: list.map((a) =>
+      list.map((b) =>
+        a === b
+          ? { meters: 0, seconds: 0 }
+          : unreachable.has(a) || unreachable.has(b)
+            ? null
+            : { meters: 100, seconds: 100 },
+      ),
+    ),
+  };
+}
+
 function makeService(opts: {
   mode?: string;
   rows: Caches.CacheDTO[];
   stages?: Caches.CacheDTO[];
   solverThrows?: unknown;
+  unreachableIds?: number[];
 }) {
   const greedy = {
     planLoop: vi.fn().mockResolvedValue(PLAN),
@@ -48,6 +71,14 @@ function makeService(opts: {
     findByIds: vi.fn().mockResolvedValue(opts.rows),
     findAdventureStages: vi.fn().mockResolvedValue(opts.stages ?? []),
   } as unknown as CachesRepository;
+  const unreachable = new Set(opts.unreachableIds ?? []);
+  const routing = {
+    getMatrix: vi
+      .fn()
+      .mockImplementation(async (_ownerId: string, ids: number[]) =>
+        makeMatrix(ids, unreachable),
+      ),
+  } as unknown as RoutingService;
 
   const svc = new ToursService(
     null as never, // planner (legacy single binding, unused by planLoop)
@@ -57,7 +88,7 @@ function makeService(opts: {
     null as never, // caches (CachesService)
     cachesRepo,
     null as never, // cacheLanduse
-    null as never, // routing
+    routing,
     null as never, // routingRepo
     null as never, // osrm
     null as never, // osrmVersion
@@ -68,6 +99,8 @@ function makeService(opts: {
 
 const input: Tours.PlanLoopInput = {
   cacheIds: [1, 2],
+  maxLinkMeters: 1500,
+  completeAdventuresOnly: true,
 } as unknown as Tours.PlanLoopInput;
 
 describe("ToursService.planLoop — strategy selection", () => {
@@ -116,5 +149,81 @@ describe("ToursService.planLoop — strategy selection", () => {
     expect(solver.planLoop).toHaveBeenCalledOnce();
     expect(greedy.planLoop).toHaveBeenCalledOnce();
     expect(res).toBe(PLAN);
+  });
+
+  it("surfaces adventures skipped at the candidate cap as `candidate-cap` drops", async () => {
+    // 50 non-AL caches already fill the cap, so adventure A1's stages can't fit
+    // and are skipped whole — they must come back as candidate-cap drops.
+    const fillers = Array.from({ length: 50 }, (_, i) =>
+      cache(100 + i, "traditional"),
+    );
+    const { svc, solver } = makeService({
+      mode: "auto",
+      rows: [...fillers, cache(1, "Adventure Lab", "A1")],
+      stages: [
+        cache(1, "Adventure Lab", "A1"),
+        cache(2, "Adventure Lab", "A1"),
+      ],
+    });
+    const res = await svc.planLoop(ownerId, input);
+    expect(solver.planLoop).toHaveBeenCalledOnce();
+    expect(res.droppedCaches).toEqual(
+      expect.arrayContaining([
+        { id: 1, reason: "candidate-cap" },
+        { id: 2, reason: "candidate-cap" },
+      ]),
+    );
+    expect(res.droppedCacheIds).toEqual(expect.arrayContaining([1, 2]));
+  });
+
+  it("excludes a non-cohesive touched adventure as `unreachable` (atomic)", async () => {
+    // Adventure A1's straggler stage 3 doesn't connect to the cluster's walking
+    // graph → the whole adventure (incl. the selected stage 1) is excluded.
+    const { svc } = makeService({
+      mode: "auto",
+      rows: [
+        cache(1, "Adventure Lab", "A1"),
+        cache(2, "traditional"),
+        cache(4, "traditional"),
+      ],
+      stages: [
+        cache(1, "Adventure Lab", "A1"),
+        cache(3, "Adventure Lab", "A1"),
+      ],
+      unreachableIds: [3],
+    });
+    const res = await svc.planLoop(ownerId, input);
+    expect(res.droppedCaches).toEqual(
+      expect.arrayContaining([
+        { id: 1, reason: "unreachable" },
+        { id: 3, reason: "unreachable" },
+      ]),
+    );
+  });
+
+  it("keeps the selected stage when completeAdventuresOnly is off", async () => {
+    const { svc, solver } = makeService({
+      mode: "auto",
+      rows: [cache(1, "Adventure Lab", "A1"), cache(2, "traditional")],
+      stages: [
+        cache(1, "Adventure Lab", "A1"),
+        cache(3, "Adventure Lab", "A1"),
+      ],
+      unreachableIds: [3],
+    });
+    const nonAtomic = {
+      ...input,
+      completeAdventuresOnly: false,
+    } as unknown as Tours.PlanLoopInput;
+    const res = await svc.planLoop(ownerId, nonAtomic);
+    // The selected stage 1 stays in the plan; nothing is dropped as unreachable.
+    expect(solver.planLoop).toHaveBeenCalledWith(
+      ownerId,
+      expect.objectContaining({ cacheIds: expect.arrayContaining([1]) }),
+    );
+    expect(res.droppedCaches ?? []).not.toContainEqual({
+      id: 1,
+      reason: "unreachable",
+    });
   });
 });

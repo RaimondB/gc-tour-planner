@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Module } from "@nestjs/common";
+import { AuthModule } from "../../auth/auth.module.js";
+import { CachesModule } from "../../caches/caches.module.js";
 import { GpxModule } from "../../gpx/gpx.module.js";
 import {
   ADVENTURE_LAB_CONFIG,
@@ -16,7 +18,7 @@ import { AdventureLabEnricher } from "./al-enricher.service.js";
  * enqueueing).
  */
 @Module({
-  imports: [GpxModule],
+  imports: [GpxModule, CachesModule, AuthModule],
   providers: [adventureLabConfigProvider, AdventureLabEnricher],
   exports: [AdventureLabEnricher, ADVENTURE_LAB_CONFIG],
 })

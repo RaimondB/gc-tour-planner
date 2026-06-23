@@ -237,6 +237,39 @@ describe("trimMarginalCaches", () => {
       // so at least one cache must be dropped to fit.
       expect(out.droppedIds.length).toBeGreaterThan(0);
     });
+
+    it("tags over-budget drops `budget` and within-budget outliers `outlier`", async () => {
+      // Over budget (3 km < 4.1 km loop): cut to fit → reason `budget`.
+      const overBudget = await trimMarginalCaches({
+        orderedIds: ids,
+        originalIds: ids,
+        distances: d,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 3000,
+        outlierThresholdMeters: 4000,
+      });
+      const bDrop = overBudget.drops.find((x) => x.id === 12);
+      expect(bDrop?.reason).toBe("budget");
+      expect(bDrop?.marginalMeters).toBeGreaterThan(0);
+
+      // Within budget but past the outlier floor → reason `outlier`.
+      const outlier = await trimMarginalCaches({
+        orderedIds: ids,
+        originalIds: ids,
+        distances: d,
+        thresholdMeters: 500,
+        minRemaining: 2,
+        budgetMeters: 10_000,
+        outlierThresholdMeters: 1000,
+      });
+      const oDrop = outlier.drops.find((x) => x.id === 12);
+      expect(oDrop?.reason).toBe("outlier");
+      expect(oDrop?.marginalMeters).toBeGreaterThan(0);
+
+      // `drops` stays parallel to `droppedIds`.
+      expect(overBudget.drops.map((x) => x.id)).toEqual(overBudget.droppedIds);
+    });
   });
 
   it("returns input unchanged when thresholdMeters is 0 (disabled)", async () => {

@@ -43,6 +43,6 @@ import "./auth.types.js"; // side-effect: augments Express.Request.
     AuthService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
-  exports: [AUTH_CONFIG, SessionService],
+  exports: [AUTH_CONFIG, SessionService, UsersRepository],
 })
 export class AuthModule {}

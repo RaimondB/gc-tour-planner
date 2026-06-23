@@ -154,6 +154,32 @@ export class AuthController {
     return user;
   }
 
+  @Get("profile")
+  @ApiOperation({ summary: "The signed-in user's editable profile settings" })
+  @ApiResponse({ status: 200, description: "The current profile settings." })
+  @ApiResponse({ status: 401, description: "Not authenticated." })
+  async getProfile(
+    @CurrentUser() user: AuthUser,
+  ): Promise<Auth.ProfileResponse> {
+    return this.auth.getProfile(user.id);
+  }
+
+  @Post("profile")
+  @ApiOperation({
+    summary: "Update the signed-in user's profile (Geocaching account GUID)",
+  })
+  @ApiResponse({ status: 201, description: "Updated profile settings." })
+  @ApiResponse({ status: 400, description: "Invalid input." })
+  @ApiResponse({ status: 401, description: "Not authenticated." })
+  async updateProfile(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ): Promise<Auth.ProfileResponse> {
+    const parsed = Auth.UpdateProfileInput.safeParse(req.body);
+    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    return this.auth.updateProfile(user.id, parsed.data);
+  }
+
   @Get("google")
   @Public()
   @ApiOperation({ summary: "Begin Google OAuth (redirects to Google)" })

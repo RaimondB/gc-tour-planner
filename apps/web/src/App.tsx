@@ -43,6 +43,7 @@ import {
   useLocalStorageState,
 } from "./lib/persistent-state.js";
 import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
@@ -159,6 +160,7 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     maxLinkMeters: s.maxLinkMeters,
     distanceBudgetMeters: s.distanceBudgetMeters,
     clusteringStrategy: s.clusteringStrategy,
+    includeAdventuresInClustering: s.includeAdventuresInClustering,
     topNClusters: s.topNClusters,
     landuseWeight: s.landuseWeight,
     landuseProfileId: s.landuseProfileId ?? null,
@@ -207,6 +209,11 @@ export default function App(): JSX.Element {
   );
   const [chosenClusterId, setChosenClusterId] = useState<string | null>(null);
   const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  // "Already covered the search circle for this …" guards (coverSearchCircle),
+  // so a cover runs once per opened tour / selected cluster — not on every
+  // re-render. Reset to re-cover (e.g. after an AL pull-in grows the cluster).
+  const coveredTourRef = useRef<string | null>(null);
+  const coveredClusterRef = useRef<string | null>(null);
   // Discover-input key captured when clusters were discovered. Compared against
   // the live inputs to light up the "Re-discover" stale guard.
   const [discoveredInputKey, setDiscoveredInputKey] = useState<string | null>(
@@ -351,15 +358,23 @@ export default function App(): JSX.Element {
   const cancelViaDrag = useCallback(() => setViaDrag(null), []);
 
   // ── Plan-loop mutation ───────────────────────────────────────────────
+  // Plans an arbitrary id set, so the same path serves a discovered cluster and
+  // a hand-built / edited selection. Manual sets use the synthetic id "manual".
   const planMutation = useMutation({
-    mutationFn: async (cluster: ClusterCandidate) => {
-      setChosenClusterId(cluster.clusterId);
+    mutationFn: async ({
+      clusterId,
+      cacheIds,
+    }: {
+      clusterId: string;
+      cacheIds: readonly number[];
+    }) => {
+      setChosenClusterId(clusterId);
       pendingPlanKeyRef.current = planLoopSettingsKey(
         planSettings,
         pickedStart,
       );
       return planLoop({
-        cacheIds: cluster.cacheIds,
+        cacheIds: [...cacheIds],
         distanceBudgetMeters: planSettings.distanceBudgetMeters,
         timePerCacheMinutes: planSettings.timePerCacheMinutes,
         alStageVisitMinutes: planSettings.alStageVisitMinutes,
@@ -387,9 +402,27 @@ export default function App(): JSX.Element {
   const planCluster = useCallback(
     (cluster: ClusterCandidate) => {
       if (!online) return;
-      planMutation.mutate(cluster);
+      planMutation.mutate({
+        clusterId: cluster.clusterId,
+        cacheIds: cluster.cacheIds,
+      });
     },
     [online, planMutation],
+  );
+  /** Plan the current hand-built / edited selection (FR — manual clusters). */
+  const planSelection = useCallback(() => {
+    if (!online || selectedCacheIds.size < 2) return;
+    planMutation.mutate({
+      clusterId: "manual",
+      cacheIds: [...selectedCacheIds],
+    });
+  }, [online, planMutation, selectedCacheIds]);
+  /** Seed the editable selection from a discovered cluster (leaves it untouched). */
+  const editClusterSelection = useCallback(
+    (cluster: ClusterCandidate) => {
+      setSelectedCacheIds(new Set(cluster.cacheIds));
+    },
+    [setSelectedCacheIds],
   );
 
   // FR-I15: pull nearby Adventure Lab stages into the chosen cluster. The server
@@ -398,7 +431,10 @@ export default function App(): JSX.Element {
   // new stages render on the map before the user plans.
   const augmentMutation = useMutation({
     mutationFn: async (cluster: ClusterCandidate) =>
-      augmentClusterLabs({ cacheIds: [...cluster.cacheIds] }),
+      augmentClusterLabs({
+        cacheIds: [...cluster.cacheIds],
+        maxLinkMeters: planSettings.maxLinkMeters,
+      }),
     onSuccess: (res, cluster) => {
       setClusters((prev) =>
         prev
@@ -410,6 +446,9 @@ export default function App(): JSX.Element {
           : prev,
       );
       void queryClient.invalidateQueries({ queryKey: ["caches"] });
+      // The cluster grew (pulled-in AL stages) → re-cover so the search circle
+      // expands to include them once their coords load.
+      coveredClusterRef.current = null;
     },
   });
 
@@ -482,13 +521,19 @@ export default function App(): JSX.Element {
   }, [openedDetail, online, markPreviewCaptured, queryClient]);
 
   // A fresh search (center/radius change) is a new exploration → leave the
-  // opened tour. Opening a tour fits the map via fitBounds (not setParams), so
-  // this never fires on open. Skip the mount run so a resumed tour survives the
-  // initial render (params are restored from localStorage on mount).
+  // opened tour. Skip the mount run so a resumed tour survives the initial
+  // render (params are restored from localStorage on mount). A *programmatic*
+  // circle change (coverSearchCircle — framing the opened tour / focused
+  // cluster) is NOT a new exploration, so it's ignored via the ref flag.
+  const programmaticSearchRef = useRef(false);
   const searchChangeMountRef = useRef(true);
   useEffect(() => {
     if (searchChangeMountRef.current) {
       searchChangeMountRef.current = false;
+      return;
+    }
+    if (programmaticSearchRef.current) {
+      programmaticSearchRef.current = false;
       return;
     }
     closeTour();
@@ -535,6 +580,8 @@ export default function App(): JSX.Element {
         },
         startPreference: planSettings.startPreference,
         clusteringStrategy: planSettings.clusteringStrategy,
+        includeAdventuresInClustering:
+          planSettings.includeAdventuresInClustering,
         topNClusters: planSettings.topNClusters,
         // Cluster discovery (Pass 1) doesn't use the start point — it's a
         // Pass-2 parking concern — so we no longer send it here. The map-picked
@@ -574,6 +621,25 @@ export default function App(): JSX.Element {
     }
     return [];
   }, [planResult, focusedClusterId, clusters]);
+
+  // Per-cache drop reasons for the current plan, keyed by id — threaded into
+  // the cache popup so a dropped cache shows "why" alongside its details.
+  const droppedById = useMemo(
+    () =>
+      new Map((planResult?.droppedCaches ?? []).map((d) => [d.id, d] as const)),
+    [planResult],
+  );
+
+  // Cache ids OWNED by the active tour (routed stops + dropped candidates).
+  // CachesLayer hides their markers so TourLayer is the single authority for how
+  // a routed/dropped cache renders (ADR-0035 — no double-draw or S{n}-over-order).
+  const tourOwnedIds = useMemo<ReadonlySet<number>>(() => {
+    if (!planResult) return new Set();
+    return new Set<number>([
+      ...planResult.orderedCacheIds,
+      ...planResult.droppedCaches.map((d) => d.id),
+    ]);
+  }, [planResult]);
 
   // Canonical caches-query input (server-relevant params only).
   const cacheQueryInput = useMemo<ListCachesParams>(
@@ -697,6 +763,44 @@ export default function App(): JSX.Element {
     [mapBottomInset],
   );
 
+  // Grow / recenter the search circle so it always covers the active context (a
+  // focused cluster, added AL stages, or an opened saved tour). The circle bounds
+  // the caches query + the visible RadiusLayer, so without this those caches
+  // wouldn't load and the circle wouldn't enclose them ("weird behavior").
+  // Marks the change programmatic (don't close the tour) and re-stamps the
+  // discovered-input key (don't flag the existing clusters stale).
+  const coverSearchCircle = useCallback(
+    (
+      coords: ReadonlyArray<readonly [number, number]>,
+      opts: { recenter: boolean },
+    ) => {
+      const next = coverCircle(
+        coords,
+        { center: params.center, radiusM: params.radiusM },
+        opts,
+      );
+      if (!next) return; // already covered → no state churn
+      programmaticSearchRef.current = true;
+      setParams((prev) => ({
+        ...prev,
+        center: next.center,
+        radiusM: next.radiusM,
+      }));
+      // Keep already-discovered clusters valid: this is an auto-frame, not a new
+      // search, so re-stamp the key the stale guard compares against.
+      setDiscoveredInputKey((prev) =>
+        prev === null
+          ? prev
+          : discoverInputKey(
+              { ...params, center: next.center, radiusM: next.radiusM },
+              planSettings,
+            ),
+      );
+      fitToCoordinates(coords);
+    },
+    [params, planSettings, setParams, fitToCoordinates],
+  );
+
   // Union the radius-bounded set with the boundary halo so every cluster member
   // resolves to a marker / coordinate (camera-fit, preview, carousel, export,
   // GPX). Halo is only present once clusters are discovered; before that this is
@@ -709,6 +813,44 @@ export default function App(): JSX.Element {
       ),
     [cachesQuery.data, haloCachesQuery.data, tourCaches],
   );
+
+  // Cover the opened saved tour with the search circle (recenter): its caches
+  // load and the circle frames it, instead of the circle staying at the old
+  // search area (the "weird behavior" on open). Once per opened tour;
+  // coverSearchCircle marks it programmatic so the tour isn't auto-closed.
+  useEffect(() => {
+    if (!openedPlan || !openTourId) {
+      coveredTourRef.current = null;
+      return;
+    }
+    if (coveredTourRef.current === openTourId) return;
+    coveredTourRef.current = openTourId;
+    coverSearchCircle(
+      openedPlan.polyline.coordinates as ReadonlyArray<[number, number]>,
+      { recenter: true },
+    );
+  }, [openTourId, openedPlan, coverSearchCircle]);
+
+  // Grow the search circle to cover the SELECTED cluster (incl. AL stages pulled
+  // in via "Add nearby Adventure Labs") so edge members beyond the original
+  // radius load and the circle encloses them. Keyed on the chosen cluster — NOT
+  // hover (focusedClusterId also changes on hover). Waits for the members'
+  // coords (halo query) before acting.
+  useEffect(() => {
+    if (!chosenClusterId || !clusters || !caches) return;
+    if (coveredClusterRef.current === chosenClusterId) return;
+    const target = clusters.find((c) => c.clusterId === chosenClusterId);
+    if (!target) return;
+    const byId = new Map(caches.map((c) => [c.id, c]));
+    const coords: [number, number][] = [];
+    for (const id of target.cacheIds) {
+      const c = byId.get(id);
+      if (c) coords.push(c.location.coordinates as [number, number]);
+    }
+    if (coords.length === 0) return; // members not loaded yet — retry on update
+    coveredClusterRef.current = chosenClusterId;
+    coverSearchCircle(coords, { recenter: false });
+  }, [chosenClusterId, clusters, caches, coverSearchCircle]);
 
   // Explicit "frame this cluster" — the ONLY place a cluster tap moves the
   // camera. Sets emphasis + picks it as the Tour context. Hover does NOT
@@ -995,8 +1137,76 @@ export default function App(): JSX.Element {
     }
     if (activeStep === "clusters") {
       const hasClusters = clusters !== null && clusters.length > 0;
+      const selectedIds = [...selectedCacheIds];
       return (
         <div className="step-peek step-peek--stack">
+          {selectedCacheIds.size > 0 && (
+            <div className="selected-set">
+              <div className="selected-set__head">
+                <strong>Selected set</strong> · {selectedCacheIds.size} cache
+                {selectedCacheIds.size === 1 ? "" : "s"}
+              </div>
+              <ul className="selected-set__list">
+                {selectedIds.slice(0, 8).map((id) => {
+                  const c = caches?.find((x) => x.id === id);
+                  return (
+                    <li key={id}>
+                      <span>{c ? `${c.code} · ${c.name}` : `#${id}`}</span>
+                      <button
+                        type="button"
+                        className="selected-set__remove"
+                        title="Remove from selection"
+                        onClick={() => {
+                          const next = new Set(selectedCacheIds);
+                          next.delete(id);
+                          setSelectedCacheIds(next);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
+                {selectedCacheIds.size > 8 && (
+                  <li className="muted">+{selectedCacheIds.size - 8} more…</li>
+                )}
+              </ul>
+              <div className="selected-set__actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={planSelection}
+                  disabled={
+                    selectedCacheIds.size < 2 ||
+                    planMutation.isPending ||
+                    needsPickedStart ||
+                    !online
+                  }
+                  title={
+                    !online
+                      ? OFFLINE_REASON
+                      : selectedCacheIds.size < 2
+                        ? "Select at least 2 caches"
+                        : undefined
+                  }
+                >
+                  {planMutation.isPending
+                    ? "Planning…"
+                    : `Plan this set (${selectedCacheIds.size})`}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setSelectedCacheIds(new Set())}
+                >
+                  Clear
+                </button>
+              </div>
+              <span className="muted selected-set__hint">
+                Shift-click caches on the map to add or remove.
+              </span>
+            </div>
+          )}
           {clustersStale && (
             <div className="stale-banner">
               Search area changed — clusters may be out of date.
@@ -1064,6 +1274,23 @@ export default function App(): JSX.Element {
                     {augmentMutation.isPending
                       ? "Finding Adventure Labs…"
                       : "Add nearby Adventure Labs"}
+                  </button>
+                  {augmentMutation.data && !augmentMutation.isPending && (
+                    <span className="muted">
+                      {augmentMutation.data.added > 0
+                        ? `Added ${augmentMutation.data.added} stage${augmentMutation.data.added === 1 ? "" : "s"}.`
+                        : "No nearby labs added."}
+                      {augmentMutation.data.skipped > 0 &&
+                        ` ${augmentMutation.data.skipped} nearby adventure${augmentMutation.data.skipped === 1 ? "" : "s"} didn't connect to this cluster.`}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => editClusterSelection(chosenCluster)}
+                    title="Copy this cluster into an editable selection — shift-click the map to add/remove, then plan it"
+                  >
+                    Edit this cluster by hand
                   </button>
                 </>
               ) : (
@@ -1524,14 +1751,18 @@ export default function App(): JSX.Element {
               queryInput={debouncedCacheInput}
               extraCaches={tourCaches ?? undefined}
               selectedCacheIds={selectedCacheIds}
+              tourOwnedIds={tourOwnedIds}
               onSelectionChange={setSelectedCacheIds}
               onParkingSelect={setSelectedParking}
               online={online}
+              droppedById={droppedById}
             />
             <ClustersPreviewLayer
               candidates={clusters}
               caches={caches}
               focusedClusterId={focusedClusterId}
+              chosenClusterId={chosenClusterId}
+              deEmphasized={planResult !== null}
               onCentroidClick={frameClusterById}
               onCentroidHover={setFocusedClusterId}
             />

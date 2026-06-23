@@ -24,6 +24,7 @@ import {
   prepareClusteringContext,
   resolveClusteringStrategy,
 } from "./clustering/index.js";
+import { largestConnectedComponent } from "../../adventure-cohesion.js";
 import { haversineMeters } from "./equirectangular.js";
 import { collapseColocated } from "./colocate.js";
 import { expandColocatedRoute } from "./expand-colocated.js";
@@ -213,8 +214,11 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const byId = new Map(cacheRows.map((c) => [c.id, c]));
 
     const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
-    const { connectedIds: connectedIdsRaw, distances: distancesRaw } =
-      filterConnected(ids, matrix);
+    const {
+      connectedIds: connectedIdsRaw,
+      distances: distancesRaw,
+      unreachableIds,
+    } = filterConnected(ids, matrix, input.maxLinkMeters);
     if (connectedIdsRaw.length < 2) {
       throw new NotFoundException(
         "Selected caches are not mutually reachable on foot — pick a different cluster.",
@@ -328,10 +332,10 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       solve: (d, s) => this.computePool.solveTwoOpt(d, s),
     });
     const orderedIds = trim.orderedIds;
-    const droppedCacheIds = trim.droppedIds;
-    if (droppedCacheIds.length > 0) {
+    const marginalDrops = trim.drops;
+    if (trim.droppedIds.length > 0) {
       this.logger.debug(
-        `marginal trim: dropped ${droppedCacheIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${droppedCacheIds.join(", ")}]`,
+        `marginal trim: dropped ${trim.droppedIds.length} cache(s) (~${Math.round(trim.savedMeters)} m saved, threshold=${Math.round(trimThreshold)} m): [${trim.droppedIds.join(", ")}]`,
       );
     }
 
@@ -399,7 +403,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     let parkingToFirst!: LegWithAlternatives;
     let interCacheLegs!: LegWithAlternatives[];
     let lastToParking!: LegWithAlternatives;
-    const postTrimDropped: number[] = [];
+    const postTrimDropped: { id: number; redundantMeters: number }[] = [];
 
     for (let trimIter = 0; trimIter <= POST_TRIM_MAX_ITERS; trimIter += 1) {
       // Rebuild legs from scratch every iteration — the overlap grid
@@ -563,7 +567,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
           worstMarginal,
         )}m of overlap between leg-in/leg-out > fringeTrimMeters ${input.fringeTrimMeters}m); rebuilding legs`,
       );
-      postTrimDropped.push(worstId);
+      postTrimDropped.push({ id: worstId, redundantMeters: worstRedundant });
       const survivingIds = currentOrderedIds.filter((id) => id !== worstId);
       const survivingIdxs = survivingIds
         .map((id) => connectedIdToIdx.get(id))
@@ -604,10 +608,33 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       { parkingToFirst, interCacheLegs, lastToParking },
     );
 
-    // A dropped representative drops all of its members.
-    const droppedExpanded = [...droppedCacheIds, ...postTrimDropped].flatMap(
-      (id) => membersOf(id),
-    );
+    // Structured drop reasons (PlanResult.droppedCaches). A dropped
+    // representative drops all of its members, each inheriting the rep's reason.
+    // Unreachable caches were filtered out before collapse, so they're already
+    // individual ids (membersOf falls back to [id]).
+    const droppedCaches: Tours.DroppedCache[] = [
+      ...unreachableIds.map((id) => ({ id, reason: "unreachable" as const })),
+      ...marginalDrops.flatMap((d) =>
+        membersOf(d.id).map((id) => ({
+          id,
+          reason: d.reason,
+          // Null-leg drops carry an infinite marginal — omit the hint rather
+          // than emit Infinity (→ JSON null → fails PlanResult.parse).
+          ...(Number.isFinite(d.marginalMeters)
+            ? { neededBudgetMeters: round2(d.marginalMeters) }
+            : {}),
+        })),
+      ),
+      ...postTrimDropped.flatMap((d) =>
+        membersOf(d.id).map((id) => ({
+          id,
+          reason: "fringe" as const,
+          neededBudgetMeters: round2(d.redundantMeters),
+        })),
+      ),
+    ];
+    // Flat id list stays in lock-step with the structured list.
+    const droppedExpanded = droppedCaches.map((d) => d.id);
 
     const polyline = concatLineStrings(allLegs.map((l) => l.geometry));
     const meters = sum(allLegs.map((l) => l.meters));
@@ -657,6 +684,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     return {
       orderedCacheIds: orderedIdsFinal,
       droppedCacheIds: droppedExpanded,
+      droppedCaches,
       polyline,
       totals: {
         meters: round2(meters),
@@ -669,7 +697,9 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
         parkingDetourMeters: round2(parkingDetourMeters),
         budgetSlackMeters: round2(input.distanceBudgetMeters - meters),
         marginalTrimDroppedCount: droppedExpanded.length,
-        marginalTrimSavedMeters: round2(trim.savedMeters),
+        marginalTrimSavedMeters: Number.isFinite(trim.savedMeters)
+          ? round2(trim.savedMeters)
+          : 0,
       },
       legs,
     };
@@ -1167,24 +1197,44 @@ function nearestCacheIndexTo(
   return bestI;
 }
 
+/**
+ * Reduce the candidate set to its **largest walk-connected component** (edges
+ * capped at `maxLinkMeters`, the same linking cap as Pass-1's walking graph).
+ * A disconnected minority — fully-isolated nodes OR a smaller cross-barrier
+ * group — is dropped and surfaced as `unreachable` (FR-T13). Keeping both sides
+ * of a barrier would force a `null` leg into the loop and trigger a runaway
+ * over-trim (the solver-path failure that motivated this); discovered clusters
+ * are already one maxLink-component, so this is a no-op for them and only bites
+ * manual / edited cross-barrier selections (#3, FR-T14).
+ */
 function filterConnected(
   ids: readonly number[],
   matrix: Routing.Matrix,
-): { connectedIds: number[]; distances: (number | null)[][] } {
-  const keep: number[] = [];
-  for (let i = 0; i < ids.length; i += 1) {
-    let reachable = 0;
-    for (let j = 0; j < ids.length; j += 1) {
-      if (i === j) continue;
-      if (matrix.legs[i]?.[j]) reachable += 1;
-    }
-    if (reachable > 0) keep.push(i);
-  }
-  const connectedIds = keep.map((i) => ids[i]!);
-  const distances = keep.map((i) =>
-    keep.map((j) => (i === j ? 0 : (matrix.legs[i]?.[j]?.meters ?? null))),
+  maxLinkMeters: number,
+): {
+  connectedIds: number[];
+  distances: (number | null)[][];
+  /** Ids not in the main walk-connected component — surfaced as `unreachable`. */
+  unreachableIds: number[];
+} {
+  const metersMatrix = matrix.legs.map((row) =>
+    row.map((cell) => (cell ? cell.meters : null)),
   );
-  return { connectedIds, distances };
+  const { keptIds, droppedIds } = largestConnectedComponent(
+    ids,
+    metersMatrix,
+    maxLinkMeters,
+  );
+  const idxOf = new Map(ids.map((id, i) => [id, i]));
+  const keepIdxs = keptIds.map((id) => idxOf.get(id)!);
+  const distances = keepIdxs.map((i) =>
+    keepIdxs.map((j) => (i === j ? 0 : (matrix.legs[i]?.[j]?.meters ?? null))),
+  );
+  return {
+    connectedIds: keptIds,
+    distances,
+    unreachableIds: droppedIds,
+  };
 }
 
 function concatLineStrings(

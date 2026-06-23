@@ -19,6 +19,10 @@ import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
 import { AdventureLabEnricher } from "../sources/adventure-lab/al-enricher.service.js";
 import { GREEDY_PLANNER, SOLVER_PLANNER } from "./planner.tokens.js";
+import {
+  partitionAdventuresByReachability,
+  type CandidateAdventure,
+} from "./adventure-cohesion.js";
 import { haversineMeters } from "./strategies/greedy/equirectangular.js";
 import { explainSelection } from "./strategies/greedy/clustering/explain.js";
 import {
@@ -120,35 +124,77 @@ export class ToursService {
 
     // Pull in any missing stages of adventures already in the selection so the
     // solver can keep them complete (FR-I16). Atomicity itself is enforced in the
-    // solver's constraints.
-    const cacheIds = await this.expandForCompleteAdventures(
+    // solver's constraints. Two pre-plan exclusions surface as drops: adventures
+    // that don't cohere with the cluster's walking graph (`unreachable`, FR-T13
+    // cohesion gate) and adventures that won't fit the candidate cap
+    // (`candidate-cap`) — rather than letting either vanish or drag the solver to
+    // a far stage.
+    const { cacheIds, preplanDrops } = await this.expandForCompleteAdventures(
       ownerId,
-      input.cacheIds,
+      input,
     );
     const solverInput: Tours.PlanLoopInput = { ...input, cacheIds };
+    let result: Tours.PlanResult;
     try {
-      return await this.solver.planLoop(ownerId, solverInput);
+      result = await this.solver.planLoop(ownerId, solverInput);
     } catch (err) {
       if (err instanceof ServiceUnavailableException) {
         this.logger.warn(
           `Solver unavailable (${err.message}); falling back to greedy for this plan.`,
         );
-        return this.greedy.planLoop(ownerId, solverInput);
+        result = await this.greedy.planLoop(ownerId, solverInput);
+      } else {
+        throw err;
       }
-      throw err;
     }
+    return this.withPreplanDrops(result, preplanDrops);
+  }
+
+  /**
+   * Append drops decided **before** the planner ran (adventures excluded for
+   * cohesion or the candidate cap) onto a plan result. Additive + back-compat: a
+   * result without `droppedCaches` still merges cleanly, and `droppedCacheIds` /
+   * `droppedCaches` stay in lock-step. Drops whose id the planner already
+   * reported are skipped (no duplicates).
+   */
+  private withPreplanDrops(
+    result: Tours.PlanResult,
+    preplanDrops: readonly Tours.DroppedCache[],
+  ): Tours.PlanResult {
+    if (preplanDrops.length === 0) return result;
+    const droppedCacheIds = result.droppedCacheIds ?? [];
+    const droppedCaches = result.droppedCaches ?? [];
+    const already = new Set(droppedCacheIds);
+    const fresh = preplanDrops.filter((d) => !already.has(d.id));
+    if (fresh.length === 0) return result;
+    return {
+      ...result,
+      droppedCacheIds: [...droppedCacheIds, ...fresh.map((d) => d.id)],
+      droppedCaches: [...droppedCaches, ...fresh],
+    };
   }
 
   /**
    * Expand a cluster's cache ids with the missing stages of any Adventure Lab it
-   * already touches, so the solver can complete adventures. Adventures are added
-   * **whole** (never split) up to the candidate cap; non-AL caches are always
-   * kept. Returns the original ids unchanged when no AL is present.
+   * already touches, so the solver can complete adventures. Each touched
+   * adventure is gated **whole-or-none** on two rules, in order:
+   *  1. **Cohesion** (FR-T13 / follow-up #1): every stage must connect to the
+   *     cluster's walking graph within `maxLinkMeters` (real OSRM distance, reusing
+   *     the `route_legs` cache via `getMatrix`). A spread adventure with a stage
+   *     across a barrier is excluded whole rather than dragging the solver to it.
+   *     When `completeAdventuresOnly` (the default) the excluded adventure's
+   *     stages — including the one already in the selection — surface as
+   *     `unreachable` drops; when atomicity is off we just skip the far stragglers
+   *     and keep whatever was already selected.
+   *  2. **Candidate cap**: a cohesive adventure that would overflow
+   *     `AUGMENT_MAX_CACHES` is skipped whole and surfaces as `candidate-cap`.
+   * Non-AL caches are always kept. Returns the ids unchanged when no AL is present.
    */
   private async expandForCompleteAdventures(
     ownerId: string,
-    cacheIds: readonly number[],
-  ): Promise<number[]> {
+    input: Tours.PlanLoopInput,
+  ): Promise<{ cacheIds: number[]; preplanDrops: Tours.DroppedCache[] }> {
+    const cacheIds = input.cacheIds;
     const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
     const adventureIds = [
       ...new Set(
@@ -157,7 +203,8 @@ export class ToursService {
           .filter((x): x is string => x != null && x.length > 0),
       ),
     ];
-    if (adventureIds.length === 0) return [...new Set(cacheIds)];
+    if (adventureIds.length === 0)
+      return { cacheIds: [...new Set(cacheIds)], preplanDrops: [] };
 
     const stages = await this.cachesRepo.findAdventureStages(
       ownerId,
@@ -171,24 +218,62 @@ export class ToursService {
       byAdventure.set(s.adventureId, arr);
     }
 
+    // Cohesion gate: which touched adventures connect to the cluster's walking
+    // graph within maxLinkMeters? One cache-aware matrix over cluster + stages.
+    const candidates: CandidateAdventure[] = [...byAdventure].map(
+      ([adventureId, stageIds]) => ({ adventureId, stageIds }),
+    );
+    const allStageIds = candidates.flatMap((c) => c.stageIds);
+    const matrix = await this.routing.getMatrix(
+      ownerId,
+      [...new Set([...cacheIds, ...allStageIds])],
+      PREFETCH_PROFILE,
+    );
+    const { rejected } = partitionAdventuresByReachability({
+      seedIds: cacheIds,
+      candidates,
+      matrix,
+      maxLinkMeters: input.maxLinkMeters,
+    });
+    const rejectedAdvIds = new Set(rejected.map((r) => r.adventureId));
+
+    const selectionSet = new Set<number>(cacheIds);
     // Non-AL caches from the original selection are always kept.
     const result = new Set<number>(
       rows.filter((r) => r.adventureId == null).map((r) => r.id),
     );
-    let dropped = 0;
-    for (const ids of byAdventure.values()) {
+    const preplanDrops: Tours.DroppedCache[] = [];
+    let cappedCount = 0;
+
+    for (const [advId, ids] of byAdventure) {
+      if (rejectedAdvIds.has(advId)) {
+        if (input.completeAdventuresOnly) {
+          // Atomic: exclude the whole adventure (incl. the selected stage) and
+          // tell the user why.
+          for (const id of ids)
+            preplanDrops.push({ id, reason: "unreachable" });
+        } else {
+          // Non-atomic: keep whatever was already in the selection; just don't
+          // drag the far stragglers in.
+          for (const id of ids) if (selectionSet.has(id)) result.add(id);
+        }
+        continue;
+      }
       if (result.size + ids.length > AUGMENT_MAX_CACHES) {
-        dropped += 1; // whole-or-none: skip an adventure that won't fit the cap
+        // whole-or-none: skip a cohesive adventure that won't fit the cap
+        cappedCount += ids.length;
+        for (const id of ids)
+          preplanDrops.push({ id, reason: "candidate-cap" });
         continue;
       }
       for (const id of ids) result.add(id);
     }
-    if (dropped > 0) {
+    if (rejectedAdvIds.size > 0 || cappedCount > 0) {
       this.logger.debug(
-        `expandForCompleteAdventures: candidate cap ${AUGMENT_MAX_CACHES} skipped ${dropped} whole adventure(s)`,
+        `expandForCompleteAdventures: excluded ${rejectedAdvIds.size} non-cohesive adventure(s) (maxLink=${input.maxLinkMeters} m) + ${cappedCount} stage(s) over cap ${AUGMENT_MAX_CACHES}`,
       );
     }
-    return [...result];
+    return { cacheIds: [...result], preplanDrops };
   }
 
   /**
@@ -205,10 +290,10 @@ export class ToursService {
     input: Tours.AugmentClusterInput,
   ): Promise<Tours.AugmentClusterResult> {
     const cacheIds = Array.from(new Set(input.cacheIds));
-    if (!this.adventureLab.enabled) return { cacheIds, added: 0 };
+    if (!this.adventureLab.enabled) return { cacheIds, added: 0, skipped: 0 };
 
     const rows = await this.cachesRepo.findByIds(ownerId, cacheIds);
-    if (rows.length === 0) return { cacheIds, added: 0 };
+    if (rows.length === 0) return { cacheIds, added: 0, skipped: 0 };
 
     const coords = rows.map((c) => c.location.coordinates as [number, number]);
     const centroid: [number, number] = [
@@ -237,21 +322,81 @@ export class ToursService {
       excludeFound: true,
     });
 
+    // Group the nearby labs (not already in the cluster) by adventure — the gate
+    // and the add are both whole-adventure (atomic), not per-stage.
     const have = new Set(cacheIds);
-    const labsByDistance = nearby
-      .filter((c) => !have.has(c.id))
-      .map((c) => ({
-        id: c.id,
-        d: haversineMeters(
-          centroid,
-          c.location.coordinates as [number, number],
-        ),
-      }))
-      .sort((a, b) => a.d - b.d);
+    const byAdventure = new Map<string, { id: number; d: number }[]>();
+    for (const c of nearby) {
+      if (have.has(c.id)) continue;
+      const key =
+        c.adventureId && c.adventureId.length > 0
+          ? c.adventureId
+          : `lab-${c.id}`;
+      const d = haversineMeters(
+        centroid,
+        c.location.coordinates as [number, number],
+      );
+      const arr = byAdventure.get(key) ?? [];
+      arr.push({ id: c.id, d });
+      byAdventure.set(key, arr);
+    }
+    if (byAdventure.size === 0) return { cacheIds, added: 0, skipped: 0 };
 
-    const room = Math.max(0, AUGMENT_MAX_CACHES - cacheIds.length);
-    const addedIds = labsByDistance.slice(0, room).map((l) => l.id);
-    return { cacheIds: [...cacheIds, ...addedIds], added: addedIds.length };
+    // Cohesion gate: only add adventures that connect to the cluster's walking
+    // graph within maxLinkMeters (real OSRM distance, cache-aware). A lab a short
+    // straight-line away but across a barrier is skipped, not added.
+    const candidates: CandidateAdventure[] = [...byAdventure].map(
+      ([adventureId, labs]) => ({
+        adventureId,
+        stageIds: labs.map((l) => l.id),
+      }),
+    );
+    const allStageIds = candidates.flatMap((c) => c.stageIds);
+    const matrix = await this.routing.getMatrix(
+      ownerId,
+      [...new Set([...cacheIds, ...allStageIds])],
+      PREFETCH_PROFILE,
+    );
+    const { rejected } = partitionAdventuresByReachability({
+      seedIds: cacheIds,
+      candidates,
+      matrix,
+      maxLinkMeters: input.maxLinkMeters,
+    });
+    const rejectedAdvIds = new Set(rejected.map((r) => r.adventureId));
+
+    // Accepted adventures, nearest-first (by each adventure's closest stage),
+    // added whole while they fit the loop cap.
+    const acceptedAdvs = [...byAdventure]
+      .filter(([advId]) => !rejectedAdvIds.has(advId))
+      .map(([, labs]) => ({
+        stageIds: labs.map((l) => l.id),
+        nearest: Math.min(...labs.map((l) => l.d)),
+      }))
+      .sort((a, b) => a.nearest - b.nearest);
+
+    const addedIds: number[] = [];
+    let skipped = rejectedAdvIds.size; // non-cohesive adventures
+    for (const adv of acceptedAdvs) {
+      if (
+        cacheIds.length + addedIds.length + adv.stageIds.length >
+        AUGMENT_MAX_CACHES
+      ) {
+        skipped += 1; // cohesive but doesn't fit the loop cap
+        continue;
+      }
+      addedIds.push(...adv.stageIds);
+    }
+    if (skipped > 0) {
+      this.logger.debug(
+        `augmentClusterWithLabs: added ${addedIds.length} stage(s); skipped ${skipped} adventure(s) (${rejectedAdvIds.size} non-cohesive @ maxLink=${input.maxLinkMeters} m)`,
+      );
+    }
+    return {
+      cacheIds: [...cacheIds, ...addedIds],
+      added: addedIds.length,
+      skipped,
+    };
   }
 
   /**

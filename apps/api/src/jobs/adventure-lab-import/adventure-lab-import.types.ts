@@ -35,7 +35,24 @@ export interface AdventureLabBackfillJobResult {
   stagesRemaining: number;
 }
 
-/** Both job shapes share the `adventure-lab-import` queue, dispatched by name. */
+/**
+ * Payload for a user-triggered area sync (FR-I19): refresh every Adventure Lab
+ * in the area + cross off completed stages. Same work as the admin import but
+ * user-scoped and progress-reported; `maxAdventures` uses the enricher default.
+ */
+export interface AdventureLabSyncJobData {
+  ownerId: string;
+  center: [number, number];
+  radiusM: number;
+}
+
+export interface AdventureLabSyncJobResult {
+  importedCaches: number;
+  crossedOff: number;
+}
+
+/** All job shapes share the `adventure-lab-import` queue, dispatched by name. */
 export type AdventureLabQueueData =
   | AdventureLabImportJobData
-  | AdventureLabBackfillJobData;
+  | AdventureLabBackfillJobData
+  | AdventureLabSyncJobData;

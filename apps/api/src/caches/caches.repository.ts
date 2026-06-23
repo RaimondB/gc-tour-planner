@@ -85,6 +85,8 @@ interface CacheRow {
   /** Adventure Lab stage position + total; null for non-AL caches. */
   stage_sequence: number | null;
   stage_total: number | null;
+  /** True for a linear AL stage; false random-order; null non-AL. */
+  adventure_sequential: boolean | null;
 }
 
 @Injectable()
@@ -175,6 +177,7 @@ export class CachesRepository {
         "c.adventure_id",
         "c.stage_sequence",
         "c.stage_total",
+        "c.adventure_sequential",
       ])
       .where("c.owner_id", "=", p.ownerId)
       .where(
@@ -298,6 +301,7 @@ export class CachesRepository {
         adventureId: r.adventure_id,
         stageSequence: r.stage_sequence,
         stageTotal: r.stage_total,
+        adventureSequential: r.adventure_sequential,
       };
     });
 
@@ -343,6 +347,34 @@ export class CachesRepository {
       .returning("cache_id")
       .execute();
     return rows.length > 0;
+  }
+
+  /**
+   * Idempotently mark the user's caches with the given `code`s as found
+   * (FR-I19 Adventure Lab completion cross-off). Owner-scoped — resolves codes
+   * to the caller's own cache rows only — and additive: it never removes a find
+   * (so a manual find is preserved). Returns the number of new finds inserted.
+   */
+  async markFoundByCodes(
+    userId: string,
+    codes: readonly string[],
+    source = "adventure-lab",
+  ): Promise<number> {
+    if (codes.length === 0) return 0;
+    const ids = await this.db
+      .selectFrom("caches")
+      .select("id")
+      .where("owner_id", "=", userId)
+      .where("code", "in", codes as string[])
+      .execute();
+    if (ids.length === 0) return 0;
+    const rows = await this.db
+      .insertInto("cache_finds")
+      .values(ids.map((r) => ({ cache_id: r.id, user_id: userId, source })))
+      .onConflict((oc) => oc.columns(["cache_id", "user_id"]).doNothing())
+      .returning("cache_id")
+      .execute();
+    return rows.length;
   }
 
   /**
@@ -487,6 +519,7 @@ export class CachesRepository {
         "c.adventure_id",
         "c.stage_sequence",
         "c.stage_total",
+        "c.adventure_sequential",
       ])
       .where("c.owner_id", "=", userId)
       .where("c.id", "in", ids as unknown as number[])
@@ -533,6 +566,7 @@ export class CachesRepository {
         adventureId: r.adventure_id,
         stageSequence: r.stage_sequence,
         stageTotal: r.stage_total,
+        adventureSequential: r.adventure_sequential,
       };
     });
   }

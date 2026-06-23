@@ -118,6 +118,28 @@ export class AuthService {
     await this.users.setPasswordHash(userId, newHash);
   }
 
+  /** The signed-in user's editable profile settings (FR-I19). */
+  async getProfile(userId: string): Promise<Auth.ProfileResponse> {
+    const row = await this.users.findById(userId);
+    if (!row) throw new UnauthorizedException("No authenticated user");
+    return { gcUserGuid: row.gcUserGuid };
+  }
+
+  /**
+   * Update the signed-in user's profile (FR-I19). Currently just the public
+   * Geocaching account GUID used for Adventure Lab completion. The input is
+   * already trimmed/normalised by the zod schema (empty → null).
+   */
+  async updateProfile(
+    userId: string,
+    input: Auth.UpdateProfileInput,
+  ): Promise<Auth.ProfileResponse> {
+    const row = await this.users.findById(userId);
+    if (!row) throw new UnauthorizedException("No authenticated user");
+    await this.users.setGcUserGuid(userId, input.gcUserGuid);
+    return { gcUserGuid: input.gcUserGuid };
+  }
+
   /**
    * Establish a session from a verified Google profile (ADR-0021 §5). Links to
    * an existing account by **verified** email, else creates an OAuth-only user

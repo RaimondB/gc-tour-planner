@@ -19,6 +19,9 @@ import com.gctp.solver.domain.Tour;
  *             at all (only when {@code completeAdventuresOnly})
  *   - HARD:   Adventure Lab contiguity — an adventure's stages stay consecutive
  *             (only when {@code !adventureInterleave})
+ *   - HARD:   Adventure Lab ordering — a *linear* adventure's stages appear in
+ *             ascending stageSequence order (foreign caches may interleave);
+ *             data-driven per cache, orthogonal to contiguity
  *   - MEDIUM: reward count of visited caches × {@code visitedCountWeight}
  *   - SOFT:   penalise total closed-loop metres × {@code loopLengthWeight}
  *
@@ -46,6 +49,7 @@ public class TourConstraintProvider implements ConstraintProvider {
             reachableLegs(factory),
             adventureAtomicity(factory),
             adventureContiguity(factory),
+            adventureOrdering(factory),
             visitedCount(factory),
             loopLength(factory)
         };
@@ -95,6 +99,13 @@ public class TourConstraintProvider implements ConstraintProvider {
                         && tour.contiguityGapPenalty() > 0L)
                 .penalizeLong(HardMediumSoftLongScore.ONE_HARD, Tour::contiguityGapPenalty)
                 .asConstraint("adventure contiguity");
+    }
+
+    public Constraint adventureOrdering(ConstraintFactory factory) {
+        return factory.forEach(Tour.class)
+                .filter(tour -> tour.orderingViolationPenalty() > 0L)
+                .penalizeLong(HardMediumSoftLongScore.ONE_HARD, Tour::orderingViolationPenalty)
+                .asConstraint("adventure ordering");
     }
 
     public Constraint visitedCount(ConstraintFactory factory) {

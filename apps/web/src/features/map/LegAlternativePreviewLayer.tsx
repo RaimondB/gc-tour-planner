@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import type maplibregl from "maplibre-gl";
 import type { PlanResult } from "@gctp/shared/tours";
+import { applyLayerOrder } from "./map-layers.js";
 import { useMap } from "./MapContext.js";
 
 const SOURCE_ID = "gctp-leg-alt-preview";
@@ -70,9 +71,9 @@ export function LegAlternativePreviewLayer({
         },
       });
     }
-    // Keep the preview above the tour line so it's always visible
-    // — moveLayer to top whenever we re-render.
-    if (map.getLayer(LINE_LAYER)) map.moveLayer(LINE_LAYER);
+    // Keep the preview above the tour line — the declarative registry
+    // (map-layers.ts) lists it among the top editing overlays.
+    applyLayerOrder(map);
   }, [map, ready, result, selectedLegIndex, previewAlternativeIndex]);
 
   return null;

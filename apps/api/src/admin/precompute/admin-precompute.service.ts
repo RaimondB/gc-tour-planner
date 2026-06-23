@@ -151,6 +151,59 @@ export class AdminPrecomputeService {
   }
 
   /**
+   * FR-I20: walking-precompute health for Adventure Lab stages — the "check".
+   * `missing` here means an AL stage with no `route_legs` yet (isolated in the
+   * walking graph), which is why it can't cluster/plan until backfilled.
+   */
+  async adventureLabWalkingStatus(): Promise<Admin.AdventureLabWalkingStatus> {
+    const osrmVersion = this.osrmVersion.getVersion();
+    const { counts, total } = await this.state.adventureLabWalkingSummary({
+      currentOsrmVersion: osrmVersion,
+      staleTtlDays: this.staleTtlDays(),
+    });
+    return { counts, total, osrmVersion };
+  }
+
+  /**
+   * FR-I20: enqueue walking precompute for every Adventure Lab stage whose legs
+   * aren't fresh (missing / stale / failed / …). Scoped to ALs so it doesn't
+   * re-warm the whole DB; grouped by owner + chunked like {@link retriggerStale}.
+   */
+  async backfillAdventureLabWalking(): Promise<Admin.RetriggerStaleResponse> {
+    const chunkSize = this.envInt(
+      "PRECOMPUTE_RETRIGGER_CHUNK",
+      DEFAULT_RETRIGGER_CHUNK,
+    );
+    const ids = await this.state.adventureLabWalkingIdsNeedingPrecompute({
+      currentOsrmVersion: this.osrmVersion.getVersion(),
+      staleTtlDays: this.staleTtlDays(),
+      limit: RETRIGGER_HARD_MAX,
+    });
+    const jobIds: string[] = [];
+    let totalEnqueued = 0;
+    if (ids.length > 0) {
+      const idsByOwner = await this.groupByOwner(ids);
+      for (const [ownerId, ownerIds] of idsByOwner) {
+        for (let i = 0; i < ownerIds.length; i += chunkSize) {
+          const slice = ownerIds.slice(i, i + chunkSize);
+          const job = await this.enqueue(
+            "walking",
+            ownerId,
+            slice,
+            "retrigger-stale",
+          );
+          jobIds.push(job);
+          totalEnqueued += slice.length;
+        }
+      }
+    }
+    this.logger.log(
+      `backfill-adventure-labs-walking: enqueued=${totalEnqueued} jobs=${jobIds.length}`,
+    );
+    return { enqueued: totalEnqueued, jobIds };
+  }
+
+  /**
    * Resolve each cache_id to its owner_id. Returns a map ownerId →
    * cacheIds. Caches without an owner (public-source) are silently
    * dropped; the precompute jobs are scoped to owned caches today.

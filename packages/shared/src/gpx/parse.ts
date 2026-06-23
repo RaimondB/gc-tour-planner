@@ -71,12 +71,17 @@ export function parseGpx(xml: string): ParsedGpx {
     if (gsCache) {
       const adventureId = extractAdventureId(textOrNull(wpt.url));
       const { stageSequence, stageTotal } = extractStageInfo(wpt);
+      // Lab2Gpx (fetched with a userGuid) stamps `<sym>Geocache Found</sym>` on
+      // each stage the user has completed — the per-stage ground truth for
+      // crossing off Adventure Lab progress (FR-I19). Completion is per stage,
+      // not in sequence, so the sym is authoritative (not a count inference).
+      const found = (sym ?? "").toLowerCase().includes("found");
       const cache = toParsedCache(
         name,
         lat,
         lon,
         gsCache,
-        { adventureId, stageSequence, stageTotal },
+        { adventureId, stageSequence, stageTotal, found },
         warnings,
       );
       if (cache) caches.push(cache);
@@ -254,6 +259,7 @@ function toParsedCache(
     adventureId: string | null;
     stageSequence: number | null;
     stageTotal: number | null;
+    found: boolean;
   },
   warnings: string[],
 ): ParsedCache | null {
@@ -307,11 +313,23 @@ function toParsedCache(
   const descText = extractDescriptionText(gs);
   const descriptionHints = descText ? scanDescriptionHints(descText) : [];
 
+  // Lab2Gpx `mark` mode prefixes a *linear* adventure's stage names with
+  // "[L] " (the GC `IsLinear` flag). Strip it from the display name and record
+  // linearity — meaningful only for AL stages (those with an adventureId);
+  // `null` for ordinary caches so they're never mistaken for random-order ALs.
+  const rawName = (textOrNull(gs["groundspeak:name"]) ?? code).trim();
+  const linearMark = /^\[L\]\s*/i.exec(rawName);
+  const displayName = linearMark
+    ? rawName.slice(linearMark[0].length)
+    : rawName;
+  const adventureSequential =
+    adventure.adventureId !== null ? linearMark !== null : null;
+
   return {
     sourceId: code,
     code,
     type: type ?? "Other",
-    name: (textOrNull(gs["groundspeak:name"]) ?? code).trim(),
+    name: displayName,
     location: [lon, lat],
     difficulty: numOrNull(gs["groundspeak:difficulty"]),
     terrain: numOrNull(gs["groundspeak:terrain"]),
@@ -323,6 +341,8 @@ function toParsedCache(
     adventureId: adventure.adventureId,
     stageSequence: adventure.stageSequence,
     stageTotal: adventure.stageTotal,
+    adventureSequential,
+    found: adventure.found,
   };
 }
 

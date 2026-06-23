@@ -4,7 +4,37 @@
 import { useState, type JSX } from "react";
 import { classifyMulti } from "@gctp/shared/caches";
 import type { CacheType } from "@gctp/shared/caches";
+import type { Tours } from "@gctp/shared";
 import { AttributeChips } from "../caches/AttributeChips.js";
+
+/**
+ * Human copy for why a cache was left out of the current tour. `null` when the
+ * cache is in the tour (no block rendered). The budget hint is only meaningful
+ * for `budget`/`outlier`, where `neededBudgetMeters` is set.
+ */
+function dropReasonCopy(
+  reason: Tours.DropReason,
+  neededBudgetMeters?: number | null,
+): string {
+  const bump =
+    neededBudgetMeters != null && neededBudgetMeters > 0
+      ? ` (raising your budget by ~${Math.round(neededBudgetMeters)} m would fit it)`
+      : "";
+  switch (reason) {
+    case "budget":
+      return `Skipped to stay within your distance budget${bump}.`;
+    case "outlier":
+      return `Skipped — a long detour on foot (behind a barrier)${bump}.`;
+    case "fringe":
+      return "Skipped — an out-and-back spur the route already passes nearby.";
+    case "unreachable":
+      return "Skipped — no walking route to the rest of the set.";
+    case "adventure-incomplete":
+      return "Skipped — part of an adventure that didn't fully fit (kept whole).";
+    case "candidate-cap":
+      return "Skipped — the adventure didn't fit the candidate cap for this tour.";
+  }
+}
 
 export interface CachePopupProps {
   code: string;
@@ -31,6 +61,18 @@ export interface CachePopupProps {
   stageSequence?: number | null;
   stageTotal?: number | null;
   /**
+   * True for a *linear* Adventure Lab stage (stages must be done in order).
+   * Adds a "Linear" hint so the user knows the tour routes them in sequence.
+   */
+  adventureSequential?: boolean | null;
+  /**
+   * Adventure-level completion rollup (FR-I19): how many of this adventure's
+   * stages the user has found, and how many it has. Drives the "not started /
+   * partly done / completed" line. Both 0 for non-AL caches.
+   */
+  adventureFoundCount?: number;
+  adventureStageCount?: number;
+  /**
    * True when the plotted location is a user-supplied solved/corrected
    * coordinate (Mystery solution or Multi final). Shows a pill + the
    * "remove solved coordinates" action.
@@ -52,6 +94,15 @@ export interface CachePopupProps {
    * buttons disable and explain why. Defaults to true.
    */
   online?: boolean;
+  /**
+   * When this cache was dropped from the current tour, the reason — renders a
+   * muted "Skipped from this tour" block. Null/undefined for caches that are in
+   * the tour (the common case). The single popup shows cache details AND the
+   * drop reason, so the gray "×" marker needs no competing click handler.
+   */
+  dropReason?: Tours.DropReason | null;
+  /** Extra walking metres this cache adds — budget hint for `budget`/`outlier`. */
+  neededBudgetMeters?: number | null;
 }
 
 export function CachePopup({
@@ -68,10 +119,15 @@ export function CachePopup({
   adventureId = null,
   stageSequence = null,
   stageTotal = null,
+  adventureSequential = null,
+  adventureFoundCount = 0,
+  adventureStageCount = 0,
   solved = false,
   onClearSolved,
   loadingDetail = false,
   online = true,
+  dropReason = null,
+  neededBudgetMeters = null,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [clearingSolved, setClearingSolved] = useState(false);
@@ -128,6 +184,11 @@ export function CachePopup({
         {foundByMe && <span className="cache-popup__found-pill">Found</span>}
         {solved && <span className="cache-popup__found-pill">Solved</span>}
       </div>
+      {dropReason && (
+        <div className="cache-popup__meta cache-popup__drop-reason">
+          {dropReasonCopy(dropReason, neededBudgetMeters)}
+        </div>
+      )}
       {solved && (
         <div className="cache-popup__meta cache-popup__meta--muted">
           Plotted at your solved coordinate.
@@ -143,6 +204,16 @@ export function CachePopup({
           {stageTotal != null
             ? `Stage ${stageSequence} of ${stageTotal}`
             : `Stage ${stageSequence}`}
+          {adventureSequential ? " · Linear (visited in order)" : ""}
+        </div>
+      )}
+      {isAdventureLab && adventureStageCount > 0 && (
+        <div className="cache-popup__meta cache-popup__meta--muted">
+          {adventureFoundCount === 0
+            ? "Adventure: not started"
+            : adventureFoundCount >= adventureStageCount
+              ? "Adventure: completed ✓"
+              : `Adventure: ${adventureFoundCount} of ${adventureStageCount} stages done`}
         </div>
       )}
       {loadingDetail ? (

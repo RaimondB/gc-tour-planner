@@ -32,6 +32,13 @@ class FakeMap {
     this.handlers.get(event)?.delete(cb);
     return this;
   }
+  once(event: string, cb: (...a: unknown[]) => void): this {
+    const wrap = (...a: unknown[]): void => {
+      this.off(event, wrap);
+      cb(...a);
+    };
+    return this.on(event, wrap);
+  }
   fire(event: string): void {
     for (const cb of [...(this.handlers.get(event) ?? [])]) cb({});
   }
@@ -56,6 +63,24 @@ class FakeMap {
   }
   getZoom(): number {
     return 11;
+  }
+  styleLoaded = true;
+  isStyleLoaded(): boolean {
+    return this.style !== null && this.styleLoaded;
+  }
+  loaded(): boolean {
+    return this.isStyleLoaded();
+  }
+  /** Restore where MapLibre has re-set the style but it isn't loaded yet. */
+  restoreContextStillLoading(): void {
+    this.style = { getLayer: () => undefined };
+    this.styleLoaded = false;
+    this.fire("webglcontextrestored");
+  }
+  /** The restored style finishes loading (MapLibre fires `idle`). */
+  finishStyleLoad(): void {
+    this.styleLoaded = true;
+    this.fire("idle");
   }
   resize(): void {}
   triggerRepaint(): void {}
@@ -191,5 +216,103 @@ describe("WebGL context loss", () => {
     // The effect must have bailed (ready gated false) rather than touching the
     // dead style.
     expect(getLayer).not.toHaveBeenCalled();
+  });
+
+  it("recreates the map on refocus when the context was lost and never restored", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    // GPU reclaimed while backgrounded; `webglcontextrestored` never fires, so
+    // the style stays null (blank canvas).
+    act(() => first.loseContext());
+    expect(isMapStyleLive(first as never)).toBe(false);
+
+    // App regains focus → MapView detects the dead style and rebuilds the map.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).not.toBe(first); // a fresh map instance was built
+    expect(isMapStyleLive(lastMap as never)).toBe(true); // and it's live
+  });
+
+  it("rebuilds on refocus when the WebGL context died WITHOUT a webglcontextlost event (silent loss)", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    // Some Android PWAs discard the GPU context on background WITHOUT firing
+    // `webglcontextlost` — so the style stays "live" (non-null) yet the canvas
+    // is dead. The event-driven recreate path can't see this; MapView must probe
+    // the live GL context directly. Simulate it: no loseContext() event, but the
+    // canvas reports its context lost.
+    expect(isMapStyleLive(first as never)).toBe(true);
+    vi.spyOn(first.getCanvas(), "getContext").mockReturnValue({
+      isContextLost: () => true,
+    } as never);
+
+    // App regains focus → MapView probes the context, sees it's dead, rebuilds.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).not.toBe(first); // a fresh map instance was built
+    expect(isMapStyleLive(lastMap as never)).toBe(true);
+  });
+
+  it("waits for the restored style to load before re-enabling layers (no addSource on an unloaded style)", async () => {
+    let ready: boolean | null = null;
+    function Probe(): null {
+      ready = useMap().ready;
+      return null;
+    }
+    await act(async () => {
+      render(
+        <MapView>
+          <Probe />
+        </MapView>,
+      );
+      await Promise.resolve();
+    });
+    const map = lastMap!;
+    expect(ready).toBe(true); // initial load
+
+    act(() => map.loseContext());
+    expect(ready).toBe(false);
+
+    // Context restored, but MapLibre's re-applied style isn't loaded yet —
+    // `ready` must stay false so layer effects don't call addSource (which would
+    // throw "Style is not done loading").
+    act(() => map.restoreContextStillLoading());
+    expect(ready).toBe(false);
+
+    // Style finishes loading (idle) → now safe to re-enable layers.
+    act(() => map.finishStyleLoad());
+    expect(ready).toBe(true);
+  });
+
+  it("does NOT recreate the map when the context restores normally", async () => {
+    await act(async () => {
+      render(<MapView />);
+      await Promise.resolve();
+    });
+    const first = lastMap!;
+
+    act(() => first.loseContext());
+    act(() => first.restoreContext()); // browser restores the same context
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+
+    expect(lastMap).toBe(first); // same map — a repaint, not a rebuild
   });
 });

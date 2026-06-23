@@ -61,6 +61,8 @@ public class PlanService {
             PlanRequest.CacheInput c = req.caches().get(i);
             Cache cache = new Cache(c.id(), i, c.lng(), c.lat());
             cache.setAdventureId(c.adventureId());
+            cache.setStageSequence(c.stageSequence());
+            cache.setAdventureSequential(Boolean.TRUE.equals(c.adventureSequential()));
             caches.add(cache);
             if (c.adventureId() != null) {
                 adventureCandidateCounts.merge(c.adventureId(), 1L, Long::sum);

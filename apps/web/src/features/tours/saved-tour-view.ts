@@ -36,5 +36,6 @@ export function tourCachesToSummaries(
     adventureId: null,
     stageSequence: null,
     stageTotal: null,
+    adventureSequential: null,
   }));
 }
