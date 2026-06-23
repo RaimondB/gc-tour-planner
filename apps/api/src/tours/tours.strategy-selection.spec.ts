@@ -19,9 +19,30 @@ function cache(
 }
 
 const ownerId = "o1";
+// A minimal but schema-VALID PlanResult: ToursService.planLoop now re-validates
+// every result through `Tours.PlanResult.parse` (the finite-numbers guard), so a
+// bare `{ orderedCacheIds: [] }` stub would be rejected before the assertions run.
 const PLAN: Tours.PlanResult = {
   orderedCacheIds: [],
-} as unknown as Tours.PlanResult;
+  droppedCacheIds: [],
+  droppedCaches: [],
+  polyline: {
+    type: "LineString",
+    coordinates: [
+      [0, 0],
+      [1, 1],
+    ],
+  },
+  totals: { meters: 0, seconds: 0, visitMinutes: 0 },
+  parking: {
+    type: "osrm-nearest",
+    point: { type: "Point", coordinates: [0, 0] },
+    reason: "stub",
+    fallback: false,
+  },
+  scoreBreakdown: {},
+  legs: [],
+};
 
 /**
  * Fully-connected (or custom) walking matrix over the requested ids. Default
@@ -148,7 +169,8 @@ describe("ToursService.planLoop — strategy selection", () => {
     const res = await svc.planLoop(ownerId, input);
     expect(solver.planLoop).toHaveBeenCalledOnce();
     expect(greedy.planLoop).toHaveBeenCalledOnce();
-    expect(res).toBe(PLAN);
+    // The guard returns a re-parsed copy, so compare by value, not reference.
+    expect(res).toEqual(PLAN);
   });
 
   it("surfaces adventures skipped at the candidate cap as `candidate-cap` drops", async () => {

@@ -50,3 +50,69 @@ describe("PlanResult.droppedCaches back-compat", () => {
     expect(() => DroppedCache.parse({ id: 1, reason: "made-up" })).toThrow();
   });
 });
+
+describe("PlanResult non-finite guard", () => {
+  // A leaked Infinity/NaN serialises to JSON `null` and is dropped *silently* by
+  // the web's PlanResult.parse. The `.finite()` constraints make the same parse a
+  // loud server-side guard before the value ever leaves the API — paired with the
+  // metric closure that stops ∞ legs from arising in the first place.
+  it("rejects a non-finite total", () => {
+    expect(() =>
+      PlanResult.parse({
+        ...legacy,
+        totals: { meters: Infinity, seconds: 200, visitMinutes: 15 },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a non-finite scoreBreakdown value", () => {
+    expect(() =>
+      PlanResult.parse({
+        ...legacy,
+        scoreBreakdown: { marginalTrimSavedMeters: Infinity },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a NaN leg distance", () => {
+    expect(() =>
+      PlanResult.parse({
+        ...legacy,
+        legs: [
+          {
+            index: 0,
+            fromCacheId: 0,
+            toCacheId: 1,
+            meters: NaN,
+            seconds: 10,
+            geometry: {
+              type: "LineString",
+              coordinates: [
+                [0, 0],
+                [1, 1],
+              ],
+            },
+            alternatives: [
+              {
+                meters: 10,
+                seconds: 10,
+                geometry: {
+                  type: "LineString",
+                  coordinates: [
+                    [0, 0],
+                    [1, 1],
+                  ],
+                },
+              },
+            ],
+            selectedAlternativeIndex: 0,
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("still accepts a fully-finite plan", () => {
+    expect(() => PlanResult.parse(legacy)).not.toThrow();
+  });
+});

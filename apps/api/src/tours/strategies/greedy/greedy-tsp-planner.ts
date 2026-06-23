@@ -41,6 +41,7 @@ import {
   resolveMarginalTrimConfig,
   trimMarginalCaches,
 } from "./marginal-trim.js";
+import { metricClosure } from "../../metric-closure.js";
 
 const PROFILE: Routing.RoutingProfile = "foot";
 /** Default cut-off when PlanInput omits `topNClusters` (defensive; the
@@ -216,12 +217,26 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const matrix = await this.routing.getMatrix(ownerId, ids, PROFILE);
     const {
       connectedIds: connectedIdsRaw,
-      distances: distancesRaw,
+      distances: distancesSliced,
       unreachableIds,
     } = filterConnected(ids, matrix, input.maxLinkMeters);
     if (connectedIdsRaw.length < 2) {
       throw new NotFoundException(
         "Selected caches are not mutually reachable on foot — pick a different cluster.",
+      );
+    }
+
+    // Metric closure: the kept set is connected over the ≤maxLink graph, but a
+    // pair inside it can still have a `null` direct leg (routable only via
+    // intermediates). Fill those with the through-component distance so the TSP
+    // and the marginal trim never see an ∞ leg → no runaway over-trim. Finite
+    // direct legs (even long ones) are kept untouched. Meters only — the greedy
+    // path takes per-leg seconds from the actual picked OSRM legs, not the matrix.
+    const closure = metricClosure(distancesSliced, input.maxLinkMeters);
+    const distancesRaw = closure.meters;
+    if (closure.filledLegs > 0) {
+      this.logger.debug(
+        `metric closure: filled ${closure.filledLegs} null leg(s) with through-component distance (maxLink=${input.maxLinkMeters} m)`,
       );
     }
 
