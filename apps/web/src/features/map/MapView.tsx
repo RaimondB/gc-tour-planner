@@ -237,9 +237,33 @@ export function MapView({
     // and the canvas is blank. Recreate the map from scratch (last resort).
     // `getCenter`/`getZoom` still work (transform survives), so we reopen in
     // place. Guard with `isMapStyleLive` so we never recreate a healthy map.
+    // A WebGL context can die WITHOUT MapLibre ever firing `webglcontextlost`
+    // (some Android PWAs silently discard the GPU context when backgrounded long
+    // enough). The event-driven `contextLost` flag then never flips and the
+    // style stays non-null, so the checks below ("context lost + dead style")
+    // miss it — the whole canvas (basemap AND every overlay) is blank until a
+    // full PWA restart. Probe the live context directly to catch that case.
+    // Returns true ONLY when the context EXISTS and reports lost, so a canvas
+    // with no WebGL at all (jsdom in tests) returns false and never spuriously
+    // recreates a healthy map. `getContext` returns MapLibre's existing context
+    // (browsers cache it per type), not a new one.
+    const glContextLost = (): boolean => {
+      try {
+        const cv = map.getCanvas();
+        const gl =
+          (cv.getContext("webgl2") as WebGL2RenderingContext | null) ??
+          (cv.getContext("webgl") as WebGLRenderingContext | null);
+        return gl != null && gl.isContextLost();
+      } catch {
+        return false;
+      }
+    };
     const recreateIfDead = (): boolean => {
-      if (!contextLost || isMapStyleLive(map)) return false;
-      logEvent("recreate: context lost + style dead → rebuilding map");
+      // Either the event-driven path (style nulled by webglcontextlost) OR a
+      // silently-dead GL context where the event never fired.
+      const eventDead = contextLost && !isMapStyleLive(map);
+      if (!eventDead && !glContextLost()) return false;
+      logEvent("recreate: dead GL context / style → rebuilding map");
       try {
         const c = map.getCenter();
         cameraRef.current = { center: [c.lng, c.lat], zoom: map.getZoom() };

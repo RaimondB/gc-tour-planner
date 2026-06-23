@@ -168,6 +168,18 @@ Each rule below is a real incident that cost UAT round-trips.
      true until that reenable runs, so the recreate safety net (point 3) still
      fires if the restore never actually completes. (`MapView.test.tsx` locks it:
      `ready` stays false through a still-loading restore, flips true on `idle`.)
+  5. **Silent loss — `webglcontextlost` NEVER fires either.** Worse than point 3:
+     some Android PWAs discard the GPU context on background WITHOUT firing
+     `webglcontextlost` at all. So the event-driven `contextLost` flag never
+     flips AND `map.style` stays non-null (`isMapStyleLive` true) — every
+     event-based check (points 1–3) misses it, and `recover()`'s resize/repaint
+     is a no-op against a dead context: the whole canvas (basemap **and** every
+     overlay) is blank until a full PWA restart. Fix: `MapView` probes the live
+     context **directly** in `recreateIfDead` — `map.getCanvas().getContext("webgl2")
+     ?.isContextLost()` (returns true ONLY when the context exists and reports
+     lost, so a no-WebGL canvas in jsdom never spuriously recreates) — so a refocus
+     rebuilds the map even when no loss/restore event ever fired. (`MapView.test.tsx`
+     locks it: silent loss + refocus → rebuild.)
 - **Teardown order (secondary/defensive).** React runs effect cleanups
   **parent-first** on unmount, so `MapView`'s cleanup fires before each child
   layer's; a synchronous `map.remove()` there would null `map.style` before the
