@@ -857,8 +857,9 @@ export function PlanResultPanel({
             result.droppedCaches.filter((d) => d.reason === "unreachable")
               .length
           }{" "}
-          selected cache(s) had no walking route and were left out. Click a gray
-          ✕ marker for details.
+          selected cache(s) couldn't be linked into the loop on foot within your
+          max-link distance and were left out. Click a gray ✕ marker for
+          details.
         </div>
       )}
       {adventureCompletion.length > 0 && (
