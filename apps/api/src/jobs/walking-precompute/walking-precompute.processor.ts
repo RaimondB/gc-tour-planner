@@ -79,10 +79,23 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
       newCacheIds,
       radiusM,
     );
-    const inScope = Array.from(new Set([...newCacheIds, ...affectedIds]));
+    // Adventure Lab stages are collapsed to one representative for clustering
+    // and the solver fills intra-adventure pairs lazily — so the k-NN
+    // over-fetch below never guarantees a stage's siblings are reachable. Pull
+    // in every sibling of any touched adventure and (step 4b) force the full
+    // pairwise stage→stage matrix, so no AL stage is ever left without edges.
+    const adventureGroups = await this.caches.findAdventureGroupsForCaches(
+      ownerId,
+      [...newCacheIds, ...affectedIds],
+    );
+    const siblingIds = adventureGroups.flatMap((g) => g.stageIds);
+    const inScope = Array.from(
+      new Set([...newCacheIds, ...affectedIds, ...siblingIds]),
+    );
     this.logger.log(
       `walking-precompute (${reason}): owner=${ownerId} new=${newCacheIds.length} ` +
-        `affected=${affectedIds.length} inScope=${inScope.length}`,
+        `affected=${affectedIds.length} adventures=${adventureGroups.length} ` +
+        `inScope=${inScope.length}`,
     );
 
     // 2. Mark in-scope as in_progress. A bulk UPSERT; if the job fails before
@@ -100,12 +113,39 @@ export class WalkingPrecomputeProcessor extends WorkerHost {
 
       // 4. PostGIS k-NN over-fetch — top kCandidates haversine neighbours per
       //    in-scope cache within radiusM. Mirrors buildWalkingGraph step 1.
-      const candidatePairs = await this.caches.nearestNeighbors(
+      const knnPairs = await this.caches.nearestNeighbors(
         ownerId,
         inScope,
         kCandidates,
         radiusM,
       );
+
+      // 4b. Force the full directed pairwise matrix within each touched
+      //     adventure (≤ ~90 pairs for a 10-stage adventure) — these pairs are
+      //     unconditional, regardless of k or radius, so every stage is
+      //     connected to every sibling. Deduped against the k-NN pairs below.
+      const adventurePairs: Array<{ fromCacheId: number; toCacheId: number }> =
+        [];
+      for (const g of adventureGroups) {
+        for (const from of g.stageIds) {
+          for (const to of g.stageIds) {
+            if (from !== to) {
+              adventurePairs.push({ fromCacheId: from, toCacheId: to });
+            }
+          }
+        }
+      }
+
+      const pairKey = (from: number, to: number) => `${from}:${to}`;
+      const seenPair = new Set<string>();
+      const candidatePairs: Array<{ fromCacheId: number; toCacheId: number }> =
+        [];
+      for (const p of [...knnPairs, ...adventurePairs]) {
+        const key = pairKey(p.fromCacheId, p.toCacheId);
+        if (seenPair.has(key)) continue;
+        seenPair.add(key);
+        candidatePairs.push(p);
+      }
       if (candidatePairs.length === 0) {
         await this.state.markBulk(inScope, "walking", "fresh", {
           osrmVersion: this.osrmVersion.getVersion(),

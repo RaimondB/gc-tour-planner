@@ -596,6 +596,50 @@ export class CachesRepository {
   }
 
   /**
+   * Walking-precompute support: for every adventure that *any* of `cacheIds`
+   * belongs to, return all of that adventure's stage ids owned by this user
+   * (grouped by `adventure_id`). The precompute job uses this to guarantee the
+   * full pairwise stage→stage walking matrix for a touched adventure — a single
+   * imported/relocated stage pulls in every sibling, so atomic-adventure routing
+   * is always cache-warm and no stage is left without edges. One round trip via
+   * the partial `caches_adventure_id_idx`. Archived stages are included on
+   * purpose: they can still appear in a plan's selected cluster.
+   */
+  async findAdventureGroupsForCaches(
+    ownerId: string,
+    cacheIds: readonly number[],
+  ): Promise<Array<{ adventureId: string; stageIds: number[] }>> {
+    if (cacheIds.length === 0) return [];
+    const rows = await this.db
+      .selectFrom("caches")
+      .select(["id", "adventure_id"])
+      .where("owner_id", "=", ownerId)
+      .where("adventure_id", "is not", null)
+      .where("adventure_id", "<>", "")
+      .where("adventure_id", "in", (qb) =>
+        qb
+          .selectFrom("caches")
+          .select("adventure_id")
+          .where("owner_id", "=", ownerId)
+          .where("id", "in", cacheIds)
+          .where("adventure_id", "is not", null)
+          .where("adventure_id", "<>", ""),
+      )
+      .execute();
+    const byAdventure = new Map<string, number[]>();
+    for (const r of rows) {
+      const advId = r.adventure_id!;
+      const list = byAdventure.get(advId);
+      if (list) list.push(Number(r.id));
+      else byAdventure.set(advId, [Number(r.id)]);
+    }
+    return Array.from(byAdventure.entries()).map(([adventureId, stageIds]) => ({
+      adventureId,
+      stageIds,
+    }));
+  }
+
+  /**
    * FR-I17: Adventure Lab stages that carry stage metadata (so they were
    * imported as AL stages) but have no `adventure_id` — typically older uploads
    * from a Lab2Gpx GPX whose `<url>` lacked the `goto/<guid>` deep-link, leaving
