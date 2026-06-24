@@ -28,7 +28,7 @@ function dropReasonCopy(
     case "fringe":
       return "Skipped — an out-and-back spur the route already passes nearby.";
     case "unreachable":
-      return "Skipped — no walking route to the rest of the set.";
+      return "Skipped — couldn't be linked to the rest of the set on foot within your max-link distance (no route, or only a longer one).";
     case "adventure-incomplete":
       return "Skipped — part of an adventure that didn't fully fit (kept whole).";
     case "candidate-cap":

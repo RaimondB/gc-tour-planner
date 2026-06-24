@@ -95,8 +95,12 @@ export type PlanLeg = z.infer<typeof PlanLeg>;
  *                             (marginal-trim outlier floor). Carries the marginal.
  *  - `fringe`               — out-and-back spur the route already passes
  *                             (greedy post-leg-pick overlap trim).
- *  - `unreachable`          — OSRM has no foot route to the rest of the set
- *                             (greedy `filterConnected`; solver sentinel parking legs).
+ *  - `unreachable`          — couldn't be linked into the loop on foot within
+ *                             `maxLinkMeters`: either no foot route at all, or one
+ *                             only longer than the link cap. Sources: cohesion
+ *                             gate (FR-T13), greedy/solver connected-component
+ *                             filter, solver sentinel parking legs. UI copy must
+ *                             not claim "no route exists" — a longer route may.
  *  - `adventure-incomplete` — solver AL-aware orphan trim: dropped to keep an
  *                             Adventure Lab whole (FR-I16).
  *  - `candidate-cap`        — a whole adventure / trailing cache cut BEFORE
