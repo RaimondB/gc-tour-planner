@@ -120,7 +120,8 @@ export class ToursService {
       useSolver = rows.some((c) => c.type === "Adventure Lab");
     }
 
-    if (!useSolver) return this.greedy.planLoop(ownerId, input);
+    if (!useSolver)
+      return this.assertFinitePlan(await this.greedy.planLoop(ownerId, input));
 
     // Pull in any missing stages of adventures already in the selection so the
     // solver can keep them complete (FR-I16). Atomicity itself is enforced in the
@@ -147,7 +148,21 @@ export class ToursService {
         throw err;
       }
     }
-    return this.withPreplanDrops(result, preplanDrops);
+    return this.assertFinitePlan(this.withPreplanDrops(result, preplanDrops));
+  }
+
+  /**
+   * Last-line guard before a plan leaves the service: re-validate it against the
+   * `PlanResult` schema, whose numeric fields are `.finite()`. The metric closure
+   * (`metric-closure.ts`) should keep any `∞`/`NaN` from ever reaching here, and
+   * both planners already sanitise non-finite scores at the wire boundary — but a
+   * future leak would otherwise serialise `Infinity`→JSON `null` and be dropped
+   * *silently* by the web's `PlanResult.parse`. Parsing server-side turns that
+   * into a loud 500 at the source instead. `.parse` re-applies defaults and
+   * strips nothing we set, so the validated value is returned as-is.
+   */
+  private assertFinitePlan(result: Tours.PlanResult): Tours.PlanResult {
+    return Tours.PlanResult.parse(result);
   }
 
   /**

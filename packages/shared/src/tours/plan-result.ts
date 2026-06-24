@@ -35,9 +35,9 @@ export const ParkingChoice = z.object({
 export type ParkingChoice = z.infer<typeof ParkingChoice>;
 
 export const PlanTotals = z.object({
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
-  visitMinutes: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
+  visitMinutes: z.number().finite().nonnegative(),
 });
 export type PlanTotals = z.infer<typeof PlanTotals>;
 
@@ -53,8 +53,8 @@ export type PlanTotals = z.infer<typeof PlanTotals>;
  * in place of the picker's selection without another OSRM round trip.
  */
 export const PlanLegAlternative = z.object({
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
   geometry: GeoJsonLineString,
 });
 export type PlanLegAlternative = z.infer<typeof PlanLegAlternative>;
@@ -76,8 +76,8 @@ export const PlanLeg = z.object({
   /** 0 = parking endpoint, otherwise a cache id from `orderedCacheIds`. */
   fromCacheId: z.number().int().nonnegative(),
   toCacheId: z.number().int().nonnegative(),
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
   geometry: GeoJsonLineString,
   alternatives: z.array(PlanLegAlternative).min(1),
   selectedAlternativeIndex: z.number().int().nonnegative(),
@@ -121,7 +121,7 @@ export const DroppedCache = z.object({
    * loop. Lets the UI suggest "raise your budget by ~X to keep it". Absent for
    * reasons where a budget bump wouldn't help (unreachable, candidate-cap, …).
    */
-  neededBudgetMeters: z.number().nonnegative().optional(),
+  neededBudgetMeters: z.number().finite().nonnegative().optional(),
 });
 export type DroppedCache = z.infer<typeof DroppedCache>;
 
@@ -149,7 +149,7 @@ export const PlanResult = z.object({
   polyline: GeoJsonLineString,
   totals: PlanTotals,
   parking: ParkingChoice,
-  scoreBreakdown: z.record(z.string(), z.number()),
+  scoreBreakdown: z.record(z.string(), z.number().finite()),
   /**
    * Per-leg breakdown with the alternatives OSRM offered for each pair.
    * Default `[]` for back-compat with strategies that don't populate it
