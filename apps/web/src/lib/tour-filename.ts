@@ -41,25 +41,36 @@ export function tourFilename(
   const km = (plan.totals.meters / 1000).toFixed(1).replace(/\.0$/, "");
   const caches = plan.orderedCacheIds.length;
   const date = `${MONTHS[now.getMonth()]}${String(now.getDate()).padStart(2, "0")}`;
-  const place = placeSlug(plan.parking.osm?.name);
+  const place = placeSlug(tourPlace(plan));
 
   const parts = [place, `${km}km`, `${caches}c`, date, mode].filter(Boolean);
   return `gctp-${parts.join("-")}.gpx`;
 }
 
 /**
+ * The single "place" anchor for a tour, used by **both** the save name and the
+ * GPX filename so the two can never diverge. Prefers the server-resolved place
+ * label (nearest town / named park, ADR-0036), then the named OSM parking
+ * feature, else null. Trimmed + bounded so it's a safe name/filename component.
+ */
+export function tourPlace(plan: PlanResult): string | null {
+  const raw = plan.placeLabel ?? plan.parking.osm?.name ?? null;
+  const trimmed = raw?.trim().slice(0, 60);
+  return trimmed ? trimmed : null;
+}
+
+/**
  * A human-friendly **default tour name**, pre-filled (editable) into the save
- * prompt. Built from the same recognisable anchors as {@link tourFilename}: the
- * OSM parking place (when the parking is a named OSM feature), the loop
- * distance, and the cache count — e.g. `Bospark — 8.3 km · 12 caches`, or with
- * no named parking, `8.3 km loop · 12 caches`. Stays well under TourName's
- * 120-char cap (the place is bounded).
+ * prompt. Built from the same anchors as {@link tourFilename} via the shared
+ * {@link tourPlace}: the place (town / named park / parking), the loop distance,
+ * and the cache count — e.g. `Wageningen — 8.3 km · 12 caches`, or with no place,
+ * `8.3 km loop · 12 caches`. Stays well under TourName's 120-char cap.
  */
 export function suggestTourName(plan: PlanResult): string {
   const km = (plan.totals.meters / 1000).toFixed(1).replace(/\.0$/, "");
   const n = plan.orderedCacheIds.length;
   const caches = `${n} cache${n === 1 ? "" : "s"}`;
-  const place = plan.parking.osm?.name?.trim().slice(0, 60);
+  const place = tourPlace(plan);
   return place
     ? `${place} — ${km} km · ${caches}`
     : `${km} km loop · ${caches}`;

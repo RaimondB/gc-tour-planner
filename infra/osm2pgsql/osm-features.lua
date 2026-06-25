@@ -3,18 +3,23 @@
 --
 -- osm2pgsql flex-output configuration for gc-tour-planner.
 --
--- Single Lua script, three output tables, single PBF pass:
+-- Single Lua script, four output tables, single PBF pass:
 --   * landuse_polygons    — landuse / natural / leisure polygons used for
---                           cluster scoring (ADR-0009).
+--                           cluster scoring (ADR-0009); `name` anchors a tour's
+--                           "place" when it sits in a named park/forest (ADR-0036).
 --   * parking_facilities  — amenity=parking nodes/ways/relations used for
 --                           tour-start picking + map overlay (ADR-0011).
 --   * car_roads           — quiet, car-accessible road ways used to snap
 --                           "nearest road" tour-start parking (ADR-0012).
+--   * place_points        — named settlement nodes (place=city/town/village/
+--                           hamlet/suburb) used to name a tour by its town (ADR-0036).
 --
 -- Schema must stay in lockstep with the matching migrations:
 --   * packages/db/migrations/1779610000000_landuse_polygons.sql
+--     + 1786000000000_landuse_polygons_name.sql
 --   * packages/db/migrations/1779620000000_parking_facilities.sql
 --   * packages/db/migrations/1779680000000_car_roads.sql
+--   * packages/db/migrations/1786000000001_place_points.sql
 --
 -- The kind classifier for landuse is the Lua equivalent of
 -- apps/api/src/osm/landuse-classify.ts — keep the two in lockstep.
@@ -29,6 +34,10 @@ local landuse = osm2pgsql.define_table({
     ids = { type = 'any', id_column = 'osm_id', type_column = 'osm_type' },
     columns = {
         { column = 'kind', type = 'text',         not_null = true },
+        -- OSM name of the feature, when tagged — surfaces a named park / forest /
+        -- nature reserve ("Bospark", "de Veluwe") as a tour's "place" anchor for
+        -- naming (FR-P1.x). NULL for the many unnamed landuse polygons.
+        { column = 'name', type = 'text' },
         -- MultiPolygon in 4326. osm2pgsql normalises closed ways and
         -- multipolygon relations into the same shape; rings get assembled
         -- automatically and inner rings become holes.
@@ -66,6 +75,45 @@ local function classify_landuse(tags)
     if le == 'nature_reserve' then return 'park' end
 
     return nil
+end
+
+-- ─── Place points (settlements) ─────────────────────────────────────────────
+--
+-- Named settlement nodes (place=city/town/village/hamlet/suburb) — the source
+-- of a tour's human "place" label ("Wageningen"). Points only (OSM maps
+-- settlements as a node at the centre); the nearest one to a tour's start
+-- anchors its name. Deliberately excludes finer place kinds (neighbourhood /
+-- locality / isolated_dwelling) to keep the table small and the labels
+-- recognisable. See ADR-0036.
+
+local PLACE_KINDS = {
+    city    = true,
+    town    = true,
+    village = true,
+    hamlet  = true,
+    suburb  = true,
+}
+
+local place_points = osm2pgsql.define_table({
+    name = 'place_points',
+    ids = { type = 'node', id_column = 'osm_id' },
+    columns = {
+        { column = 'place',      type = 'text',  not_null = true },
+        { column = 'name',       type = 'text',  not_null = true },
+        -- Population (when tagged) breaks ties toward the bigger settlement.
+        { column = 'population', type = 'int' },
+        { column = 'geom',       type = 'point', not_null = true, projection = 4326 },
+    },
+    indexes = {
+        { column = 'geom',  method = 'gist' },
+        { column = 'place', method = 'btree' },
+    },
+})
+
+local function parse_population(s)
+    if not s then return nil end
+    local m = string.match(s, '(%d+)')
+    return m and tonumber(m) or nil
 end
 
 -- ─── Parking facilities ────────────────────────────────────────────────────
@@ -212,12 +260,25 @@ end
 
 -- ─── Callbacks ─────────────────────────────────────────────────────────────
 
--- Nodes: only parking nodes are emitted. Landuse never comes from nodes.
+-- Nodes: parking nodes + named settlement place nodes. Landuse never comes
+-- from nodes.
 function osm2pgsql.process_node(object)
-    if object.tags.amenity ~= 'parking' then return end
-    local row = parking_attrs(object.tags)
-    row.geom = object:as_point()
-    parking:insert(row)
+    local tags = object.tags
+
+    if tags.amenity == 'parking' then
+        local row = parking_attrs(tags)
+        row.geom = object:as_point()
+        parking:insert(row)
+    end
+
+    if tags.place and PLACE_KINDS[tags.place] and tags.name then
+        place_points:insert({
+            place      = tags.place,
+            name       = tags.name,
+            population = parse_population(tags.population),
+            geom       = object:as_point(),
+        })
+    end
 end
 
 -- Closed ways. May emit to landuse, parking, or both (a closed way can
@@ -239,6 +300,7 @@ function osm2pgsql.process_way(object)
     if kind then
         landuse:insert({
             kind = kind,
+            name = object.tags.name,
             geom = object:as_multipolygon(),
         })
     end
@@ -261,6 +323,7 @@ function osm2pgsql.process_relation(object)
     if kind then
         landuse:insert({
             kind = kind,
+            name = object.tags.name,
             geom = object:as_multipolygon(),
         })
     end
