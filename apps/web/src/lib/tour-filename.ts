@@ -47,6 +47,24 @@ export function tourFilename(
   return `gctp-${parts.join("-")}.gpx`;
 }
 
+/**
+ * A human-friendly **default tour name**, pre-filled (editable) into the save
+ * prompt. Built from the same recognisable anchors as {@link tourFilename}: the
+ * OSM parking place (when the parking is a named OSM feature), the loop
+ * distance, and the cache count — e.g. `Bospark — 8.3 km · 12 caches`, or with
+ * no named parking, `8.3 km loop · 12 caches`. Stays well under TourName's
+ * 120-char cap (the place is bounded).
+ */
+export function suggestTourName(plan: PlanResult): string {
+  const km = (plan.totals.meters / 1000).toFixed(1).replace(/\.0$/, "");
+  const n = plan.orderedCacheIds.length;
+  const caches = `${n} cache${n === 1 ? "" : "s"}`;
+  const place = plan.parking.osm?.name?.trim().slice(0, 60);
+  return place
+    ? `${place} — ${km} km · ${caches}`
+    : `${km} km loop · ${caches}`;
+}
+
 /** Lowercase kebab slug of a parking name, capped so the filename stays short. */
 function placeSlug(name: string | null | undefined): string {
   if (!name) return "";

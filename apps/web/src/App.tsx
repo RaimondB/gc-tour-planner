@@ -31,7 +31,7 @@ import {
 } from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
 import { downloadGpx } from "./lib/gpx-download.js";
-import { tourFilename } from "./lib/tour-filename.js";
+import { suggestTourName, tourFilename } from "./lib/tour-filename.js";
 import { captureMapSnapshot } from "./lib/map-snapshot.js";
 import {
   useOnline,
@@ -566,7 +566,11 @@ export default function App(): JSX.Element {
   // Save as a brand-new tour (POST) — first save, or an explicit copy.
   const onSaveNew = useCallback(async () => {
     if (!planResult || saving || !online) return;
-    const suggested = editingTour ? `${editingTour.name} (copy)` : "";
+    // Pre-fill an editable suggestion: "<name> (copy)" for a copy, else a
+    // recognisable place·distance·caches default the user can accept or tweak.
+    const suggested = editingTour
+      ? `${editingTour.name} (copy)`
+      : suggestTourName(planResult);
     const name = window.prompt("Name this tour", suggested)?.trim();
     if (!name) return;
     await persistTour(null, name);
