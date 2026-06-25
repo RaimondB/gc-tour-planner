@@ -380,6 +380,7 @@ Full design — session model, guard swap, the normative public-endpoint invento
 | `GET /tours` | session | — | Owner-scoped summaries (FR-P2) |
 | `GET /tours/:id` | session | — | Full detail; cross-tenant → 404 |
 | `PATCH /tours/:id` | session | yes | Rename |
+| `PUT /tours/:id` | session | yes | Overwrite route + snapshot in place (FR-P2.4); keeps `created_at`, share slug, preview |
 | `DELETE /tours/:id` | session | yes | Delete (revokes any share) |
 | `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |

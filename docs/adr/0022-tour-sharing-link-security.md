@@ -1,6 +1,6 @@
 # ADR-0022 — Read-only tour sharing & link security
 
-- **Status:** Proposed
+- **Status:** Accepted (implemented M6-δ, 2026-06-25)
 - **Date:** 2026-06-06
 - **Deciders:** Raimond Brookman (owner)
 
