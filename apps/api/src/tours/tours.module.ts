@@ -36,6 +36,7 @@ import { GREEDY_PLANNER, SOLVER_PLANNER } from "./planner.tokens.js";
 import { ToursController } from "./tours.controller.js";
 import { ToursService } from "./tours.service.js";
 import { SavedToursController } from "./saved-tours.controller.js";
+import { SharedTourController } from "./shared-tour.controller.js";
 import { SavedToursService } from "./saved-tours.service.js";
 import { SavedToursRepository } from "./saved-tours.repository.js";
 
@@ -139,7 +140,7 @@ const tourPlannerProvider: Provider = {
     LanduseProfilesModule,
     AdventureLabModule,
   ],
-  controllers: [ToursController, SavedToursController],
+  controllers: [ToursController, SavedToursController, SharedTourController],
   providers: [
     ToursService,
     SavedToursService,

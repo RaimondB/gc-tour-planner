@@ -53,6 +53,8 @@ import {
   type SaveTourInput,
   SavedTourDetail,
   SavedTourSummary,
+  ShareResponse,
+  SharedTour,
   type TestRouteInput,
   TestRouteResponse,
   type ViaRouteInput,
@@ -459,9 +461,47 @@ export async function renameTour(
   return SavedTourDetail.parse(raw);
 }
 
+/**
+ * Overwrite an existing tour in place with a re-planned / edited route
+ * (FR-P2.4). Same body shape as {@link saveTour}; the server re-derives the
+ * snapshot and preserves the tour's share link + thumbnail.
+ */
+export async function updateTour(
+  id: string,
+  input: SaveTourInput,
+): Promise<SavedTourDetail> {
+  const raw = await request<unknown>(`/tours/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return SavedTourDetail.parse(raw);
+}
+
 /** Delete a saved tour (FR-P2.3). */
 export async function deleteTour(id: string): Promise<void> {
   await request<void>(`/tours/${id}`, { method: "DELETE" });
+}
+
+/** Mint (or return the existing) read-only share link for a tour (FR-P3.1). */
+export async function shareTour(id: string): Promise<ShareResponse> {
+  const raw = await request<unknown>(`/tours/${id}/share`, { method: "POST" });
+  return ShareResponse.parse(raw);
+}
+
+/** Revoke a tour's share link (FR-P3.4); the old URL immediately 404s. */
+export async function unshareTour(id: string): Promise<void> {
+  await request<void>(`/tours/${id}/share`, { method: "DELETE" });
+}
+
+/**
+ * Public read of a shared tour by slug (FR-P3.2). No auth required — the route
+ * is `@Public()`; an anonymous recipient can open it. Throws {@link ApiError}
+ * 404 when the slug is unknown or has been revoked.
+ */
+export async function getSharedTour(slug: string): Promise<SharedTour> {
+  const raw = await request<unknown>(`/shared/${slug}`);
+  return SharedTour.parse(raw);
 }
 
 /** Same-origin URL of a tour's map snapshot (FR-W4). Use as an `<img src>`. */

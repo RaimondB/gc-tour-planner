@@ -5,7 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SavedTourDetail, SavedTourSummary } from "@gctp/shared/tours";
-import { deleteTour, getTour, listTours, renameTour, saveTour } from "./api.js";
+import {
+  deleteTour,
+  getSharedTour,
+  getTour,
+  listTours,
+  renameTour,
+  saveTour,
+  shareTour,
+  unshareTour,
+  updateTour,
+} from "./api.js";
 
 const DETAIL: SavedTourDetail = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -127,5 +137,55 @@ describe("saved-tours api client", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`/api/tours/${DETAIL.id}`);
     expect(init.method).toBe("DELETE");
+  });
+
+  it("updateTour PUTs /tours/:id with the plan and parses the detail", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...DETAIL, name: "Edited" }));
+    const updated = await updateTour(DETAIL.id, {
+      name: "Edited",
+      plan: DETAIL.plan,
+    });
+    expect(updated.name).toBe("Edited");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/tours/${DETAIL.id}`);
+    expect(init.method).toBe("PUT");
+    expect((init.headers as Headers).get("X-CSRF-Token")).toBe("tok-xyz");
+  });
+
+  it("shareTour POSTs /tours/:id/share and parses the slug + path", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { slug: "abc23def45ghi67j", path: "/shared/abc23def45ghi67j" },
+        201,
+      ),
+    );
+    const res = await shareTour(DETAIL.id);
+    expect(res.path).toBe("/shared/abc23def45ghi67j");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/tours/${DETAIL.id}/share`);
+    expect(init.method).toBe("POST");
+  });
+
+  it("unshareTour DELETEs /tours/:id/share", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await unshareTour(DETAIL.id);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`/api/tours/${DETAIL.id}/share`);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("getSharedTour GETs /shared/:slug and parses the public payload", async () => {
+    const shared = {
+      name: "Forest loop",
+      totals: { meters: 1234.5, seconds: 678.9, visitMinutes: 10 },
+      polyline: DETAIL.plan.polyline,
+      parking: { type: "Point", coordinates: [5.12, 52.09] },
+      caches: DETAIL.plan.caches,
+    };
+    fetchMock.mockResolvedValue(jsonResponse(shared));
+    const result = await getSharedTour("abc23def45ghi67j");
+    expect(result.name).toBe("Forest loop");
+    expect(result.caches).toHaveLength(2);
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/shared/abc23def45ghi67j");
   });
 });

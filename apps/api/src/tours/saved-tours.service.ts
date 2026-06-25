@@ -5,6 +5,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { Tours } from "@gctp/shared";
 import { CachesRepository } from "../caches/caches.repository.js";
 import {
+  type SaveTourRow,
   SavedToursRepository,
   type TourDetailRow,
   type TourSummaryRow,
@@ -29,12 +30,41 @@ export class SavedToursService {
     ownerId: string,
     input: Tours.SaveTourInput,
   ): Promise<Tours.SavedTourDetail> {
-    const { plan } = input;
+    const fields = await this.derivePersistFields(ownerId, input);
+    const row = await this.repo.save({ ownerId, ...fields });
+    return this.toDetail(row);
+  }
 
-    // Denormalise a point-in-time cache snapshot from the owner's own caches so
-    // the saved tour (and the future public shared view) renders without
-    // reading owner-scoped tables later (ADR-0022). Ids that no longer resolve
-    // are simply absent — the view annotates them as missing (FR-P1.3).
+  /**
+   * Overwrite an existing tour in place with a re-planned / edited route
+   * (FR-P2.4). Re-derives the snapshot + typed columns exactly like {@link save}
+   * (the route is wholly server-vouched); the repo preserves `created_at`, the
+   * share slug, and the stored preview. 404 cross-tenant.
+   */
+  async update(
+    ownerId: string,
+    id: string,
+    input: Tours.UpdateTourInput,
+  ): Promise<Tours.SavedTourDetail> {
+    const fields = await this.derivePersistFields(ownerId, input);
+    const row = await this.repo.update(ownerId, id, fields);
+    if (!row) throw new NotFoundException("Tour not found");
+    return this.toDetail(row);
+  }
+
+  /**
+   * Derive the persisted columns from the client's PlanResult: bake a
+   * point-in-time cache snapshot from the owner's own caches (so the saved tour
+   * and the public shared view render without re-reading owner-scoped tables
+   * later — ADR-0022; ids that no longer resolve are simply absent, FR-P1.3),
+   * and compute the typed columns server-side. Shared by save + update so the
+   * two never drift.
+   */
+  private async derivePersistFields(
+    ownerId: string,
+    input: Tours.SaveTourInput,
+  ): Promise<Omit<SaveTourRow, "ownerId">> {
+    const { plan } = input;
     const dtos = await this.caches.findByIds(ownerId, plan.orderedCacheIds);
     const caches: Tours.StoredPlan["caches"] = dtos.map((c) => ({
       id: c.id,
@@ -43,15 +73,13 @@ export class SavedToursService {
       name: c.name,
       location: c.location,
     }));
-
     const storedPlan: Tours.StoredPlan = { ...plan, caches };
 
     // start_point is the loop anchor (parking.point is always present, even on
     // a centroid fallback); parking_point is the *chosen* parking, NULL when
     // the planner fell back to the centroid.
     const [startLng, startLat] = plan.parking.point.coordinates;
-    const row = await this.repo.save({
-      ownerId,
+    return {
       name: input.name,
       startPoint: { lng: startLng, lat: startLat },
       parkingPoint: plan.parking.fallback
@@ -63,9 +91,43 @@ export class SavedToursService {
       geom: plan.polyline,
       scoreBreakdown: plan.scoreBreakdown,
       plan: storedPlan,
-    });
+    };
+  }
 
-    return this.toDetail(row);
+  /**
+   * Mint (idempotent) a public share link for a tour (FR-P3.1). Returns the
+   * opaque slug + the client-relative path. 404 cross-tenant.
+   */
+  async share(ownerId: string, id: string): Promise<Tours.ShareResponse> {
+    const slug = await this.repo.share(ownerId, id);
+    if (!slug) throw new NotFoundException("Tour not found");
+    return { slug, path: `/shared/${slug}` };
+  }
+
+  /** Revoke a tour's share (FR-P3.4). 404 cross-tenant. */
+  async unshare(ownerId: string, id: string): Promise<void> {
+    const ok = await this.repo.unshare(ownerId, id);
+    if (!ok) throw new NotFoundException("Tour not found");
+  }
+
+  /**
+   * Public read of a shared tour by slug (FR-P3.2, ADR-0022). Assembles the
+   * safe public subset from the stored snapshot only — name, totals, geometry,
+   * parking point, cache list — and drops everything else (score breakdown,
+   * owner identity, dropped caches, per-leg detail). 404 when the slug is
+   * unknown or has been revoked.
+   */
+  async getSharedBySlug(slug: string): Promise<Tours.SharedTour> {
+    const row = await this.repo.findBySlug(slug);
+    if (!row) throw new NotFoundException("Shared tour not found");
+    const plan = Tours.StoredPlan.parse(row.plan);
+    return {
+      name: row.name,
+      totals: plan.totals,
+      polyline: plan.polyline,
+      parking: plan.parking.fallback ? null : plan.parking.point,
+      caches: plan.caches,
+    };
   }
 
   async list(ownerId: string): Promise<Tours.SavedTourSummary[]> {
