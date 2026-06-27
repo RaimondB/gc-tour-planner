@@ -100,6 +100,10 @@ const FEATURES: readonly { title: string; body: string }[] = [
     title: "Share a read-only link",
     body: "Send anyone a private link to a tour — they see the map, the stops, and the totals, no account needed. Revoke it anytime.",
   },
+  {
+    title: "Find tours near you & follow on foot",
+    body: "Turn on your location to see your position on the map, how far each saved tour is, and which are closest — then follow a tour stop-by-stop with walking directions handed to your phone’s maps app. Your location stays on your device.",
+  },
 ];
 
 /**

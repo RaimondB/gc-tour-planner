@@ -74,6 +74,7 @@ const SUMMARY: SavedTourSummary = {
   cacheCount: DETAIL.cacheCount,
   isShared: DETAIL.isShared,
   hasPreview: DETAIL.hasPreview,
+  startPoint: DETAIL.startPoint,
   createdAt: DETAIL.createdAt,
 };
 

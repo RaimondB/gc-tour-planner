@@ -70,3 +70,17 @@ See [design/frontend.md](../design/frontend.md) and
   next online open. Capture is best-effort: it requires the tile host to send
   CORS headers (else the WebGL canvas is tainted and capture is skipped) and
   never blocks the save. [ADR-0028]
+- **FR-W5 (location awareness & follow-mode navigation).** Opt-in current-location
+  support ([ADR-0037](../adr/0037-location-awareness-and-follow-mode.md)). A
+  "locate me" control turns on a live GPS watch and shows a "you are here" dot +
+  accuracy ring on the map (planner **and** the public shared-tour view); the
+  position is held only in memory and **never sent to the server**. The My Tours
+  list shows each tour's **distance from the user** ("X km away") and offers a
+  **Nearest-first sort**, computed client-side from the summary's `startPoint`,
+  and a per-row **Navigate** that opens the device maps app to the tour start.
+  **Follow mode**: with a tour open and location on, the planner shows the distance
+  to the **next stop** in plan order, auto-advances when within ~30 m, highlights
+  the target stop, and a per-stop **Navigate** hands the actual walking directions
+  to the phone's maps app (gctp is not a turn-by-turn engine). Geolocation is
+  opt-in, battery-aware (paused while the tab is hidden), works offline, and
+  degrades cleanly when permission is denied/unavailable.

@@ -51,6 +51,10 @@ import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
+import { CurrentLocationLayer } from "./features/map/CurrentLocationLayer.js";
+import { FollowTargetLayer } from "./features/map/FollowTargetLayer.js";
+import { useLocation } from "./features/location/LocationProvider.js";
+import { advanceFollow } from "./features/location/follow.js";
 import {
   CachesLayer,
   type SelectedParking,
@@ -92,6 +96,7 @@ import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 import {
   Crosshair,
   Download,
+  LocateFixed,
   Menu,
   Navigation,
   Route,
@@ -99,6 +104,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { parkingNavTarget } from "./lib/maps.js";
+import { haversineMeters } from "@gctp/shared/geo";
 import { analyticsEnabled } from "./lib/cloudflare-analytics.js";
 import { Logo } from "./features/shell/Logo.js";
 import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
@@ -293,6 +299,34 @@ export default function App(): JSX.Element {
   /** Last OSRM /route probe result, rendered as a bright-green polyline. */
   const [testRoute, setTestRoute] = useState<TestRouteResponse | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // ── Current location (opt-in GPS) ────────────────────────────────────
+  const location = useLocation();
+  // After enabling from "off", fly to the first fix once it lands.
+  const recenterOnFixRef = useRef(false);
+  useEffect(() => {
+    if (location.position && recenterOnFixRef.current) {
+      recenterOnFixRef.current = false;
+      mapRef.current?.flyTo({
+        center: location.position,
+        zoom: Math.max(14, mapRef.current.getZoom()),
+        essential: true,
+      });
+    }
+  }, [location.position]);
+  const onLocateClick = useCallback(() => {
+    if (location.position) {
+      mapRef.current?.flyTo({
+        center: location.position,
+        zoom: Math.max(15, mapRef.current.getZoom()),
+        essential: true,
+      });
+    } else {
+      recenterOnFixRef.current = true;
+      location.enable();
+    }
+  }, [location]);
+
   // Bottom obstruction (px) from the mobile command sheet — reported by
   // CommandPanel. Map-fit adds it as bottom padding so framed clusters/tours
   // land in the visible area above the sheet instead of behind it. 0 on desktop.
@@ -502,6 +536,7 @@ export default function App(): JSX.Element {
     cacheCount: detail.cacheCount,
     isShared: detail.isShared,
     hasPreview,
+    startPoint: detail.startPoint,
     createdAt: detail.createdAt,
   });
 
@@ -912,6 +947,58 @@ export default function App(): JSX.Element {
       ),
     [cachesQuery.data, haloCachesQuery.data, tourCaches],
   );
+
+  // ── Follow mode: guide the user through the open tour's stops in order ───
+  const [following, setFollowing] = useState(false);
+  const [followVisited, setFollowVisited] = useState<ReadonlySet<number>>(
+    new Set(),
+  );
+  // Reset when the open tour (or the plan) changes — fresh walk, fresh progress.
+  useEffect(() => {
+    setFollowVisited(new Set());
+    setFollowing(false);
+  }, [openTourId, currentPlanSignature]);
+
+  // The ordered stops with their coordinates, from the plan + cache snapshots.
+  const followStops = useMemo(() => {
+    if (!planResult) return [];
+    const byId = new Map((caches ?? []).map((c) => [c.id, c]));
+    return planResult.orderedCacheIds
+      .map((id) => byId.get(id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        coord: c.location.coordinates as [number, number],
+      }));
+  }, [planResult, caches]);
+
+  const follow = useMemo(() => {
+    if (!following || !location.position || followStops.length === 0) {
+      return null;
+    }
+    return advanceFollow(
+      followStops.map((s) => s.coord),
+      location.position,
+      followVisited,
+    );
+  }, [following, location.position, followStops, followVisited]);
+
+  // Persist auto-advance (arrived stops marked visited). advanceFollow is
+  // idempotent, so this settles after one pass and never loops.
+  useEffect(() => {
+    if (follow && follow.visited.size !== followVisited.size) {
+      setFollowVisited(follow.visited);
+    }
+  }, [follow, followVisited]);
+
+  const followTarget =
+    follow && follow.targetIndex >= 0 ? followStops[follow.targetIndex] : null;
+  const followDistanceM =
+    followTarget && location.position
+      ? haversineMeters(location.position, followTarget.coord)
+      : null;
 
   // Cover the opened saved tour with the search circle (recenter): its caches
   // load and the circle frames it, instead of the circle staying at the old
@@ -1447,6 +1534,90 @@ export default function App(): JSX.Element {
           >
             <Navigation size={16} aria-hidden="true" /> Navigate to parking
           </a>
+
+          {followStops.length > 0 && (
+            <div className="follow">
+              {!following ? (
+                <button
+                  type="button"
+                  className="follow__start"
+                  onClick={() => {
+                    if (!location.position) location.enable();
+                    setFollowing(true);
+                  }}
+                  disabled={location.status === "unavailable"}
+                  title="Track your position and guide you stop-to-stop; walking directions open in your maps app."
+                >
+                  <LocateFixed size={16} aria-hidden="true" /> Follow on foot
+                </button>
+              ) : !location.position ? (
+                <div className="follow__status muted">
+                  Waiting for your GPS position…
+                  <button type="button" onClick={() => setFollowing(false)}>
+                    Stop
+                  </button>
+                </div>
+              ) : followTarget ? (
+                <div className="follow__active">
+                  <div className="follow__next">
+                    <span className="follow__next-label">Next</span>
+                    <strong>{followTarget.code}</strong>
+                    <span className="follow__next-dist">
+                      {followDistanceM! < 950
+                        ? `${Math.round(followDistanceM! / 10) * 10} m`
+                        : `${(followDistanceM! / 1000).toFixed(2)} km`}
+                    </span>
+                  </div>
+                  <div className="follow__actions">
+                    <a
+                      className="follow__nav"
+                      href={
+                        parkingNavTarget({
+                          coordinates: followTarget.coord,
+                        }).href
+                      }
+                      {...(parkingNavTarget({
+                        coordinates: followTarget.coord,
+                      }).external
+                        ? { target: "_blank", rel: "noreferrer" }
+                        : {})}
+                      title="Walking directions to this stop (opens your maps app)"
+                    >
+                      <Navigation size={14} aria-hidden="true" /> Navigate
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        follow &&
+                        setFollowVisited((p) =>
+                          new Set(p).add(follow.targetIndex),
+                        )
+                      }
+                    >
+                      Mark done
+                    </button>
+                    <button type="button" onClick={() => setFollowing(false)}>
+                      Stop
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="follow__done">
+                  <span>Tour complete 🎉</span>
+                  <button
+                    type="button"
+                    onClick={() => setFollowVisited(new Set())}
+                  >
+                    Restart
+                  </button>
+                  <button type="button" onClick={() => setFollowing(false)}>
+                    Stop
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="gpx-quick">
             {editingTour ? (
               <>
@@ -1962,8 +2133,51 @@ export default function App(): JSX.Element {
               onStatsChange={setWalkingGraphStats}
             />
             <TestRouteLayer result={testRoute} />
+            <CurrentLocationLayer
+              position={location.position}
+              accuracyM={location.accuracyM}
+            />
+            <FollowTargetLayer target={followTarget?.coord ?? null} />
             <ZoomDebugBadge />
           </MapView>
+
+          <button
+            type="button"
+            className={`map-locate-btn${location.status === "watching" ? " map-locate-btn--active" : ""}`}
+            onClick={onLocateClick}
+            disabled={
+              location.status === "denied" || location.status === "unavailable"
+            }
+            aria-pressed={location.status === "watching"}
+            aria-label={
+              location.status === "denied"
+                ? "Location permission denied"
+                : location.status === "watching"
+                  ? "Centre on my location"
+                  : "Show my location"
+            }
+            title={
+              location.status === "denied"
+                ? "Location permission was denied — allow it in your browser settings."
+                : location.status === "unavailable"
+                  ? "Location isn’t available on this device."
+                  : location.status === "locating"
+                    ? "Locating…"
+                    : location.status === "watching"
+                      ? "Centre on my location"
+                      : "Show my location on the map"
+            }
+          >
+            <LocateFixed
+              size={20}
+              aria-hidden="true"
+              className={
+                location.status === "locating"
+                  ? "map-locate-btn__spin"
+                  : undefined
+              }
+            />
+          </button>
 
           {/* Offline fallback: when basemap tiles can't load, show the opened
               tour's stored snapshot (FR-W4) — it bakes in the basemap + route.

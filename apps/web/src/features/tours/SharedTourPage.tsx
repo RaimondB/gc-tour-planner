@@ -6,9 +6,12 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { PlanResult, SharedTour } from "@gctp/shared/tours";
 import { type ApiError, getSharedTour } from "../../lib/api.js";
+import { LocateFixed } from "lucide-react";
 import { MapView } from "../map/MapView.js";
 import { TourLayer } from "../map/TourLayer.js";
+import { CurrentLocationLayer } from "../map/CurrentLocationLayer.js";
 import { useMap } from "../map/MapContext.js";
+import { useLocation } from "../location/LocationProvider.js";
 import { tourCachesToSummaries } from "./saved-tour-view.js";
 
 function km(meters: number): string {
@@ -128,6 +131,7 @@ export function SharedTourPage(): JSX.Element {
   }, [bounds]);
 
   const gone = query.isError && (query.error as ApiError)?.status === 404;
+  const location = useLocation();
 
   return (
     <div className="shared-tour">
@@ -168,8 +172,33 @@ export function SharedTourPage(): JSX.Element {
           <div className="shared-tour__map">
             <MapView initialCenter={center} initialZoom={13}>
               <TourLayer result={planLike} caches={summaries} />
+              <CurrentLocationLayer
+                position={location.position}
+                accuracyM={location.accuracyM}
+              />
               <FitToTour bounds={bounds} />
             </MapView>
+            <button
+              type="button"
+              className={`map-locate-btn${location.status === "watching" ? " map-locate-btn--active" : ""}`}
+              onClick={() => location.enable()}
+              disabled={
+                location.status === "denied" ||
+                location.status === "unavailable"
+              }
+              aria-label="Show my location"
+              title="Show my location relative to this tour"
+            >
+              <LocateFixed
+                size={20}
+                aria-hidden="true"
+                className={
+                  location.status === "locating"
+                    ? "map-locate-btn__spin"
+                    : undefined
+                }
+              />
+            </button>
           </div>
           <ol className="shared-tour__list">
             {shared.caches.map((c, i) => (

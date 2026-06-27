@@ -189,6 +189,9 @@ export class SavedToursService {
       cacheCount: r.cache_count,
       isShared: r.is_shared,
       hasPreview: r.has_preview,
+      startPoint: JSON.parse(
+        r.start_geojson,
+      ) as Tours.SavedTourSummary["startPoint"],
       createdAt: r.created_at.toISOString(),
     };
   }
@@ -196,9 +199,6 @@ export class SavedToursService {
   private toDetail(r: TourDetailRow): Tours.SavedTourDetail {
     return {
       ...this.toSummary(r),
-      startPoint: JSON.parse(
-        r.start_geojson,
-      ) as Tours.SavedTourDetail["startPoint"],
       parkingPoint: r.parking_geojson
         ? (JSON.parse(
             r.parking_geojson,

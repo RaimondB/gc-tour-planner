@@ -3032,6 +3032,87 @@ button.danger:hover:not(:disabled) {
   }
 }
 
+/* ── "Locate me" map control (opt-in GPS) ────────────────────────────────── */
+.map-locate-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 96px;
+  z-index: 5;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d1d5db;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #374151;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.map-locate-btn:hover {
+  background: #f3f4f6;
+}
+.map-locate-btn--active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+.map-locate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.map-locate-btn__spin {
+  animation: gctp-spin 1s linear infinite;
+}
+@keyframes gctp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── My Tours: proximity sort + distance badge ───────────────────────────── */
+.tours-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+.tours-sort__label {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+.tours-sort__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.tours-sort__btn--on {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+.tours-sort__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.badge--distance {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.78rem;
+}
+
 /* Placeholder when a saved tour has no captured preview yet (My Tours list). */
 .tours-list__thumb--placeholder {
   display: flex;
@@ -3039,4 +3120,68 @@ button.danger:hover:not(:disabled) {
   justify-content: center;
   color: #9ca3af;
   cursor: pointer;
+}
+
+/* ── Follow mode (guided tour walking) ───────────────────────────────────── */
+.follow {
+  margin: 0.5rem 0;
+}
+.follow__start {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.follow__start:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.follow__active,
+.follow__done,
+.follow__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+.follow__next {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.follow__next-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #92400e;
+}
+.follow__next-dist {
+  font-variant-numeric: tabular-nums;
+  color: #b45309;
+  font-weight: 600;
+}
+.follow__actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.follow__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.follow__actions button {
+  padding: 0.25rem 0.6rem;
 }
