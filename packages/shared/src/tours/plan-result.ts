@@ -162,5 +162,13 @@ export const PlanResult = z.object({
    * still the source of truth for non-edit-mode rendering.
    */
   legs: z.array(PlanLeg).default([]),
+  /**
+   * Human "place" label for the tour — the nearest town / named park resolved
+   * server-side from OSM (ADR-0036), e.g. "Wageningen" or "Bospark". Drives a
+   * recognisable default tour name + GPX filename. Absent when nothing resolves
+   * (or for plans made before this existed); the client falls back to the
+   * parking name, then distance + cache count.
+   */
+  placeLabel: z.string().optional(),
 });
 export type PlanResult = z.infer<typeof PlanResult>;

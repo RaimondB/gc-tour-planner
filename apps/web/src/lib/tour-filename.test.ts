@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanResult } from "@gctp/shared/tours";
 
-import { suggestTourName, tourFilename } from "./tour-filename.js";
+import { suggestTourName, tourFilename, tourPlace } from "./tour-filename.js";
 
 // Minimal PlanResult — only the fields tourFilename reads.
 function plan(over: Partial<PlanResult> = {}): PlanResult {
@@ -101,5 +101,38 @@ describe("suggestTourName", () => {
         }),
       ),
     ).toBe("12 km loop · 1 cache");
+  });
+
+  it("prefers the server place label over the parking name", () => {
+    const p = plan({
+      placeLabel: "Wageningen",
+      parking: {
+        type: "osm",
+        point: { type: "Point", coordinates: [0, 0] },
+        reason: "",
+        fallback: false,
+        osm: {
+          osmId: 1,
+          osmType: "W",
+          access: null,
+          fee: null,
+          name: "Bospark P3",
+        },
+      },
+    });
+    expect(suggestTourName(p)).toBe("Wageningen — 8.3 km · 3 caches");
+  });
+});
+
+describe("tourPlace (shared save↔download anchor)", () => {
+  it("prefers placeLabel, then parking name, else null", () => {
+    expect(tourPlace(plan({ placeLabel: "Wageningen" }))).toBe("Wageningen");
+    expect(tourPlace(plan())).toBeNull();
+  });
+
+  it("feeds the GPX filename too, so save + download agree", () => {
+    expect(
+      tourFilename(plan({ placeLabel: "Wageningen" }), "track", JUN17),
+    ).toBe("gctp-wageningen-8.3km-3c-Jun17-track.gpx");
   });
 });

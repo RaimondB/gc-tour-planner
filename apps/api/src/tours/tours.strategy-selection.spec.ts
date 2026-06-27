@@ -100,6 +100,11 @@ function makeService(opts: {
         makeMatrix(ids, unreachable),
       ),
   } as unknown as RoutingService;
+  // Place-label resolution is best-effort; stub it to "no match" so the
+  // strategy-selection assertions don't depend on OSM place data.
+  const places = {
+    resolvePlaceLabel: vi.fn().mockResolvedValue(null),
+  } as unknown as import("../osm/places.repository.js").PlacesRepository;
 
   const svc = new ToursService(
     null as never, // planner (legacy single binding, unused by planLoop)
@@ -114,6 +119,7 @@ function makeService(opts: {
     null as never, // osrm
     null as never, // osrmVersion
     null as never, // adventureLab
+    places,
   );
   return { svc, greedy, solver };
 }

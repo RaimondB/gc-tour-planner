@@ -267,6 +267,11 @@ type PlanResult = {
   // the wire `polyline` above remains the concatenation of the
   // picker's chosen alternatives for back-compat with older clients.
   legs: PlanLeg[];
+  // ADR-0036: human "place" for the tour — nearest town / named park resolved
+  // server-side from OSM (place_points / named landuse). Drives the default tour
+  // name + GPX filename. Absent when nothing resolves (client falls back to the
+  // parking name, then distance + caches).
+  placeLabel?: string;
 };
 
 type PlanLeg = {
