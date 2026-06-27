@@ -258,4 +258,115 @@ describe("M6-γ saved-tours persistence (PostGIS via Testcontainers)", () => {
     // orderedCacheIds still records the missing id verbatim.
     expect(detail.plan.orderedCacheIds).toContain(9_999_999);
   });
+
+  // ── M6-δ sharing (FR-P3 / ADR-0022) ──────────────────────────────────────
+
+  it("share mints an opaque slug, is idempotent, and the public read drops internals", async () => {
+    const saved = await service.save(ownerId, {
+      name: "Shareable",
+      plan: makePlan(cacheIds, park),
+    });
+    const res = await service.share(ownerId, saved.id);
+    expect(res.slug).toMatch(/^[a-z2-7]{16}$/); // 16-char base32, ~80 bits
+    expect(res.path).toBe(`/shared/${res.slug}`);
+    // Idempotent: re-sharing returns the same slug.
+    expect((await service.share(ownerId, saved.id)).slug).toBe(res.slug);
+    expect((await service.getById(ownerId, saved.id)).isShared).toBe(true);
+
+    // Public read carries only the safe subset.
+    const shared = await service.getSharedBySlug(res.slug);
+    expect(() => Tours.SharedTour.parse(shared)).not.toThrow();
+    expect(shared.name).toBe("Shareable");
+    expect(shared.caches).toHaveLength(2);
+    expect(shared.totals.meters).toBeCloseTo(1234.5, 1);
+    expect(shared.parking?.coordinates).toEqual(park);
+    // No score breakdown / owner identity / per-leg / dropped leak.
+    expect(shared).not.toHaveProperty("scoreBreakdown");
+    expect(shared).not.toHaveProperty("ownerId");
+    expect(shared).not.toHaveProperty("legs");
+    expect(shared).not.toHaveProperty("droppedCaches");
+
+    // Cross-tenant share is a 404 (and mints nothing).
+    await expect(service.share(otherId, saved.id)).rejects.toThrow(
+      /not found/i,
+    );
+  });
+
+  it("unshare revokes the slug; the old link 404s, cross-tenant unshare 404s", async () => {
+    const saved = await service.save(ownerId, {
+      name: "Revoke me",
+      plan: makePlan(cacheIds, park),
+    });
+    const { slug } = await service.share(ownerId, saved.id);
+    expect((await service.getSharedBySlug(slug)).name).toBe("Revoke me");
+
+    // Cross-tenant unshare 404s and leaves the share intact.
+    await expect(service.unshare(otherId, saved.id)).rejects.toThrow(
+      /not found/i,
+    );
+    expect((await service.getSharedBySlug(slug)).name).toBe("Revoke me");
+
+    await service.unshare(ownerId, saved.id);
+    await expect(service.getSharedBySlug(slug)).rejects.toThrow(/not found/i);
+    expect((await service.getById(ownerId, saved.id)).isShared).toBe(false);
+  });
+
+  it("getSharedBySlug 404s for an unknown slug", async () => {
+    await expect(service.getSharedBySlug("zzzzzzzzzzzzzzzz")).rejects.toThrow(
+      /not found/i,
+    );
+  });
+
+  it("a fallback-parking tour shares with a null parking point", async () => {
+    const saved = await service.save(ownerId, {
+      name: "Centroid share",
+      plan: makePlan(cacheIds, park, { fallback: true }),
+    });
+    const { slug } = await service.share(ownerId, saved.id);
+    expect((await service.getSharedBySlug(slug)).parking).toBeNull();
+  });
+
+  // ── M6 edit-and-resave (FR-P2.4) ─────────────────────────────────────────
+
+  it("update overwrites route + snapshot, preserves created_at / share / preview; 404 cross-tenant", async () => {
+    const saved = await service.save(ownerId, {
+      name: "Editable",
+      plan: makePlan(cacheIds, park, { meters: 1000, seconds: 500 }),
+    });
+    const createdAt = saved.createdAt;
+    const { slug } = await service.share(ownerId, saved.id);
+    const bytes = Buffer.from([1, 2, 3, 4]);
+    await service.savePreview(ownerId, saved.id, bytes, "image/webp");
+
+    // Cross-tenant update 404s and changes nothing.
+    await expect(
+      service.update(otherId, saved.id, {
+        name: "Hijack",
+        plan: makePlan(cacheIds, park, { meters: 9 }),
+      }),
+    ).rejects.toThrow(/not found/i);
+    expect((await service.getById(ownerId, saved.id)).name).toBe("Editable");
+
+    // Owner overwrites with a re-planned route (drop one cache, new totals).
+    const newPark: [number, number] = [5.13, 52.1];
+    const updated = await service.update(ownerId, saved.id, {
+      name: "Edited",
+      plan: makePlan([cacheIds[0]!], newPark, { meters: 2222, seconds: 999 }),
+    });
+    expect(updated.name).toBe("Edited");
+    expect(updated.totalMeters).toBeCloseTo(2222, 0);
+    expect(updated.startPoint.coordinates).toEqual(newPark);
+    expect(updated.plan.orderedCacheIds).toEqual([cacheIds[0]]);
+    // Snapshot re-derived (one cache now).
+    expect(updated.plan.caches).toHaveLength(1);
+    // created_at preserved (same row, not re-inserted).
+    expect(updated.createdAt).toBe(createdAt);
+    // Share preserved — the slug still resolves and reflects the new name.
+    expect(updated.isShared).toBe(true);
+    expect((await service.getSharedBySlug(slug)).name).toBe("Edited");
+    // Preview preserved.
+    expect((await service.getById(ownerId, saved.id)).hasPreview).toBe(true);
+    const preview = await service.getPreview(ownerId, saved.id);
+    expect(Buffer.compare(preview.image, bytes)).toBe(0);
+  });
 });

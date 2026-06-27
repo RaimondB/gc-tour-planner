@@ -94,7 +94,11 @@ const FEATURES: readonly { title: string; body: string }[] = [
   },
   {
     title: "Saved tours & Google sign-in",
-    body: "Create an account or sign in with Google, then save your planned tours and pick up where you left off.",
+    body: "Create an account or sign in with Google, then save your planned tours and pick up where you left off — edit and re-save a tour, or save a copy.",
+  },
+  {
+    title: "Share a read-only link",
+    body: "Send anyone a private link to a tour — they see the map, the stops, and the totals, no account needed. Revoke it anytime.",
   },
 ];
 

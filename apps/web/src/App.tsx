@@ -16,6 +16,8 @@ import type {
   ClusterCandidate,
   ClusterDiagnostics,
   PlanResult,
+  SavedTourDetail,
+  SavedTourSummary,
 } from "@gctp/shared/tours";
 import {
   augmentClusterLabs,
@@ -25,10 +27,11 @@ import {
   saveTour,
   saveTourPreview,
   tourPreviewUrl,
+  updateTour,
 } from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
 import { downloadGpx } from "./lib/gpx-download.js";
-import { tourFilename } from "./lib/tour-filename.js";
+import { suggestTourName, tourFilename } from "./lib/tour-filename.js";
 import { captureMapSnapshot } from "./lib/map-snapshot.js";
 import {
   useOnline,
@@ -36,6 +39,7 @@ import {
 } from "./features/shell/ConnectivityProvider.js";
 import { useTourSession } from "./features/tours/TourSessionProvider.js";
 import {
+  applyLegEdits,
   buildEditedPolyline,
   type LegPicks,
   planSignature,
@@ -263,6 +267,20 @@ export default function App(): JSX.Element {
   // clear-on-plan behaviour — now a derivation, not a side-effect).
   const planResult = plannedResult ?? openedPlan;
   const viewingOpenedTour = plannedResult === null && openedPlan !== null;
+
+  // The saved tour the current plan belongs to (FR-P2.4), so "Save changes" can
+  // overwrite it. Set when a tour is opened; preserved across a re-plan *of that
+  // tour* (captured in `setPlannedResult` before the session closes); cleared
+  // when a plan is made with no tour open (a genuinely fresh tour). Survives only
+  // within the planner session — leaving the route (App unmount) resets it.
+  const [editingTour, setEditingTour] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  useEffect(() => {
+    if (openedDetail)
+      setEditingTour({ id: openedDetail.id, name: openedDetail.name });
+  }, [openedDetail]);
   /** Manual cluster selection (shift-click markers) — drives the Cluster Lab. */
   const [selectedCacheIds, setSelectedCacheIds] = useState<ReadonlySet<number>>(
     () => new Set(),
@@ -331,13 +349,21 @@ export default function App(): JSX.Element {
       setPlannedResultRaw(next);
       if (next) {
         setActiveStep("tour");
+        // If a saved tour was open, this re-plan is an *edit of that tour* —
+        // keep it as the "Save changes" target. A plan with no tour open is a
+        // brand-new tour, so clear any stale editing target.
+        setEditingTour(
+          openedDetail
+            ? { id: openedDetail.id, name: openedDetail.name }
+            : null,
+        );
         closeTour();
       }
       setSelectedLegIndex(null);
       setPreviewAlternativeIndex(null);
       setViaDrag(null);
     },
-    [setActiveStep, closeTour],
+    [setActiveStep, closeTour, openedDetail],
   );
 
   const startViaDrag = useCallback(
@@ -452,39 +478,112 @@ export default function App(): JSX.Element {
     },
   });
 
-  // ── Save tour (M6-γ, FR-P1) ──────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (name: string) => {
-      if (!planResult) throw new Error("No tour to save");
-      return saveTour({ name, plan: planResult });
-    },
+  // ── Save tour (M6-γ FR-P1, M6 FR-P2.4) ───────────────────────────────
+  // A single awaited sequence shared by create / overwrite / copy so the save
+  // is deterministic: the tour is persisted, its preview captured + uploaded,
+  // and the My Tours cache reconciled — all BEFORE we navigate. No fire-and-
+  // forget preview race, and the list row + thumbnail are present on arrival.
+  const [saving, setSaving] = useState<"saving" | "preview" | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = window.setTimeout(() => setJustSaved(false), 2500);
+    return () => window.clearTimeout(t);
+  }, [justSaved]);
+
+  const summaryOf = (
+    detail: SavedTourDetail,
+    hasPreview: boolean,
+  ): SavedTourSummary => ({
+    id: detail.id,
+    name: detail.name,
+    totalMeters: detail.totalMeters,
+    totalSeconds: detail.totalSeconds,
+    cacheCount: detail.cacheCount,
+    isShared: detail.isShared,
+    hasPreview,
+    createdAt: detail.createdAt,
   });
-  const onSaveTour = useCallback(() => {
-    if (!planResult || saveMutation.isPending || !online) return;
-    const name = window.prompt("Name this tour")?.trim();
-    if (!name) return;
-    saveMutation.mutate(name, {
-      onSuccess: async (detail) => {
-        // Snapshot the framed tour for its offline preview / list thumbnail
-        // (FR-W4) BEFORE navigating away unmounts the map. Capture the blob
-        // synchronously (the tour is already drawn + idle), then upload in the
-        // background — best-effort, never blocks the save or the nav.
+
+  const persistTour = useCallback(
+    async (target: { id: string; name: string } | null, name: string) => {
+      if (!planResult) return;
+      // Bake the user's per-leg edits (alt/via picks) into what gets stored so a
+      // reopened tour re-renders them (FR-P2.4 / FR-E2..E5).
+      const plan = applyLegEdits(planResult, legPicks);
+      setJustSaved(false);
+      setSaving("saving");
+      try {
+        const detail = target
+          ? await updateTour(target.id, { name, plan })
+          : await saveTour({ name, plan });
+
+        // Capture + upload the preview while the map is still mounted (FR-W4).
+        // Best-effort: a failed/blocked capture must not fail the save.
+        setSaving("preview");
+        let hasPreview = detail.hasPreview;
         const map = mapRef.current;
         if (map) {
-          const blob = await captureMapSnapshot(map);
-          if (blob)
-            void saveTourPreview(detail.id, blob)
-              // Refresh My Tours so the new thumbnail shows without a manual
-              // reload (the list was fetched before the upload landed).
-              .then(() =>
-                queryClient.invalidateQueries({ queryKey: ["tours"] }),
-              )
-              .catch(() => {});
+          const blob = await captureMapSnapshot(map).catch(() => null);
+          if (blob) {
+            try {
+              await saveTourPreview(detail.id, blob);
+              hasPreview = true;
+            } catch {
+              /* tour is saved; the preview is best-effort */
+            }
+          }
         }
-        void navigate({ to: "/tours" });
-      },
-    });
-  }, [planResult, saveMutation, navigate, queryClient, online]);
+
+        // Make My Tours deterministic: optimistically upsert the summary +
+        // cache the detail, then await the reconcile so the list is correct the
+        // instant the user lands on it (no missing-row flicker, no late thumb).
+        const summary = summaryOf(detail, hasPreview);
+        queryClient.setQueryData<SavedTourSummary[]>(["tours"], (old) => [
+          summary,
+          ...(old ?? []).filter((t) => t.id !== detail.id),
+        ]);
+        queryClient.setQueryData(["tour", detail.id], {
+          ...detail,
+          hasPreview,
+        });
+        await queryClient.invalidateQueries({ queryKey: ["tours"] });
+        if (target) {
+          await queryClient.invalidateQueries({
+            queryKey: ["tour", target.id],
+          });
+        }
+        // The stored plan carries the baked edits, so the new signature's edit
+        // keys are redundant — drop them so a reopen renders cleanly.
+        prunePlanEditKeys(planSignature(plan));
+      } finally {
+        setSaving(null);
+      }
+    },
+    [planResult, legPicks, queryClient],
+  );
+
+  // Save as a brand-new tour (POST) — first save, or an explicit copy.
+  const onSaveNew = useCallback(async () => {
+    if (!planResult || saving || !online) return;
+    // Pre-fill an editable suggestion: "<name> (copy)" for a copy, else a
+    // recognisable place·distance·caches default the user can accept or tweak.
+    const suggested = editingTour
+      ? `${editingTour.name} (copy)`
+      : suggestTourName(planResult);
+    const name = window.prompt("Name this tour", suggested)?.trim();
+    if (!name) return;
+    await persistTour(null, name);
+    void navigate({ to: "/tours" });
+  }, [planResult, saving, online, editingTour, persistTour, navigate]);
+
+  // Overwrite the tour being edited (PUT), keeping its name. Stays on the tour
+  // view with a transient "Saved ✓" — the user is mid-edit, not done browsing.
+  const onSaveChanges = useCallback(async () => {
+    if (!planResult || saving || !online || !editingTour) return;
+    await persistTour(editingTour, editingTour.name);
+    setJustSaved(true);
+  }, [planResult, saving, online, editingTour, persistTour]);
 
   // ── Opened saved tour (M6-γ, FR-P2.2 / FR-W3) ────────────────────────
   // Opening, resuming, switching and the offline-durable data all live in
@@ -1349,25 +1448,63 @@ export default function App(): JSX.Element {
             <Navigation size={16} aria-hidden="true" /> Navigate to parking
           </a>
           <div className="gpx-quick">
-            <button
-              type="button"
-              className="primary"
-              onClick={onSaveTour}
-              disabled={saveMutation.isPending || !online}
-              title={
-                !online
-                  ? OFFLINE_REASON
-                  : "Save this tour to My Tours so you can re-open it later."
-              }
-            >
-              {saveMutation.isPending ? (
-                "Saving…"
-              ) : (
-                <>
-                  <Save size={16} aria-hidden="true" /> Save tour
-                </>
-              )}
-            </button>
+            {editingTour ? (
+              <>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={onSaveChanges}
+                  disabled={!!saving || !online}
+                  title={
+                    !online
+                      ? OFFLINE_REASON
+                      : `Overwrite “${editingTour.name}” with your edits.`
+                  }
+                >
+                  {saving === "saving" ? (
+                    "Saving…"
+                  ) : saving === "preview" ? (
+                    "Capturing preview…"
+                  ) : justSaved ? (
+                    "Saved ✓"
+                  ) : (
+                    <>
+                      <Save size={16} aria-hidden="true" /> Save changes
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={onSaveNew}
+                  disabled={!!saving || !online}
+                  title="Save these edits as a separate new tour, keeping the original."
+                >
+                  Save as a copy
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="primary"
+                onClick={onSaveNew}
+                disabled={!!saving || !online}
+                title={
+                  !online
+                    ? OFFLINE_REASON
+                    : "Save this tour to My Tours so you can re-open it later."
+                }
+              >
+                {saving === "saving" ? (
+                  "Saving…"
+                ) : saving === "preview" ? (
+                  "Capturing preview…"
+                ) : (
+                  <>
+                    <Save size={16} aria-hidden="true" /> Save tour
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => saveGpx("track")}

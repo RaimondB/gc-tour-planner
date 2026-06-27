@@ -147,6 +147,7 @@ It exposes **no** owner id/email/display name, **no** other tours, **no** score 
 | `GET /tours` | session | — | Owner-scoped summaries (FR-P2) |
 | `GET /tours/:id` | session | — | Full detail; cross-tenant → 404 |
 | `PATCH /tours/:id` | session | yes | Rename |
+| `PUT /tours/:id` | session | yes | Overwrite route + snapshot in place (FR-P2.4); keeps `created_at`, share slug, preview |
 | `DELETE /tours/:id` | session | yes | Delete (revokes any share) |
 | `PUT /tours/:id/preview` | session | yes | Store the WebP map snapshot (FR-W4); owner-scoped, ≤512 KB |
 | `GET /tours/:id/preview` | session | — | Read the snapshot; cross-tenant/none → 404 (FR-W4) |
@@ -162,12 +163,12 @@ Shared zod schemas in `packages/shared`: `RegisterInput`, `LoginInput`, `SetPass
 - **Router (first in the app):** TanStack Router pairs with the existing TanStack Query and is fully typed. Today's whole `App.tsx` becomes the protected `/` route; public routes are `/welcome` (marketing landing), `/login`, `/register`, and `/shared/:slug`.
 - **Auth context:** an `AuthProvider` exposing `useAuth()`, backed by a `GET /auth/me` query; protected routes redirect to `/login` when unauthenticated.
 - **`api.ts`:** add `credentials: "include"`; read the `csrf` cookie and send it as `X-CSRF-Token` on mutating calls; a central interceptor maps 401 → redirect to `/login`.
-- **Shared view:** the public `/shared/:slug` route renders a stripped-down read-only map reusing `MapView`/`TourLayer`/`CachesLayer` with no edit/save affordances.
+- **Shared view:** the public `/shared/:slug` route renders a stripped-down read-only map reusing `MapView`/`TourLayer` (route + parking + numbered stops) with no edit/save affordances. It does **not** use the owner-scoped `CachesLayer` — the cache markers come from the snapshot via `TourLayer`'s numbered stops, so the anonymous view never issues an owner-scoped `/caches` query.
 - **Out of scope for M6:** forgot-password and email verification (need email-sending infra) — deferred.
 
 **M6-β implementation note.** The auth frontend shipped as described, with these specifics:
 
-- **Router (code-based, not file-based).** `apps/web/src/router.tsx` builds the tree with `createRootRouteWithContext<{ auth }>()` + `createRoute`, avoiding the file-route generator/Vite plugin. Routes: `/` (protected, renders today's `App`), `/welcome` (public landing), `/login`, `/register`. The `/shared/:slug` public route is deferred to **M6-δ** (its `GET /shared/:slug` endpoint doesn't exist until then).
+- **Router (code-based, not file-based).** `apps/web/src/router.tsx` builds the tree with `createRootRouteWithContext<{ auth }>()` + `createRoute`, avoiding the file-route generator/Vite plugin. Routes: `/` (protected, renders today's `App`), `/welcome` (public landing), `/login`, `/register`, `/tours`/`/account` (protected), and the public `/shared/$slug` (M6-δ — **no `beforeLoad` guard**, renders the standalone `SharedTourPage`).
 - **Guard.** The `/` route's `beforeLoad` throws `redirect({ to: "/welcome" })` when `context.auth.isAuthenticated` is false — anonymous visitors land on the public marketing page (`features/landing/LandingPage.tsx`), which carries the Sign in / Create account CTAs into `/login` and `/register`. `main.tsx` holds the router back behind a "Loading…" splash until the initial `/auth/me` probe resolves, so the guard never sees a transient anonymous state and flashes `/welcome` for an already-signed-in user. The router context's `auth` is injected per-render via `<RouterProvider context={{ auth }}>`.
 - **Auth context.** `AuthProvider` (`features/auth/AuthProvider.tsx`) exposes `useAuth()` backed by a `GET /auth/me` React Query (`["auth","me"]`, `retry: false` — a `null`/logged-out answer is valid, not an error). `login`/`register` write the returned `AuthUser` into the query cache; `logout` clears it and `invalidateQueries()` to drop the previous user's owner-scoped caches.
 - **`api.ts` wiring.** Every request sends `credentials: "include"`; state-changing methods echo the readable `csrf` cookie in the `X-CSRF-Token` header (double-submit, §4). A module-level `setUnauthorizedHandler` registers the central 401 → `/login` interceptor; `/auth/*` endpoints opt out so an anonymous `/auth/me` or bad-credentials `/auth/login` surfaces to the caller instead of bouncing.

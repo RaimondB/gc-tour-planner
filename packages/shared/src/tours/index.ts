@@ -14,5 +14,6 @@ export * from "./planner-strategy.js";
 export * from "./rename-tour.js";
 export * from "./save-tour.js";
 export * from "./saved-tour.js";
+export * from "./shared-tour.js";
 export * from "./stored-plan.js";
 export * from "./walking-graph.js";

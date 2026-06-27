@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlanResult } from "@gctp/shared/tours";
 
-import { tourFilename } from "./tour-filename.js";
+import { suggestTourName, tourFilename } from "./tour-filename.js";
 
 // Minimal PlanResult — only the fields tourFilename reads.
 function plan(over: Partial<PlanResult> = {}): PlanResult {
@@ -65,5 +65,41 @@ describe("tourFilename", () => {
     expect(tourFilename(plan(), "track", new Date(2026, 0, 5))).toBe(
       "gctp-8.3km-3c-Jan05-track.gpx",
     );
+  });
+});
+
+describe("suggestTourName", () => {
+  it("uses distance + cache count when parking is unnamed", () => {
+    expect(suggestTourName(plan())).toBe("8.3 km loop · 3 caches");
+  });
+
+  it("prepends the named OSM parking place", () => {
+    const p = plan({
+      parking: {
+        type: "osm",
+        point: { type: "Point", coordinates: [0, 0] },
+        reason: "",
+        fallback: false,
+        osm: {
+          osmId: 1,
+          osmType: "W",
+          access: null,
+          fee: null,
+          name: "Bospark P3",
+        },
+      },
+    });
+    expect(suggestTourName(p)).toBe("Bospark P3 — 8.3 km · 3 caches");
+  });
+
+  it("trims a whole-number distance and singularises one cache", () => {
+    expect(
+      suggestTourName(
+        plan({
+          orderedCacheIds: [1],
+          totals: { meters: 12000, seconds: 0, visitMinutes: 0 },
+        }),
+      ),
+    ).toBe("12 km loop · 1 cache");
   });
 });

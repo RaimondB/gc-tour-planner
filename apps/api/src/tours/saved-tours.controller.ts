@@ -34,8 +34,9 @@ const PREVIEW_MIME = "image/webp";
  * controllers coexist on the same prefix without route conflicts.
  *
  * Every route is owner-scoped via `@CurrentUser()`; a cross-tenant id is a 404,
- * indistinguishable from "does not exist" (FR-P2.2). Sharing (`/tours/:id/share`,
- * public `/shared/:slug`) lands in M6-δ.
+ * indistinguishable from "does not exist" (FR-P2.2). Share *management*
+ * (`POST`/`DELETE /tours/:id/share`, M6-δ / FR-P3) lives here too; the public
+ * read `GET /shared/:slug` is the separate `@Public` {@link SharedTourController}.
  */
 @ApiTags("tours")
 @Controller("tours")
@@ -88,6 +89,48 @@ export class SavedToursController {
       throw new BadRequestException(parsed.error.flatten());
     }
     return this.service.rename(user.id, id, parsed.data.name);
+  }
+
+  @Put(":id")
+  @ApiOperation({ summary: "Overwrite a saved tour in place (FR-P2.4)" })
+  @ApiResponse({ status: 200, description: "The updated tour, full detail." })
+  @ApiResponse({ status: 404, description: "Not found or not yours." })
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<Tours.SavedTourDetail> {
+    const parsed = Tours.UpdateTourInput.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+    return this.service.update(user.id, id, parsed.data);
+  }
+
+  @Post(":id/share")
+  @ApiOperation({ summary: "Mint a read-only share link (FR-P3.1)" })
+  @ApiResponse({
+    status: 201,
+    description: "The share slug + path. Idempotent — re-sharing returns it.",
+  })
+  @ApiResponse({ status: 404, description: "Not found or not yours." })
+  async share(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+  ): Promise<Tours.ShareResponse> {
+    return this.service.share(user.id, id);
+  }
+
+  @Delete(":id/share")
+  @HttpCode(204)
+  @ApiOperation({ summary: "Revoke a tour's share link (FR-P3.4)" })
+  @ApiResponse({ status: 204, description: "Share revoked; old URL now 404s." })
+  @ApiResponse({ status: 404, description: "Not found or not yours." })
+  async unshare(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+  ): Promise<void> {
+    await this.service.unshare(user.id, id);
   }
 
   @Put(":id/preview")

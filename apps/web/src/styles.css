@@ -2949,3 +2949,94 @@ button.danger:hover:not(:disabled) {
     gap: var(--space-1);
   }
 }
+
+/* ── Public shared-tour view (/shared/:slug, FR-P3) ──────────────────────── */
+.shared-tour {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+.shared-tour__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+.shared-tour__title h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.shared-tour__meta {
+  margin: 0.15rem 0 0;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+.shared-tour__cta {
+  flex-shrink: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.shared-tour__status {
+  padding: 2rem 1.25rem;
+}
+.shared-tour__body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: 0;
+}
+.shared-tour__map {
+  position: relative;
+  min-height: 0;
+}
+.shared-tour__list {
+  margin: 0;
+  padding: 0.5rem 0;
+  list-style: none;
+  overflow-y: auto;
+  border-left: 1px solid #e5e7eb;
+}
+.shared-tour__stop {
+  display: grid;
+  grid-template-columns: 1.6rem auto 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.35rem 1rem;
+}
+.shared-tour__stop-n {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #6b7280;
+  text-align: right;
+}
+.shared-tour__stop-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+.shared-tour__stop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .shared-tour__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 60dvh auto;
+  }
+  .shared-tour__list {
+    border-left: none;
+    border-top: 1px solid #e5e7eb;
+  }
+}
+
+/* Placeholder when a saved tour has no captured preview yet (My Tours list). */
+.tours-list__thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  cursor: pointer;
+}

@@ -6,6 +6,10 @@ import type { Tours } from "@gctp/shared";
 import type { Database } from "@gctp/db";
 import { type Kysely, sql } from "kysely";
 import { KYSELY } from "../database/database.tokens.js";
+import { mintShareSlug } from "./share-slug.js";
+
+/** Postgres unique-violation SQLSTATE — a share-slug collision retries. */
+const UNIQUE_VIOLATION = "23505";
 
 /**
  * The derived row a saved tour persists. The service builds this from the
@@ -59,6 +63,19 @@ const SUMMARY_COLUMNS = sql`
   created_at
 `;
 
+/** Summary columns + the geometry/plan a detail row carries. Reused by every
+ *  SELECT/RETURNING that yields a {@link TourDetailRow}. */
+const DETAIL_COLUMNS = sql`
+  id, name, total_meters, total_seconds,
+  cardinality(cache_ids)::int AS cache_count,
+  (share_slug IS NOT NULL) AS is_shared,
+  (preview_image IS NOT NULL) AS has_preview,
+  created_at,
+  ST_AsGeoJSON(start_point) AS start_geojson,
+  ST_AsGeoJSON(parking_point) AS parking_geojson,
+  plan
+`;
+
 /**
  * Persistence for saved tours (M6-γ). Every method is owner-scoped — a
  * cross-tenant id reads/writes nothing, so the service surfaces it as 404
@@ -91,18 +108,104 @@ export class SavedToursRepository {
         ${JSON.stringify(row.scoreBreakdown)}::jsonb,
         ${JSON.stringify(row.plan)}::jsonb
       )
-      RETURNING
-        id, name, total_meters, total_seconds,
-        cardinality(cache_ids)::int AS cache_count,
-        (share_slug IS NOT NULL) AS is_shared,
-        (preview_image IS NOT NULL) AS has_preview,
-        created_at,
-        ST_AsGeoJSON(start_point) AS start_geojson,
-        ST_AsGeoJSON(parking_point) AS parking_geojson,
-        plan
+      RETURNING ${DETAIL_COLUMNS}
     `.execute(this.db);
 
     return inserted.rows[0]!;
+  }
+
+  /**
+   * Overwrite an existing tour in place (FR-P2.4) — re-planned/edited route.
+   * Replaces the typed columns + `plan`, but deliberately leaves `created_at`,
+   * `share_slug`, and the stored preview untouched: editing the route keeps the
+   * tour's share link live and its thumbnail until a fresh snapshot replaces it.
+   * Owner-scoped — returns null cross-tenant (→ service 404).
+   */
+  async update(
+    ownerId: string,
+    id: string,
+    row: Omit<SaveTourRow, "ownerId">,
+  ): Promise<TourDetailRow | null> {
+    const start = sql`ST_SetSRID(ST_MakePoint(${row.startPoint.lng}, ${row.startPoint.lat}), 4326)::geography`;
+    const parking = row.parkingPoint
+      ? sql`ST_SetSRID(ST_MakePoint(${row.parkingPoint.lng}, ${row.parkingPoint.lat}), 4326)::geography`
+      : sql`NULL`;
+    const geom = sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(row.geom)}), 4326)::geography`;
+
+    const updated = await sql<TourDetailRow>`
+      UPDATE tours SET
+        name = ${row.name},
+        start_point = ${start},
+        parking_point = ${parking},
+        cache_ids = ${sql.val(row.cacheIds)}::bigint[],
+        total_meters = ${row.totalMeters},
+        total_seconds = ${row.totalSeconds},
+        geom = ${geom},
+        score_breakdown = ${JSON.stringify(row.scoreBreakdown)}::jsonb,
+        plan = ${JSON.stringify(row.plan)}::jsonb
+      WHERE owner_id = ${ownerId} AND id = ${id}
+      RETURNING ${DETAIL_COLUMNS}
+    `.execute(this.db);
+
+    return updated.rows[0] ?? null;
+  }
+
+  /**
+   * Mint (or return the existing) opaque share slug for a tour (FR-P3.1).
+   * Idempotent via COALESCE — an already-shared tour keeps its slug. Retries on
+   * the rare slug collision with another tour. Null cross-tenant (→ 404).
+   */
+  async share(ownerId: string, id: string): Promise<string | null> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidate = mintShareSlug();
+      try {
+        const result = await sql<{ share_slug: string | null }>`
+          UPDATE tours
+          SET share_slug = COALESCE(share_slug, ${candidate})
+          WHERE owner_id = ${ownerId} AND id = ${id}
+          RETURNING share_slug
+        `.execute(this.db);
+        const updated = result.rows[0];
+        if (!updated) return null; // cross-tenant / missing
+        return updated.share_slug; // existing slug, or the one just minted
+      } catch (err) {
+        // Collided with another tour's slug — only possible when this row's
+        // share_slug was NULL (COALESCE kept an existing one unchanged). Retry.
+        if ((err as { code?: string }).code === UNIQUE_VIOLATION) continue;
+        throw err;
+      }
+    }
+    throw new Error(
+      "Could not mint a unique share slug after several attempts",
+    );
+  }
+
+  /** Revoke a tour's share (FR-P3.4) — nulls the slug. False cross-tenant. */
+  async unshare(ownerId: string, id: string): Promise<boolean> {
+    const result = await this.db
+      .updateTable("tours")
+      .set({ share_slug: null })
+      .where("owner_id", "=", ownerId)
+      .where("id", "=", id)
+      .returning("id")
+      .executeTakeFirst();
+    return !!result;
+  }
+
+  /**
+   * Public slug lookup (FR-P3.2) — **NOT owner-scoped** by design: this backs
+   * the anonymous `GET /shared/:slug` read. Returns only the tour name + stored
+   * `plan` snapshot; the service projects the safe public subset (ADR-0022).
+   */
+  async findBySlug(
+    slug: string,
+  ): Promise<{ name: string; plan: unknown } | null> {
+    const row = await this.db
+      .selectFrom("tours")
+      .select(["name", "plan"])
+      .where("share_slug", "=", slug)
+      .executeTakeFirst();
+    return row ?? null;
   }
 
   async list(ownerId: string): Promise<TourSummaryRow[]> {
@@ -117,15 +220,7 @@ export class SavedToursRepository {
 
   async findById(ownerId: string, id: string): Promise<TourDetailRow | null> {
     const result = await sql<TourDetailRow>`
-      SELECT
-        id, name, total_meters, total_seconds,
-        cardinality(cache_ids)::int AS cache_count,
-        (share_slug IS NOT NULL) AS is_shared,
-        (preview_image IS NOT NULL) AS has_preview,
-        created_at,
-        ST_AsGeoJSON(start_point) AS start_geojson,
-        ST_AsGeoJSON(parking_point) AS parking_geojson,
-        plan
+      SELECT ${DETAIL_COLUMNS}
       FROM tours
       WHERE owner_id = ${ownerId} AND id = ${id}
     `.execute(this.db);
@@ -142,15 +237,7 @@ export class SavedToursRepository {
       UPDATE tours
       SET name = ${name}
       WHERE owner_id = ${ownerId} AND id = ${id}
-      RETURNING
-        id, name, total_meters, total_seconds,
-        cardinality(cache_ids)::int AS cache_count,
-        (share_slug IS NOT NULL) AS is_shared,
-        (preview_image IS NOT NULL) AS has_preview,
-        created_at,
-        ST_AsGeoJSON(start_point) AS start_geojson,
-        ST_AsGeoJSON(parking_point) AS parking_geojson,
-        plan
+      RETURNING ${DETAIL_COLUMNS}
     `.execute(this.db);
     return result.rows[0] ?? null;
   }
