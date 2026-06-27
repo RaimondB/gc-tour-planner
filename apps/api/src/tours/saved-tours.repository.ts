@@ -40,13 +40,14 @@ export interface TourSummaryRow {
   cache_count: number;
   is_shared: boolean;
   has_preview: boolean;
+  /** GeoJSON string from ST_AsGeoJSON(start_point) — the tour's start anchor,
+   *  for client-side "distance from me" + nearest-first sort on the list. */
+  start_geojson: string;
   created_at: Date;
 }
 
 /** Full row for detail / just-saved responses. */
 export interface TourDetailRow extends TourSummaryRow {
-  /** GeoJSON string from ST_AsGeoJSON. */
-  start_geojson: string;
   parking_geojson: string | null;
   /** Parsed JSONB — validated by the service against StoredPlan. */
   plan: unknown;
@@ -60,6 +61,7 @@ const SUMMARY_COLUMNS = sql`
   cardinality(cache_ids)::int AS cache_count,
   (share_slug IS NOT NULL) AS is_shared,
   (preview_image IS NOT NULL) AS has_preview,
+  ST_AsGeoJSON(start_point) AS start_geojson,
   created_at
 `;
 

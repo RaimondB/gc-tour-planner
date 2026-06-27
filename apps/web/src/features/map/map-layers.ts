@@ -98,6 +98,12 @@ export const MAP_LAYER_ORDER: readonly string[] = [
   "gctp-parking-preview-hit",
   "gctp-parking-owner-link-line",
 
+  // — Current GPS position (you-are-here) — above the tour so it's always visible —
+  "gctp-user-location-accuracy",
+  "gctp-user-location-dot",
+  // — Follow-mode current-target highlight —
+  "gctp-follow-target-ring",
+
   // — Debug overlays —
   "gctp-walking-graph-edges",
   "gctp-walking-graph-suspicious",

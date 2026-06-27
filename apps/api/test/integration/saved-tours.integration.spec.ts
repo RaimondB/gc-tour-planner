@@ -153,6 +153,8 @@ describe("M6-γ saved-tours persistence (PostGIS via Testcontainers)", () => {
     expect(list.length).toBeGreaterThanOrEqual(2);
     expect(list[0]!.name).toBe("Fallback tour");
     expect(list.every((t) => t.isShared === false)).toBe(true);
+    // Summary now carries the start anchor for client-side proximity (ADR-location).
+    expect(list[0]!.startPoint.coordinates).toEqual(park);
     // Other user sees none of them.
     expect(await service.list(otherId)).toHaveLength(0);
   });

@@ -406,6 +406,11 @@ type SavedTourSummary = {
   totalSeconds: number;
   cacheCount: number;
   isShared: boolean;
+  hasPreview: boolean;
+  // The tour's start anchor — the My Tours list computes "X km away" + the
+  // nearest-first sort from the user's current position client-side (ADR-0037);
+  // the position never leaves the device.
+  startPoint: { type: "Point"; coordinates: [number, number] };
   createdAt: string;
 };
 ```

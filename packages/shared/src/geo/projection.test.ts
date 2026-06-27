@@ -3,13 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  haversineMeters,
   makeProjection,
   metersPerDegreeLat,
   metersPerDegreeLng,
 } from "./projection.js";
 
 /** Reference haversine — the "truth" the projection approximates. */
-function haversineMeters(
+function refHaversine(
   a: readonly [number, number],
   b: readonly [number, number],
 ): number {
@@ -100,8 +101,8 @@ describe("makeProjection.distanceMeters", () => {
     const a: [number, number] = [5.12, 52.09];
     const b: [number, number] = [5.4, 52.3];
     const relErr =
-      Math.abs(proj.distanceMeters(a, b) - haversineMeters(a, b)) /
-      haversineMeters(a, b);
+      Math.abs(proj.distanceMeters(a, b) - refHaversine(a, b)) /
+      refHaversine(a, b);
     expect(relErr).toBeLessThan(0.003);
   });
 
@@ -116,5 +117,31 @@ describe("makeProjection.distanceMeters", () => {
   it("project() round-trips the reference to the origin", () => {
     const proj = makeProjection(5.12, 52.09);
     expect(proj.project(5.12, 52.09)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("haversineMeters", () => {
+  it("is zero on coincident points and symmetric", () => {
+    const a: [number, number] = [5.12, 52.09];
+    const b: [number, number] = [4.9, 52.37];
+    expect(haversineMeters(a, a)).toBe(0);
+    expect(haversineMeters(a, b)).toBeCloseTo(haversineMeters(b, a), 6);
+  });
+
+  it("matches a known great-circle distance (Wageningen → Amsterdam ~68 km)", () => {
+    const wageningen: [number, number] = [5.6633, 51.9692];
+    const amsterdam: [number, number] = [4.9041, 52.3676];
+    // ~68.1 km great-circle; allow ±500 m.
+    expect(haversineMeters(wageningen, amsterdam)).toBeCloseTo(68_100, -3);
+  });
+
+  it("agrees with the equirectangular projection at local scale", () => {
+    const a: [number, number] = [5.12, 52.09];
+    const b: [number, number] = [5.18, 52.05];
+    const proj = makeProjection(a[0], a[1]);
+    const rel =
+      Math.abs(haversineMeters(a, b) - proj.distanceMeters(a, b)) /
+      haversineMeters(a, b);
+    expect(rel).toBeLessThan(0.01); // <1% at a few km
   });
 });

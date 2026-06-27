@@ -26,6 +26,13 @@ export const SavedTourSummary = z.object({
    * whether to render the thumbnail / offline basemap or to backfill it.
    */
   hasPreview: z.boolean(),
+  /**
+   * The tour's start anchor (`start_point` column) — lets the My Tours list show
+   * "X km away" and sort by proximity from the user's current location, computed
+   * client-side (the position never leaves the device). Mirrors the same field on
+   * the detail.
+   */
+  startPoint: GeoJsonPoint,
   createdAt: z.string(),
 });
 export type SavedTourSummary = z.infer<typeof SavedTourSummary>;
@@ -33,11 +40,10 @@ export type SavedTourSummary = z.infer<typeof SavedTourSummary>;
 /**
  * Full detail for `POST /tours` (the just-saved tour) and `GET /tours/:id`
  * (FR-P2.2). Carries the StoredPlan so the client re-renders the loop without
- * re-planning. `startPoint`/`parkingPoint` mirror the typed columns; the rest
- * of the geometry/totals live inside `plan`.
+ * re-planning. `startPoint` is inherited from the summary; `parkingPoint` and the
+ * full `plan` (geometry/totals/legs) are detail-only.
  */
 export const SavedTourDetail = SavedTourSummary.extend({
-  startPoint: GeoJsonPoint,
   parkingPoint: GeoJsonPoint.nullable(),
   plan: StoredPlan,
 });

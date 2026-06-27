@@ -27,6 +27,31 @@
 
 const DEG_TO_RAD = Math.PI / 180;
 
+/** Mean Earth radius (metres) — the IUGG value used for haversine. */
+const EARTH_RADIUS_M = 6_371_008.8;
+
+/**
+ * Great-circle distance in metres between two `[lng, lat]` points (haversine).
+ *
+ * Unlike {@link makeProjection}'s equirectangular `distanceMeters` (fast, tuned
+ * for many *local* pairs sharing one reference latitude), this is correct at any
+ * separation — use it for one-off "how far away is this?" distances that may span
+ * a country (e.g. the distance from the user to a saved tour). Pure.
+ */
+export function haversineMeters(
+  a: readonly [number, number],
+  b: readonly [number, number],
+): number {
+  const lat1 = a[1] * DEG_TO_RAD;
+  const lat2 = b[1] * DEG_TO_RAD;
+  const dLat = lat2 - lat1;
+  const dLng = (b[0] - a[0]) * DEG_TO_RAD;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /**
  * Metres per degree of latitude at latitude `lat` (degrees). FCC §73.208.
  * ~111 km, varying ~1 km pole-to-equator due to the ellipsoid.

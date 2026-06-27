@@ -46,6 +46,26 @@ vi.mock("../../lib/tour-cache.js", () => ({
   pruneCachedTours: (ids: unknown) => pruneCachedTours(ids),
 }));
 
+// Controllable current location (default: off → list stays newest-first, no badges).
+const mockLocation: {
+  position: [number, number] | null;
+  accuracyM: number | null;
+  status: string;
+  enabled: boolean;
+  enable: () => void;
+  disable: () => void;
+} = {
+  position: null,
+  accuracyM: null,
+  status: "off",
+  enabled: false,
+  enable: vi.fn(),
+  disable: vi.fn(),
+};
+vi.mock("../location/LocationProvider.js", () => ({
+  useLocation: () => mockLocation,
+}));
+
 const TOUR = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "Forest loop",
@@ -55,6 +75,7 @@ const TOUR = {
   createdAt: "2026-06-01T10:00:00.000Z",
   hasPreview: false,
   isShared: false,
+  startPoint: { type: "Point", coordinates: [5.12, 52.09] },
 };
 
 const listTours = vi.fn();
@@ -89,6 +110,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockOnline = true;
+  mockLocation.position = null;
+  mockLocation.status = "off";
 });
 
 describe("MyToursPage", () => {
@@ -129,5 +152,37 @@ describe("MyToursPage", () => {
       expect(cacheTourDetail).toHaveBeenCalledWith({ id: TOUR.id }),
     );
     expect(pruneCachedTours).toHaveBeenCalledWith([TOUR.id]);
+  });
+
+  it("shows distance badges and re-sorts nearest when location is on", async () => {
+    const near = {
+      ...TOUR,
+      id: "22222222-2222-2222-2222-222222222222",
+      name: "Near loop",
+      startPoint: { type: "Point", coordinates: [5.0, 52.0] },
+    };
+    const far = {
+      ...TOUR,
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "Far loop",
+      startPoint: { type: "Point", coordinates: [6.0, 52.0] },
+    };
+    // Server order is newest-first: Far then Near.
+    listTours.mockResolvedValue([far, near]);
+    mockLocation.position = [5.0, 52.0];
+    mockLocation.status = "watching";
+
+    renderPage();
+    await screen.findByText("Far loop");
+
+    // A distance-from-me badge renders for each tour.
+    expect(screen.getAllByText(/away/).length).toBeGreaterThan(0);
+
+    // Default keeps server order (Far first); "Nearest" puts Near on top.
+    fireEvent.click(screen.getByRole("button", { name: /Nearest/ }));
+    const names = Array.from(
+      document.querySelectorAll(".tours-list__name"),
+    ).map((n) => n.textContent);
+    expect(names[0]).toBe("Near loop");
   });
 });
