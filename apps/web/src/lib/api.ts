@@ -52,6 +52,7 @@ import {
   PurgeBogusResponse,
   type SaveTourInput,
   SavedTourDetail,
+  SavedTourFootprint,
   SavedTourSummary,
   ShareResponse,
   SharedTour,
@@ -440,6 +441,12 @@ export async function saveTour(input: SaveTourInput): Promise<SavedTourDetail> {
 export async function listTours(): Promise<SavedTourSummary[]> {
   const raw = await request<unknown>("/tours");
   return z.array(SavedTourSummary).parse(raw);
+}
+
+/** Lean footprints of the caller's saved tours for the planner-map layer (Feature 1). */
+export async function listTourFootprints(): Promise<SavedTourFootprint[]> {
+  const raw = await request<unknown>("/tours/footprints");
+  return z.array(SavedTourFootprint).parse(raw);
 }
 
 /** Open one saved tour in full detail so it re-renders without replanning (FR-P2.2). */

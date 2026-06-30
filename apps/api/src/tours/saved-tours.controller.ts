@@ -64,6 +64,23 @@ export class SavedToursController {
     return this.service.list(user.id);
   }
 
+  // NOTE: must precede `@Get(":id")` — a literal segment route has to be
+  // declared before the param route or `/tours/footprints` resolves to
+  // `getById("footprints")` and 404s.
+  @Get("footprints")
+  @ApiOperation({
+    summary: "Lean footprints of the caller's saved tours for the map layer",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "id + name + simplified LineString.",
+  })
+  async footprints(
+    @CurrentUser() user: AuthUser,
+  ): Promise<Tours.SavedTourFootprint[]> {
+    return this.service.footprints(user.id);
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "Open a saved tour in full detail (FR-P2.2)" })
   @ApiResponse({ status: 200, description: "Full tour incl. stored plan." })

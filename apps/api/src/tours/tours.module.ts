@@ -61,6 +61,7 @@ const greedyPlannerProvider: Provider = {
     carRoads: CarRoadsRepository,
     landuseProfiles: LanduseProfilesRepository,
     computePool: ComputePool,
+    savedTours: SavedToursRepository,
   ) =>
     new GreedyTspPlanner(
       caches,
@@ -74,6 +75,7 @@ const greedyPlannerProvider: Provider = {
       carRoads,
       landuseProfiles,
       computePool,
+      savedTours,
     ),
   inject: [
     CachesService,
@@ -87,6 +89,7 @@ const greedyPlannerProvider: Provider = {
     CarRoadsRepository,
     LanduseProfilesRepository,
     COMPUTE_POOL,
+    SavedToursRepository,
   ],
 };
 

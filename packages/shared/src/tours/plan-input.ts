@@ -34,6 +34,16 @@ export const SoftPreferences = z.object({
    * the ranking; sidebar slider 0..5.
    */
   landuseWeight: z.number().min(0).max(5).default(1),
+  /**
+   * Multiplier on `centerProximity` (0..1, linear falloff of a cluster
+   * centroid's distance from the search `center` — 1 at the center, 0 at the
+   * radius edge, clamped to 0 beyond). Pushes clusters near the center of the
+   * search area up the ranking, countering the "clusters surface at the edge"
+   * artifact. Default 1 — same contribution as `parkingPresence`; sidebar
+   * slider 0..5 ("prefer central clusters"). When omitted, the server falls
+   * back to the `PLANNER_CENTER_BIAS_WEIGHT` env default.
+   */
+  centerProximityWeight: z.number().min(0).max(5).optional(),
 });
 export type SoftPreferences = z.infer<typeof SoftPreferences>;
 
@@ -155,5 +165,14 @@ export const PlanInput = z.object({
    * pull-in instead.
    */
   includeAdventuresInClustering: z.boolean().default(true),
+  /**
+   * Exclude caches already in the user's saved tours from the discovery
+   * candidate pool, so discovery surfaces NEW areas instead of re-suggesting
+   * caches you've already routed. Default `true`; set `false` to re-discover
+   * clusters over caches that belong to existing saved tours. The exclusion is
+   * an anti-join on the union of `saved_tours.cache_ids` and applies only to
+   * the discovery pool — the map still shows saved-tour caches (ADR-0038).
+   */
+  excludeSavedTourCaches: z.boolean().default(true),
 });
 export type PlanInput = z.infer<typeof PlanInput>;

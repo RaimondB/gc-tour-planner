@@ -60,6 +60,7 @@ import {
   type SelectedParking,
 } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
+import { SavedToursLayer } from "./features/map/SavedToursLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { LegAlternativePreviewLayer } from "./features/map/LegAlternativePreviewLayer.js";
 import {
@@ -173,6 +174,8 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     includeAdventuresInClustering: s.includeAdventuresInClustering,
     topNClusters: s.topNClusters,
     landuseWeight: s.landuseWeight,
+    centerProximityWeight: s.centerProximityWeight,
+    excludeSavedTourCaches: s.excludeSavedTourCaches,
     landuseProfileId: s.landuseProfileId ?? null,
     startPreference: s.startPreference,
     osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
@@ -583,6 +586,8 @@ export default function App(): JSX.Element {
           hasPreview,
         });
         await queryClient.invalidateQueries({ queryKey: ["tours"] });
+        // Refresh the planner-map footprints layer with the new/edited loop.
+        await queryClient.invalidateQueries({ queryKey: ["tour-footprints"] });
         if (target) {
           await queryClient.invalidateQueries({
             queryKey: ["tour", target.id],
@@ -708,6 +713,7 @@ export default function App(): JSX.Element {
           clusterDensityWeight: 1,
           loopCompactnessWeight: 1,
           landuseWeight: planSettings.landuseWeight,
+          centerProximityWeight: planSettings.centerProximityWeight,
           ...(planSettings.landuseProfileId
             ? { landuseProfileId: planSettings.landuseProfileId }
             : {}),
@@ -716,6 +722,7 @@ export default function App(): JSX.Element {
         clusteringStrategy: planSettings.clusteringStrategy,
         includeAdventuresInClustering:
           planSettings.includeAdventuresInClustering,
+        excludeSavedTourCaches: planSettings.excludeSavedTourCaches,
         topNClusters: planSettings.topNClusters,
         // Cluster discovery (Pass 1) doesn't use the start point — it's a
         // Pass-2 parking concern — so we no longer send it here. The map-picked
@@ -2038,6 +2045,7 @@ export default function App(): JSX.Element {
             onBasemapError={recheckConnectivity}
           >
             <LanduseLayer params={params} />
+            <SavedToursLayer enabled={planSettings.showSavedTours} />
             <OsmParkingLayer
               access={planSettings.osmParkingAccessFilter}
               fee={planSettings.osmParkingFeeFilter}

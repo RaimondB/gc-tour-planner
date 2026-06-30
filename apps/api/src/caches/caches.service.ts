@@ -19,9 +19,16 @@ export class CachesService {
     private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
   ) {}
 
+  /**
+   * `opts` carries server-internal narrowing that is deliberately NOT part of
+   * the public `CachesQuery` wire schema, so the map's `GET /caches` can't set
+   * it. Today: `excludeCacheIds` — the discovery pool drops caches already in
+   * the user's saved tours (ADR-0038) while the map keeps showing them.
+   */
   async list(
     ownerId: string,
     q: Caches.CachesQuery,
+    opts?: { excludeCacheIds?: readonly number[] },
   ): Promise<Caches.CachesResponse> {
     const caches = await this.repo.find({
       ownerId,
@@ -36,6 +43,7 @@ export class CachesService {
       solvedMysteriesOnly: q.solvedMysteriesOnly,
       multiSubtype: q.multiSubtype,
       hideToolCaches: q.hideToolCaches,
+      excludeCacheIds: opts?.excludeCacheIds,
     });
 
     // clustersHint is a coarse grid bucket count; the real cluster discovery
