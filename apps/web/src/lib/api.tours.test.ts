@@ -9,6 +9,7 @@ import {
   deleteTour,
   getSharedTour,
   getTour,
+  listTourFootprints,
   listTours,
   renameTour,
   saveTour,
@@ -113,6 +114,28 @@ describe("saved-tours api client", () => {
     expect(list).toHaveLength(1);
     expect(list[0]!.name).toBe("Forest loop");
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/tours");
+  });
+
+  it("listTourFootprints GETs /tours/footprints and parses LineStrings", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        {
+          id: DETAIL.id,
+          name: DETAIL.name,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [5.12, 52.09],
+              [5.122, 52.091],
+            ],
+          },
+        },
+      ]),
+    );
+    const prints = await listTourFootprints();
+    expect(prints).toHaveLength(1);
+    expect(prints[0]!.geometry.type).toBe("LineString");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/tours/footprints");
   });
 
   it("getTour GETs /tours/:id", async () => {

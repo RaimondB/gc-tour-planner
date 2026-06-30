@@ -16,6 +16,15 @@ describe("MAP_LAYER_ORDER", () => {
     expect(at("gctp-cluster-preview-lines")).toBeLessThan(at("gctp-tour-line"));
   });
 
+  it("keeps saved-tour footprints below the caches and the active tour", () => {
+    // Footprints are faint background context — below everything interactive.
+    expect(at("gctp-saved-tours-line")).toBeLessThan(at("gctp-caches-circle"));
+    expect(at("gctp-saved-tours-line")).toBeLessThan(
+      at("gctp-cluster-preview-lines"),
+    );
+    expect(at("gctp-saved-tours-line")).toBeLessThan(at("gctp-tour-line"));
+  });
+
   it("keeps cluster centroids below the tour (context hierarchy)", () => {
     expect(at("gctp-cluster-centroids-circle")).toBeLessThan(
       at("gctp-tour-line"),
