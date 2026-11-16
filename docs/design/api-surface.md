@@ -51,7 +51,9 @@ type CachesResponse = {
 
 Lists caches in a radius (center + `radiusM`, max 50 000) matching the
 server-side hard filters (`types`, `attributes`, `excludeFound`, `contexts`,
-`includeDisabled`, `includeArchived`, `solvedMysteriesOnly`). Returns a **lean per-cache summary** to
+`includeDisabled`, `includeArchived`, `solvedMysteriesOnly`, `multiSubtype`, `hideToolCaches`,
+and the D/T range `minDifficulty`+`maxDifficulty` / `minTerrain`+`maxTerrain` — 1–5 in half
+steps, both bounds together; unrated caches pass, ADR-0039). Returns a **lean per-cache summary** to
 keep the payload small over the Cloudflare tunnel — a wide query is thousands of
 caches (responses are gzip-compressed by the nginx edge):
 
@@ -337,6 +339,55 @@ type LanduseProfilesResponse = { profiles: LanduseProfile[] };
 ```
 
 System seeds shipped with the migration: `Forest-heavy`, `Urban`, `Balanced`. Per-user create/delete UI is deferred — the backend column shape supports `owner_id`, just no endpoints yet.
+
+## Route profiles (FR-T19, ADR-0039)
+
+Named planning presets. `GET` lists system presets (`ownerId: null`, read-only)
+first, then the caller's own; writes are owner-scoped and a system or foreign id
+is **404**. Bodies are validated by the shared zod `SaveRouteProfileInput`;
+`settings` is the versioned `RouteProfileSettings` (every field defaulted, so a
+client may send a subset). A landuse profile the caller can't see is **400**; a
+name the caller already uses (case-insensitive) is **409**.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/route-profiles` | — | `{ profiles: RouteProfile[] }` |
+| `POST` | `/route-profiles` | `SaveRouteProfileInput` | `201 RouteProfile` |
+| `PUT` | `/route-profiles/:id` | `SaveRouteProfileInput` | `200 RouteProfile` |
+| `DELETE` | `/route-profiles/:id` | — | `204` |
+
+```ts
+type SaveRouteProfileInput = {
+  name: string; // 1–80, trimmed
+  description: string | null;
+  settings: RouteProfileSettings;
+};
+type RouteProfileSettings = {
+  version: 1;
+  filters: {
+    types: CacheType[]; multiSubtype: "all" | "field-puzzle" | "mini" | "full";
+    hideToolCaches: boolean; solvedMysteriesOnly: boolean; contexts: LanduseKind[];
+    difficulty: { min: number; max: number }; terrain: { min: number; max: number };
+    includeAdventureLabs: boolean; excludeSavedTourCaches: boolean;
+  };
+  adventures: { keepTogether: boolean; interleave: boolean };
+  objective: {
+    landuseProfileId: string | null; landuseWeight: number; // 0..5
+    varietyWeight: number; preferredTypes: CacheType[]; preferredWeight: number;
+  };
+  time: {
+    visitMinutes: number; visitMinutesByType: Partial<Record<CacheType, number>>;
+    alStageVisitMinutes: number; toolBonusMinutes: number; walkingKmh: number;
+    bufferMinutes: number;
+  };
+  budget: { distanceBudgetMeters: number; defaultDurationMinutes: number | null };
+};
+```
+
+The classic planner applies a profile **client-side** (`applyRouteProfile` maps it
+onto the search filters and plan settings), so `PlanInput` / `PlanLoopInput` gain
+nothing beyond the D/T range in `hardFilters`. Seeded presets: *Quick
+traditionals*, *Forest walk*, *Adventure Lab day*.
 
 ## `GET /parking-facilities` (ADR-0011)
 

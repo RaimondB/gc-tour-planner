@@ -46,7 +46,11 @@ import {
   prunePlanEditKeys,
   useLocalStorageState,
 } from "./lib/persistent-state.js";
-import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import {
+  DEFAULT_SEARCH,
+  narrowRange,
+  type SearchParams,
+} from "./lib/search-params.js";
 import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
@@ -81,6 +85,7 @@ import type {
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
+import { RouteProfilePicker } from "./features/route-profiles/RouteProfilePicker.js";
 import {
   DEFAULT_PLAN_SETTINGS,
   PlannerSidebar,
@@ -166,6 +171,8 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     solvedMysteriesOnly: p.solvedMysteriesOnly,
     multiSubtype: p.multiSubtype,
     hideToolCaches: p.hideToolCaches,
+    difficulty: narrowRange(p.difficulty),
+    terrain: narrowRange(p.terrain),
     // Discovery settings (all feed discoverClusters)
     minClusterSize: s.minClusterSize,
     maxLinkMeters: s.maxLinkMeters,
@@ -203,6 +210,11 @@ export default function App(): JSX.Element {
     "plan-settings",
     DEFAULT_PLAN_SETTINGS,
   );
+  // Route profile last chosen in the planner (FR-T19); its settings live in
+  // `params` / `planSettings` once applied — this only remembers the choice.
+  const [routeProfileId, setRouteProfileId] = useLocalStorageState<
+    string | null
+  >("route-profile-id", null);
   // Persisted map viewport — restored on first mount of MapView, refreshed
   // on every `moveend`. Decoupled from `params.center` so panning around to
   // browse parking doesn't churn the search.
@@ -708,6 +720,8 @@ export default function App(): JSX.Element {
             params.multiSubtype !== "all" ? params.multiSubtype : undefined,
           hideToolCaches: params.hideToolCaches || undefined,
           contexts: params.contexts.length > 0 ? params.contexts : undefined,
+          difficulty: narrowRange(params.difficulty),
+          terrain: narrowRange(params.terrain),
         },
         softPreferences: {
           clusterDensityWeight: 1,
@@ -795,6 +809,8 @@ export default function App(): JSX.Element {
       multiSubtype:
         params.multiSubtype !== "all" ? params.multiSubtype : undefined,
       hideToolCaches: params.hideToolCaches || undefined,
+      difficulty: narrowRange(params.difficulty),
+      terrain: narrowRange(params.terrain),
     }),
     [
       params.center,
@@ -806,6 +822,8 @@ export default function App(): JSX.Element {
       params.solvedMysteriesOnly,
       params.multiSubtype,
       params.hideToolCaches,
+      params.difficulty,
+      params.terrain,
     ],
   );
   const debouncedCacheInput = useDebouncedValue(cacheQueryInput, 350);
@@ -1733,6 +1751,15 @@ export default function App(): JSX.Element {
     if (activeStep === "caches") {
       return (
         <>
+          <RouteProfilePicker
+            state={{ search: params, plan: planSettings }}
+            onApply={(next) => {
+              handleParamsChange(next.search);
+              setPlanSettings(next.plan);
+            }}
+            activeId={routeProfileId}
+            onActiveIdChange={setRouteProfileId}
+          />
           <UploadDropzone />
           <FilterSidebar
             value={params}

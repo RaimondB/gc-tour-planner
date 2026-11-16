@@ -1,7 +1,11 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { CacheType } from "@gctp/shared/caches";
+import {
+  FULL_RATING_RANGE,
+  type CacheType,
+  type RatingRange,
+} from "@gctp/shared/caches";
 import type { LanduseKind } from "@gctp/shared/landuse";
 
 export interface SearchParams {
@@ -44,6 +48,9 @@ export interface SearchParams {
    * the query input / React Query key.
    */
   solvedMysteriesOnly: boolean;
+  /** Difficulty / terrain range (ADR-0039). Full 1–5 = no filter. */
+  difficulty: RatingRange;
+  terrain: RatingRange;
 }
 
 export const DEFAULT_SEARCH: SearchParams = {
@@ -57,7 +64,16 @@ export const DEFAULT_SEARCH: SearchParams = {
   multiSubtype: "all",
   hideToolCaches: false,
   solvedMysteriesOnly: false,
+  difficulty: FULL_RATING_RANGE,
+  terrain: FULL_RATING_RANGE,
 };
+
+/** A range worth sending to the server: undefined when it covers all of 1–5. */
+export function narrowRange(r: RatingRange): RatingRange | undefined {
+  return r.min > FULL_RATING_RANGE.min || r.max < FULL_RATING_RANGE.max
+    ? r
+    : undefined;
+}
 
 /**
  * Convert a (center, radiusM) into a bbox padded by ~20% so the landuse layer

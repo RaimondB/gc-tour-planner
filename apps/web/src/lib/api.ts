@@ -31,6 +31,11 @@ import {
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
+import {
+  RouteProfile,
+  RouteProfilesResponse,
+  type SaveRouteProfileInput,
+} from "@gctp/shared/route-profiles";
 import { Leg } from "@gctp/shared/routing";
 import {
   ParkingFacilitiesResponse,
@@ -160,6 +165,9 @@ export interface ListCachesParams {
   multiSubtype?: CachesQuery["multiSubtype"];
   /** FR-SF6 — hide caches requiring special equipment. Server-side. */
   hideToolCaches?: boolean;
+  /** D/T range (ADR-0039); omit for no filter. */
+  difficulty?: CachesQuery["difficulty"];
+  terrain?: CachesQuery["terrain"];
 }
 
 export async function listCaches(
@@ -182,6 +190,14 @@ export async function listCaches(
   if (params.multiSubtype && params.multiSubtype !== "all")
     search.set("multiSubtype", params.multiSubtype);
   if (params.hideToolCaches) search.set("hideToolCaches", "true");
+  if (params.difficulty) {
+    search.set("minDifficulty", String(params.difficulty.min));
+    search.set("maxDifficulty", String(params.difficulty.max));
+  }
+  if (params.terrain) {
+    search.set("minTerrain", String(params.terrain.min));
+    search.set("maxTerrain", String(params.terrain.max));
+  }
   const raw = await request<unknown>(`/caches?${search.toString()}`, {
     signal,
   });
@@ -239,6 +255,39 @@ export async function listParkingFacilities(
 export async function listLanduseProfiles() {
   const raw = await request<unknown>("/landuse-profiles");
   return LanduseProfilesResponse.parse(raw);
+}
+
+/** Route profiles visible to the caller: system presets first, then own (FR-T19). */
+export async function listRouteProfiles(): Promise<RouteProfile[]> {
+  const raw = await request<unknown>("/route-profiles");
+  return RouteProfilesResponse.parse(raw).profiles;
+}
+
+export async function createRouteProfile(
+  input: SaveRouteProfileInput,
+): Promise<RouteProfile> {
+  const raw = await request<unknown>("/route-profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return RouteProfile.parse(raw);
+}
+
+export async function updateRouteProfile(
+  id: string,
+  input: SaveRouteProfileInput,
+): Promise<RouteProfile> {
+  const raw = await request<unknown>(`/route-profiles/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return RouteProfile.parse(raw);
+}
+
+export async function deleteRouteProfile(id: string): Promise<void> {
+  await request<void>(`/route-profiles/${id}`, { method: "DELETE" });
 }
 
 export interface UploadGpxResult {

@@ -38,7 +38,7 @@ import {
   resolvePick,
 } from "../../lib/persistent-state.js";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SearchParams } from "../../lib/search-params.js";
+import { narrowRange, type SearchParams } from "../../lib/search-params.js";
 import { AdvancedSection } from "../shell/AdvancedSection.js";
 import { AdventureLabSyncButton } from "./AdventureLabSyncButton.js";
 
@@ -1759,6 +1759,8 @@ export function ClusterLabPanel({
             search.multiSubtype !== "all" ? search.multiSubtype : undefined,
           hideToolCaches: search.hideToolCaches || undefined,
           contexts: search.contexts.length > 0 ? search.contexts : undefined,
+          difficulty: narrowRange(search.difficulty),
+          terrain: narrowRange(search.terrain),
         },
         maxLinkMeters: settings.maxLinkMeters,
         minClusterSize: settings.minClusterSize,

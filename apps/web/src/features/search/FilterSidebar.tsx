@@ -6,6 +6,7 @@ import { CACHE_TYPES, type CacheType } from "@gctp/shared/caches";
 import { LANDUSE_KINDS, type LanduseKind } from "@gctp/shared/landuse";
 import type { SearchParams } from "../../lib/search-params.js";
 import { AdvancedSection } from "../shell/AdvancedSection.js";
+import { RatingRangeField } from "./RatingRangeField.js";
 
 export interface FilterSidebarProps {
   value: SearchParams;
@@ -207,6 +208,24 @@ export function FilterSidebar({
             Disabled caches are temporarily out of service (owner maintenance).
             Hidden by default; when shown they render at 50 % opacity with a
             &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
+          </small>
+        </fieldset>
+
+        <fieldset className="field">
+          <legend>Difficulty &amp; terrain</legend>
+          <RatingRangeField
+            label="Difficulty"
+            value={value.difficulty}
+            onChange={(difficulty) => onChange({ ...value, difficulty })}
+          />
+          <RatingRangeField
+            label="Terrain"
+            value={value.terrain}
+            onChange={(terrain) => onChange({ ...value, terrain })}
+          />
+          <small>
+            Caches without a rating (such as Adventure Lab stages) are always
+            shown.
           </small>
         </fieldset>
 

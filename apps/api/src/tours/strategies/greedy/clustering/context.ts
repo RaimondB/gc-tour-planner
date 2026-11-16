@@ -169,6 +169,8 @@ export async function prepareClusteringContext(
       solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
       multiSubtype: input.hardFilters.multiSubtype,
       hideToolCaches: input.hardFilters.hideToolCaches,
+      difficulty: input.hardFilters.difficulty,
+      terrain: input.hardFilters.terrain,
       contexts: input.hardFilters.contexts,
       // Implicit: never plan a tour to caches the user has already found, even
       // when the map is showing them (dimmed). This is the one deliberate

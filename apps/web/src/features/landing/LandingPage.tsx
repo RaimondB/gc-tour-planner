@@ -69,8 +69,12 @@ const FEATURES: readonly { title: string; body: string }[] = [
     body: "Bring your own Groundspeak Pocket Queries. Uploaded caches are isolated per user — visible only to you.",
   },
   {
-    title: "Type & attribute filters",
-    body: "Hard-filter by cache type and Groundspeak attributes (dog-allowed, needs special tool, and more).",
+    title: "Type, rating & attribute filters",
+    body: "Hard-filter by cache type, difficulty and terrain range, and Groundspeak attributes (dog-allowed, needs special tool, and more).",
+  },
+  {
+    title: "Route profiles",
+    body: "Save your favourite setups — which caches, what makes a walk interesting, time per cache and budget — as named profiles, and switch with one tap. Start from built-in presets like Quick traditionals, Forest walk or Adventure Lab day.",
   },
   {
     title: "Surroundings-aware scoring",

@@ -43,6 +43,8 @@ export class CachesService {
       solvedMysteriesOnly: q.solvedMysteriesOnly,
       multiSubtype: q.multiSubtype,
       hideToolCaches: q.hideToolCaches,
+      difficulty: q.difficulty,
+      terrain: q.terrain,
       excludeCacheIds: opts?.excludeCacheIds,
     });
 

@@ -6,6 +6,7 @@ import {
   CacheType,
   AttributeFilterGroups,
   MultiSubtypeFilter,
+  RatingRange,
 } from "../caches/index.js";
 import { LngLat } from "../geo/index.js";
 import {
@@ -61,6 +62,9 @@ export const HardFilters = z.object({
   hideToolCaches: z.boolean().optional(),
   /** Landuse hard-filter kinds (same as CachesQuery.contexts). */
   contexts: z.array(z.string()).optional(),
+  /** D/T range (same as CachesQuery.difficulty / .terrain). */
+  difficulty: RatingRange.optional(),
+  terrain: RatingRange.optional(),
 });
 export type HardFilters = z.infer<typeof HardFilters>;
 

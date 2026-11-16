@@ -460,6 +460,21 @@ export interface LanduseProfilesTable {
 }
 
 /**
+ * Route profiles (FR-T19, ADR-0039). `settings` is the JSON of the versioned zod
+ * `RouteProfileSettings` (validated app-side). owner_id NULL = system preset.
+ * `packages/db/migrations/1787000000000_route_profiles.sql`.
+ */
+export interface RouteProfilesTable {
+  id: Generated<string>;
+  owner_id: string | null;
+  name: string;
+  description: string | null;
+  settings: JSONColumnType<Record<string, unknown>>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+/**
  * Saved tours (M6-γ, FR-P1/FR-P2). Typed columns back listing/sorting and
  * spatial queries; `plan` JSONB holds the full PlanResult + a denormalised
  * cache snapshot (StoredPlan in @gctp/shared) so a saved tour re-renders
@@ -509,6 +524,7 @@ export interface Database {
   car_roads: CarRoadsTable;
   landuse_import_meta: LanduseImportMetaTable;
   landuse_profiles: LanduseProfilesTable;
+  route_profiles: RouteProfilesTable;
   route_legs: RouteLegsTable;
   tours: ToursTable;
   cache_landuse: CacheLanduseTable;
