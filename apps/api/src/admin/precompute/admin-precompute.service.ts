@@ -12,6 +12,7 @@ import { KYSELY } from "../../database/database.tokens.js";
 import { PrecomputeStateRepository } from "../../precompute-state/precompute-state.repository.js";
 import { QUEUE_WALKING_PRECOMPUTE } from "../../queues/queue.tokens.js";
 import { OsrmVersionService } from "../../routing/osrm-version.service.js";
+import { RoutingRepository } from "../../routing/routing.repository.js";
 import type { WalkingPrecomputeJobData } from "../../jobs/walking-precompute/walking-precompute.types.js";
 
 /** Default TTL beyond which a 'fresh' row is considered stale. */
@@ -30,6 +31,7 @@ export class AdminPrecomputeService {
     private readonly osrmVersion: OsrmVersionService,
     private readonly config: ConfigService,
     @Inject(KYSELY) private readonly db: Kysely<Database>,
+    private readonly routing: RoutingRepository,
     @InjectQueue(QUEUE_WALKING_PRECOMPUTE)
     private readonly walkingQueue: Queue<WalkingPrecomputeJobData>,
   ) {}
@@ -168,17 +170,35 @@ export class AdminPrecomputeService {
    * FR-I20: enqueue walking precompute for every Adventure Lab stage whose legs
    * aren't fresh (missing / stale / failed / …). Scoped to ALs so it doesn't
    * re-warm the whole DB; grouped by owner + chunked like {@link retriggerStale}.
+   *
+   * Two complementary detectors are unioned so no stage slips through:
+   *   1. precompute_state freshness (no row / pending / failed / version drift);
+   *   2. incomplete intra-adventure pairwise at the current OSRM version —
+   *      catches adventures whose stages are all `fresh` yet still miss sibling
+   *      pairs (an old run before the full-pairwise guarantee, or a k-NN
+   *      neighbourhood that never linked distant stages); subsumes fully-isolated
+   *      stages. The re-warm fills the full intra-adventure pairwise matrix
+   *      (walking-precompute.processor), so one flagged stage repairs its whole
+   *      adventure.
    */
   async backfillAdventureLabWalking(): Promise<Admin.RetriggerStaleResponse> {
     const chunkSize = this.envInt(
       "PRECOMPUTE_RETRIGGER_CHUNK",
       DEFAULT_RETRIGGER_CHUNK,
     );
-    const ids = await this.state.adventureLabWalkingIdsNeedingPrecompute({
-      currentOsrmVersion: this.osrmVersion.getVersion(),
-      staleTtlDays: this.staleTtlDays(),
-      limit: RETRIGGER_HARD_MAX,
-    });
+    const osrmVersion = this.osrmVersion.getVersion();
+    const [staleIds, incompletePairwiseIds] = await Promise.all([
+      this.state.adventureLabWalkingIdsNeedingPrecompute({
+        currentOsrmVersion: osrmVersion,
+        staleTtlDays: this.staleTtlDays(),
+        limit: RETRIGGER_HARD_MAX,
+      }),
+      this.routing.adventureLabStageIdsWithIncompletePairwise(
+        osrmVersion,
+        RETRIGGER_HARD_MAX,
+      ),
+    ]);
+    const ids = Array.from(new Set([...staleIds, ...incompletePairwiseIds]));
     const jobIds: string[] = [];
     let totalEnqueued = 0;
     if (ids.length > 0) {
