@@ -6,6 +6,7 @@ import { Geo, Tours, type Routing } from "@gctp/shared";
 import type { CacheLanduseRepository } from "../../../../caches/cache-landuse.repository.js";
 import type { CachesRepository } from "../../../../caches/caches.repository.js";
 import type { CachesService } from "../../../../caches/caches.service.js";
+import type { SavedToursRepository } from "../../../saved-tours.repository.js";
 import type { OsrmClient } from "../../../../routing/osrm.client.js";
 import type { OsrmVersionService } from "../../../../routing/osrm-version.service.js";
 import type { RoutingRepository } from "../../../../routing/routing.repository.js";
@@ -27,6 +28,15 @@ function readClusterGrow(): boolean {
 
 const PROFILE: Routing.RoutingProfile = "foot";
 const MAX_DISCOVERY_POOL = 2_000;
+
+/**
+ * Default weight for the `centerProximity` scoring term (Feature 3) when the
+ * request omits `softPreferences.centerProximityWeight`. Resolved here on the
+ * main thread so the pure worker (discover-compute) never reads `process.env`.
+ */
+const CENTER_BIAS_WEIGHT = Number.parseFloat(
+  process.env.PLANNER_CENTER_BIAS_WEIGHT ?? "1",
+);
 const KNN_TARGET = Number.parseInt(process.env.PLANNER_KNN_K ?? "12", 10);
 
 /**
@@ -59,6 +69,13 @@ export interface PreparedContext extends ClusteringContext {
    * every stage on output. Empty when no Adventure Labs are in the pool.
    */
   adventureExpansion: ReadonlyMap<number, number[]>;
+  /**
+   * Effective `centerProximity` weight (Feature 3), resolved on the main thread
+   * from the request override (`softPreferences.centerProximityWeight`) or the
+   * `PLANNER_CENTER_BIAS_WEIGHT` env default. The worker reads this rather than
+   * `process.env` (purity contract).
+   */
+  centerProximityWeight: number;
 }
 
 /**
@@ -104,6 +121,14 @@ export async function prepareClusteringContext(
     osrm: OsrmClient;
     osrmVersion: OsrmVersionService;
     logger: Logger;
+    /**
+     * Optional — only the real discovery path supplies it. When present and
+     * `input.excludeSavedTourCaches !== false`, the candidate pool is anti-
+     * joined against the union of the owner's saved-tour cache ids (Feature 2,
+     * ADR-0038). Diagnostic callers (explain/debug/benches) omit it, so they
+     * see the full pool.
+     */
+    savedTours?: SavedToursRepository;
   },
   // Optional phase-timing sink; mutated in place when provided (zero-overhead
   // otherwise). See ContextStats / the discovery-timing bench.
@@ -123,22 +148,35 @@ export async function prepareClusteringContext(
     ? Tours.clusterGrowthMarginMeters(input.distanceBudgetMeters)
     : 0;
 
+  // Anti-join the pool against caches already in the user's saved tours
+  // (Feature 2, ADR-0038) so discovery surfaces NEW areas. Default on; the
+  // user can re-discover existing tours by sending excludeSavedTourCaches=false.
+  // Only the real discovery path supplies `savedTours`; diagnostics omit it.
+  const excludeCacheIds =
+    deps.savedTours && input.excludeSavedTourCaches !== false
+      ? await deps.savedTours.savedCacheIds(ownerId)
+      : undefined;
+
   const tList = clock();
-  const { caches } = await deps.caches.list(ownerId, {
-    center: input.center,
-    radiusM: input.radiusM + growthMarginM,
-    types: input.hardFilters.types,
-    attributes: input.hardFilters.attributes,
-    // Forward the map's filters so the clustered pool == the visible set.
-    solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
-    multiSubtype: input.hardFilters.multiSubtype,
-    hideToolCaches: input.hardFilters.hideToolCaches,
-    contexts: input.hardFilters.contexts,
-    // Implicit: never plan a tour to caches the user has already found, even
-    // when the map is showing them (dimmed). This is the one deliberate
-    // pool-vs-map divergence.
-    excludeFound: true,
-  });
+  const { caches } = await deps.caches.list(
+    ownerId,
+    {
+      center: input.center,
+      radiusM: input.radiusM + growthMarginM,
+      types: input.hardFilters.types,
+      attributes: input.hardFilters.attributes,
+      // Forward the map's filters so the clustered pool == the visible set.
+      solvedMysteriesOnly: input.hardFilters.solvedMysteriesOnly,
+      multiSubtype: input.hardFilters.multiSubtype,
+      hideToolCaches: input.hardFilters.hideToolCaches,
+      contexts: input.hardFilters.contexts,
+      // Implicit: never plan a tour to caches the user has already found, even
+      // when the map is showing them (dimmed). This is the one deliberate
+      // pool-vs-map divergence.
+      excludeFound: true,
+    },
+    { excludeCacheIds },
+  );
   if (caches.length < 2) return null;
 
   // Adventure-Lab participation in cluster forming is a user choice. Default
@@ -257,6 +295,8 @@ export async function prepareClusteringContext(
     projection: Geo.makeProjection(input.center[0], input.center[1]),
     landuseKindsByCacheId,
     adventureExpansion,
+    centerProximityWeight:
+      input.softPreferences.centerProximityWeight ?? CENTER_BIAS_WEIGHT,
   };
 }
 

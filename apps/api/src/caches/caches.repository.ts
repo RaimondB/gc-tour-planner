@@ -49,6 +49,14 @@ export interface FindCachesParams {
   multiSubtype?: Caches.MultiSubtypeFilter;
   /** Hide caches that require special equipment (FR-SF6). Server-side. */
   hideToolCaches?: boolean;
+  /**
+   * Exclude these specific cache ids from the result. Used by the discovery
+   * pool to drop caches already in the user's saved tours (anti-join on the
+   * union of `saved_tours.cache_ids`, ADR-0038) so discovery surfaces NEW
+   * areas. Empty/undefined → no narrowing. Server-set only — never sourced
+   * from the public CachesQuery wire (the map keeps showing saved caches).
+   */
+  excludeCacheIds?: readonly number[];
 }
 
 interface CacheRow {
@@ -206,6 +214,16 @@ export class CachesRepository {
               .where("f.user_id", "=", p.ownerId),
           ),
         ),
+      );
+    }
+
+    if (p.excludeCacheIds && p.excludeCacheIds.length > 0) {
+      // Anti-join against saved-tour caches (ADR-0038). `= ANY(array)` over the
+      // PK is cheaper than a correlated NOT EXISTS; cast to bigint[] to match
+      // the id column type.
+      const excluded = p.excludeCacheIds;
+      q = q.where(
+        sql<boolean>`NOT (c.id = ANY(${sql.val(excluded)}::bigint[]))`,
       );
     }
 

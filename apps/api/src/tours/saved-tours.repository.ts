@@ -46,6 +46,14 @@ export interface TourSummaryRow {
   created_at: Date;
 }
 
+/** Lean row for the planner-map footprints layer (Feature 1). */
+export interface TourFootprintRow {
+  id: string;
+  name: string;
+  /** GeoJSON LineString string from ST_AsGeoJSON(ST_Simplify(geom)). */
+  geom_geojson: string;
+}
+
 /** Full row for detail / just-saved responses. */
 export interface TourDetailRow extends TourSummaryRow {
   parking_geojson: string | null;
@@ -213,6 +221,40 @@ export class SavedToursRepository {
   async list(ownerId: string): Promise<TourSummaryRow[]> {
     const result = await sql<TourSummaryRow>`
       SELECT ${SUMMARY_COLUMNS}
+      FROM tours
+      WHERE owner_id = ${ownerId}
+      ORDER BY created_at DESC
+    `.execute(this.db);
+    return result.rows;
+  }
+
+  /**
+   * Distinct union of `cache_ids` across all the owner's saved tours — the
+   * discovery anti-join set (Feature 2, ADR-0038). Empty when the user has no
+   * saved tours. Owner-scoped (per-user GPX isolation).
+   */
+  async savedCacheIds(ownerId: string): Promise<number[]> {
+    const result = await sql<{ id: string }>`
+      SELECT DISTINCT unnest(cache_ids) AS id
+      FROM tours
+      WHERE owner_id = ${ownerId}
+    `.execute(this.db);
+    return result.rows.map((r) => Number(r.id));
+  }
+
+  /**
+   * Lean footprints for the planner-map background layer (Feature 1): id, name,
+   * and a simplified GeoJSON LineString of each saved tour's routed loop. `geom`
+   * is GEOGRAPHY → cast to geometry for `ST_Simplify` (~5 m tolerance in
+   * degrees). Owner-scoped. Kept off the My Tours summary so that hot list stays
+   * geometry-free.
+   */
+  async footprints(ownerId: string): Promise<TourFootprintRow[]> {
+    const result = await sql<TourFootprintRow>`
+      SELECT
+        id,
+        name,
+        ST_AsGeoJSON(ST_Simplify(geom::geometry, 0.00005)) AS geom_geojson
       FROM tours
       WHERE owner_id = ${ownerId}
       ORDER BY created_at DESC

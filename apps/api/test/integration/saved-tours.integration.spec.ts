@@ -371,4 +371,86 @@ describe("M6-γ saved-tours persistence (PostGIS via Testcontainers)", () => {
     const preview = await service.getPreview(ownerId, saved.id);
     expect(Buffer.compare(preview.image, bytes)).toBe(0);
   });
+
+  // ── Feature 2: saved-tour cache exclusion from discovery (ADR-0038) ───────
+
+  it("savedCacheIds returns the owner's union, deduped and owner-scoped", async () => {
+    const repo = new SavedToursRepository(pg.db);
+    // Fresh owner so the union is exactly what these two tours reference.
+    const u = await pg.db
+      .insertInto("users")
+      .values({ email: "f2-union@gctp.local", display_name: "F2" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    const a = await insertCache(pg, u.id, "GCF2A", 5.2, 52.2);
+    const b = await insertCache(pg, u.id, "GCF2B", 5.201, 52.201);
+    const c = await insertCache(pg, u.id, "GCF2C", 5.202, 52.202);
+    const svc = new SavedToursService(repo, new CachesRepository(pg.db));
+
+    expect(await repo.savedCacheIds(u.id)).toEqual([]);
+
+    await svc.save(u.id, { name: "T1", plan: makePlan([a, b], [5.2, 52.2]) });
+    // Second tour shares cache `b` — the union must dedup it.
+    await svc.save(u.id, { name: "T2", plan: makePlan([b, c], [5.2, 52.2]) });
+
+    const ids = await repo.savedCacheIds(u.id);
+    expect(new Set(ids)).toEqual(new Set([a, b, c]));
+    expect(ids.length).toBe(3); // distinct — `b` not duplicated
+    // Owner-scoped: a different user sees none of it.
+    expect(await repo.savedCacheIds(otherId)).toHaveLength(0);
+  });
+
+  it("find(excludeCacheIds) drops the anti-join set and keeps the rest", async () => {
+    const cachesRepo = new CachesRepository(pg.db);
+    const u = await pg.db
+      .insertInto("users")
+      .values({ email: "f2-antijoin@gctp.local", display_name: "F2aj" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    const a = await insertCache(pg, u.id, "GCF2D", 5.3, 52.3);
+    const b = await insertCache(pg, u.id, "GCF2E", 5.301, 52.301);
+
+    const center: [number, number] = [5.3, 52.3];
+    const all = await cachesRepo.find({ ownerId: u.id, center, radiusM: 2000 });
+    expect(new Set(all.map((c) => c.id))).toEqual(new Set([a, b]));
+
+    const filtered = await cachesRepo.find({
+      ownerId: u.id,
+      center,
+      radiusM: 2000,
+      excludeCacheIds: [a],
+    });
+    expect(filtered.map((c) => c.id)).toEqual([b]);
+  });
+
+  // ── Feature 1: saved-tour footprints for the planner-map layer ────────────
+
+  it("footprints returns a simplified GeoJSON LineString, owner-scoped", async () => {
+    const repo = new SavedToursRepository(pg.db);
+    const u = await pg.db
+      .insertInto("users")
+      .values({ email: "f1-footprints@gctp.local", display_name: "F1" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    const a = await insertCache(pg, u.id, "GCF1A", 5.4, 52.4);
+    const b = await insertCache(pg, u.id, "GCF1B", 5.401, 52.401);
+    const svc = new SavedToursService(repo, new CachesRepository(pg.db));
+    await svc.save(u.id, {
+      name: "Footprint",
+      plan: makePlan([a, b], [5.4, 52.4]),
+    });
+
+    const prints = await repo.footprints(u.id);
+    expect(prints).toHaveLength(1);
+    expect(prints[0]!.name).toBe("Footprint");
+    const geom = JSON.parse(prints[0]!.geom_geojson) as {
+      type: string;
+      coordinates: [number, number][];
+    };
+    expect(geom.type).toBe("LineString");
+    expect(geom.coordinates.length).toBeGreaterThanOrEqual(2);
+
+    // Owner-scoped: another user gets nothing.
+    expect(await repo.footprints(otherId)).toHaveLength(0);
+  });
 });

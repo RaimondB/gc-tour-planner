@@ -108,6 +108,24 @@ export interface PlanSettings {
    */
   landuseWeight: number;
   /**
+   * Multiplier on the cluster's `centerProximity` term (0..5, default 1) —
+   * how strongly to prefer clusters near the center of the search area over
+   * ones at the edge. 0 disables the bias (rank by density/shape/landuse only);
+   * higher pulls central clusters to the top of the list.
+   */
+  centerProximityWeight: number;
+  /**
+   * Exclude caches already in the user's saved tours from new cluster
+   * discovery (default true), so discovery surfaces NEW areas. Turn off to
+   * re-discover clusters over caches that belong to existing saved tours.
+   */
+  excludeSavedTourCaches: boolean;
+  /**
+   * Render the user's saved tours as dim dashed footprints on the planner map
+   * (default true). Click a footprint to open that tour.
+   */
+  showSavedTours: boolean;
+  /**
    * OSM-parking access chips (ADR-0011). Applied to both the planner
    * request when `startPreference === "osm-parking"` and to the
    * `OsmParkingLayer` query so the rendered icons match the planner's
@@ -135,6 +153,9 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   fringeTrimMeters: 500,
   landuseProfileId: undefined,
   landuseWeight: 1,
+  centerProximityWeight: 1,
+  excludeSavedTourCaches: true,
+  showSavedTours: true,
   // `permit` is opt-in per ADR-0011 — a permit-only lot you don't have a
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
@@ -425,6 +446,22 @@ export function PlannerSidebar({
             }
           />
         </label>
+        <label>
+          Prefer central clusters: {settings.centerProximityWeight.toFixed(1)}
+          <input
+            type="range"
+            min={0}
+            max={5}
+            step={0.5}
+            value={settings.centerProximityWeight}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                centerProximityWeight: Number(e.target.value),
+              })
+            }
+          />
+        </label>
       </fieldset>
 
       <AdvancedSection title="Advanced cluster settings">
@@ -515,6 +552,41 @@ export function PlannerSidebar({
           Include Adventure Labs in clusters
           <small className="muted">
             Off plans loops from ordinary caches only — add adventures by hand.
+          </small>
+        </label>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.excludeSavedTourCaches}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                excludeSavedTourCaches: e.target.checked,
+              })
+            }
+          />
+          Skip caches already in my tours
+          <small className="muted">
+            On surfaces new areas. Off re-discovers clusters over caches that
+            belong to your saved tours.
+          </small>
+        </label>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={settings.showSavedTours}
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                showSavedTours: e.target.checked,
+              })
+            }
+          />
+          Show my saved tours on the map
+          <small className="muted">
+            Dim dashed footprints of your saved loops. Click one to open it.
           </small>
         </label>
       </AdvancedSection>

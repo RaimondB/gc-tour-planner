@@ -5,6 +5,7 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
 ## Pass 1 — cluster discovery
 
 1. Spatial query: caches in `(center, radiusM)` satisfying `hardFilters` (PostGIS).
+   - **Skip saved-tour caches (FR-T16, [ADR-0038](../adr/0038-exclude-saved-tour-caches-from-discovery.md), `excludeSavedTourCaches`, default-on):** the candidate pool is anti-joined against the union of the owner's `tours.cache_ids` (`SavedToursRepository.savedCacheIds`) so discovery surfaces **new** areas rather than re-suggesting caches already routed. The exclusion is server-internal to the discovery path — the map still shows saved-tour caches (the same deliberate pool-vs-map divergence as `excludeFound`). Sending `excludeSavedTourCaches=false` (the web "Skip caches already in my tours" toggle, off) re-discovers clusters over them. Caveat: excluding individual saved AL stage ids can leave a partial adventure in the pool, which `collapseAdventures` then collapses on the remaining stages.
    - **Boundary-spanning (ADR-0026, `PLANNER_CLUSTER_GROW`, default-off):** fetch out to `radiusM + distanceBudgetMeters/2` instead, seed clusters only from the in-radius subset, and constrain the walking graph to the pool. A cluster that straddles the search circle is then fully detected rather than truncated at the boundary; growth stays bounded by the distance budget and `MAX_DISCOVERY_POOL`. Off ⇒ legacy hard cutoff at `radiusM`.
    - **k-NN symmetry (`PLANNER_KNN_SYMMETRY`, default `or`):** the sparse walking graph keeps a directed k-NN edge as undirected when **either** endpoint ranks the other (`or`, legacy) or only when **both** do (`mutual`/"dual-link", with a min-degree floor so no node is orphaned). Mutual removes one-way hub links that fuse distinct pods, sharpening separation for every clustering strategy at some recall cost in sparse areas. Edge distance is `MIN(forward, reverse)` either way.
 2. Project each cache to **local equirectangular meters** around `center` (cheap; accurate over our radius).
@@ -22,9 +23,11 @@ MVP strategy, lives at `apps/api/src/tours/strategies/greedy/`. Pure TypeScript.
          + parkingPresence * w_parking
          + softConstraintScore * w_soft
          + budgetFit * w_budget
+         + centerProximity * w_centerBias
    ```
    - `clusterDensity` = `count * 100 / MST_length_m` (caches per 100 m of MST — rescaled from raw caches/m so the term lands in roughly the same 0..1+ range as the other scoring axes; previously contributed ~0 and never moved the ranking).
    - `parkingPresence` = 1 if at least one cache in cluster has a `type='parking'` waypoint within 500 m, else 0.
+   - `centerProximity` = `max(0, 1 - dist(centroid, center) / radiusM)` — a linear falloff (1 at the centre, 0 at the radius edge, clamped to 0 beyond). `w_centerBias` is `softPreferences.centerProximityWeight ?? PLANNER_CENTER_BIAS_WEIGHT` (web "Prefer central clusters" slider). **Ranking-only:** it reorders the already-complete candidate list so clusters near the centre of the search area surface first — it does not change which clusters are generated (every populated H3 seed cell is still explored) nor reduce coverage. Set the weight to 0 to rank purely by density/shape/landuse. See [FR-T17](../requirements/tour-planning.md).
    - `softConstraintScore` = sum of landuse + attribute + terrain/difficulty contributions across the cluster.
    - `budgetFit` = `exp(-((MST_length_m - distanceBudgetMeters) / distanceBudgetMeters)^2)` — Gaussian penalty for clusters too small or too large for the loop budget.
 5. Return top **N** clusters. `N = input.topNClusters` (sidebar slider, default 5, max 20). User picks; or the API auto-picks the top one if `autoPick=true`. Was a hardcoded constant; lifted to a per-request knob so a large search area can surface more alternatives without redeploys.

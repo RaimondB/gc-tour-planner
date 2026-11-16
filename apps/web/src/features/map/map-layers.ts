@@ -35,6 +35,10 @@ export const MAP_LAYER_ORDER: readonly string[] = [
   "gctp-start-pick-circle",
   "gctp-start-pick-label",
 
+  // — Saved-tour footprints (faint dashed loops, background context) —
+  "gctp-saved-tours-line",
+  "gctp-saved-tours-hit",
+
   // — Cluster preview loops (an "area shape" hint, below the caches) —
   "gctp-cluster-preview-lines",
 

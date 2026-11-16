@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { Tours } from "@gctp/shared";
+import { Geo, Tours } from "@gctp/shared";
 import { CachesRepository } from "../caches/caches.repository.js";
 import {
   type SaveTourRow,
@@ -133,6 +133,19 @@ export class SavedToursService {
   async list(ownerId: string): Promise<Tours.SavedTourSummary[]> {
     const rows = await this.repo.list(ownerId);
     return rows.map((r) => this.toSummary(r));
+  }
+
+  /**
+   * Lean footprints for the planner-map background layer (Feature 1). Parses the
+   * simplified GeoJSON LineString of each saved tour's loop. Owner-scoped.
+   */
+  async footprints(ownerId: string): Promise<Tours.SavedTourFootprint[]> {
+    const rows = await this.repo.footprints(ownerId);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      geometry: Geo.GeoJsonLineString.parse(JSON.parse(r.geom_geojson)),
+    }));
   }
 
   async getById(ownerId: string, id: string): Promise<Tours.SavedTourDetail> {

@@ -17,6 +17,11 @@ describe("PlanInput", () => {
     expect(parsed.startPreference).toBe("auto");
     expect(parsed.softPreferences.clusterDensityWeight).toBe(1);
     expect(parsed.softPreferences.loopCompactnessWeight).toBe(1);
+    // Discovery skips saved-tour caches by default (Feature 2 / ADR-0038).
+    expect(parsed.excludeSavedTourCaches).toBe(true);
+    // centerProximityWeight is an optional override — unset falls back to the
+    // server env default (PLANNER_CENTER_BIAS_WEIGHT), so it's undefined here.
+    expect(parsed.softPreferences.centerProximityWeight).toBeUndefined();
   });
 
   it("rejects an out-of-range center", () => {

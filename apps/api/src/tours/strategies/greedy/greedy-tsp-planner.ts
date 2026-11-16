@@ -6,6 +6,7 @@ import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
 import { hasToolRequirement } from "@gctp/shared/caches";
 import { CachesService } from "../../../caches/caches.service.js";
 import { CachesRepository } from "../../../caches/caches.repository.js";
+import { SavedToursRepository } from "../../saved-tours.repository.js";
 import { CacheLanduseRepository } from "../../../caches/cache-landuse.repository.js";
 import { RoutingService } from "../../../routing/routing.service.js";
 import { RoutingRepository } from "../../../routing/routing.repository.js";
@@ -90,6 +91,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     private readonly carRoads: CarRoadsRepository,
     private readonly landuseProfiles: LanduseProfilesRepository,
     @Inject(COMPUTE_POOL) private readonly computePool: ComputePool,
+    private readonly savedTours: SavedToursRepository,
   ) {}
 
   // ─── Pass 1: cluster discovery ────────────────────────────────────────────
@@ -119,6 +121,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
       osrm: this.osrm,
       osrmVersion: this.osrmVersion,
       logger: this.logger,
+      savedTours: this.savedTours,
     });
 
     if (!ctx) {

@@ -135,7 +135,11 @@ export function MyToursPage(): JSX.Element {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteTour(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: TOURS_KEY }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: TOURS_KEY });
+      // Drop the deleted loop from the planner-map footprints layer.
+      void qc.invalidateQueries({ queryKey: ["tour-footprints"] });
+    },
   });
 
   // Share: mint (idempotent) → copy the absolute link → refresh so the badge
