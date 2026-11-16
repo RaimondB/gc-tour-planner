@@ -64,14 +64,20 @@ Content-Type: application/json
 
 `null` cells in either matrix mark unreachable pairs. The solver treats any visit-order adjacency that hits a null cell as a hard violation, so unreachable insertions never survive in the final solution.
 
-## Constraints (MVP — see `solver/TourConstraintProvider.java`)
+## Constraints (see `solver/TourConstraintProvider.java`)
 
-| Type | Constraint      | Notes                                                                        |
-| ---- | --------------- | ---------------------------------------------------------------------------- |
-| HARD | distance budget | parking → first + inter-cache legs + last → parking ≤ `distanceBudgetMeters` |
-| HARD | time budget     | only active when `timeBudgetSeconds` is supplied (`> 0`)                     |
-| HARD | reachable legs  | rejects orderings with a `null` matrix cell                                  |
-| SOFT | visited count   | rewards `visitOrder.size() × weights.visitedCount` (higher is better)        |
+The planning list variable allows **unassigned values** (`@PlanningListVariable(allowsUnassignedValues = true)`): every candidate is seeded into the visit order, and the solver drops caches whenever keeping them would break a hard constraint. Without that flag Timefold must assign every cache, so an over-budget set came back infeasible instead of trimmed.
+
+| Level  | Constraint          | Notes                                                                                     |
+| ------ | ------------------- | ----------------------------------------------------------------------------------------- |
+| HARD   | distance budget     | parking → first + inter-cache legs + last → parking ≤ `distanceBudgetMeters`              |
+| HARD   | time budget         | only when `timeBudgetSeconds > 0`; travel seconds + `visitSecondsPerCache` per stop       |
+| HARD   | reachable legs      | rejects orderings with a `null` inter-cache matrix cell                                   |
+| HARD   | adventure atomicity | `completeAdventuresOnly`: an Adventure Lab is visited whole or not at all                 |
+| HARD   | adventure contiguity | when `adventureInterleave` is false, an adventure's stages are consecutive                |
+| HARD   | linear AL order     | `adventureSequential` stages follow `stageSequence`                                       |
+| MEDIUM | visited count       | rewards `visitOrder.size() × weights.visitedCount` — never traded for a shorter loop      |
+| SOFT   | loop length         | penalises metres × `weights.loopLength`, compacting among equal-count solutions           |
 
 Deferred to a follow-up: terrain mix, difficulty mix, landuse preference, walking-pace fit. See ADR-0005 for the long-term vision.
 
@@ -94,4 +100,4 @@ The Nest-side determinism test (`apps/api/src/tours/strategies/solver/solver-tou
 mvn -B test
 ```
 
-`TourConstraintProviderTest` covers each of the four MVP constraints in isolation via `ConstraintVerifier`. The Nest-side determinism + integration tests live in `apps/api`.
+`TourConstraintProviderTest` covers each constraint in isolation via `ConstraintVerifier`; `SolverDropsCachesTest` runs real solves to prove the solver drops caches to meet the distance and time budgets (and keeps them all when they fit). The Nest-side determinism + integration tests live in `apps/api`.

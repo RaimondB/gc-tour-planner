@@ -428,7 +428,8 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     // reasons, cheapest-to-reach first, while the closed loop stays within
     // budget. `outlier`/`unreachable` drops are never reclaimed (genuine
     // barrier detours / no foot route). Re-2-opt per accepted unit; the
-    // closed-loop length over the rep matrix gates each addition.
+    // closed-loop length over the rep matrix gates each addition, and so does
+    // the time budget when one is set.
     {
       const repIndexF = new Map(repIds.map((id, i) => [id, i]));
       const distAt = (a: number, b: number): number => {
@@ -454,6 +455,34 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       };
       const advOf = (id: number): string | null =>
         byId.get(id)?.adventureId ?? null;
+      // Time gate, mirroring the solver's time model (travel + one visit per
+      // rep): without it a re-add could undo a drop the solver made for time.
+      const secondsAt = (a: number, b: number): number => {
+        const i = repIndexF.get(a);
+        const j = repIndexF.get(b);
+        if (i === undefined || j === undefined) return Number.POSITIVE_INFINITY;
+        const v = repMatrixSeconds[i]?.[j];
+        return v == null ? Number.POSITIVE_INFINITY : v;
+      };
+      const parkToSeconds = (id: number): number => {
+        const i = repIndexF.get(id);
+        const v = i === undefined ? undefined : parkingToCacheSeconds[i];
+        return v == null || v >= PARK_UNREACHABLE_SENTINEL
+          ? Number.POSITIVE_INFINITY
+          : v;
+      };
+      const toParkSeconds = (id: number): number => {
+        const i = repIndexF.get(id);
+        const v = i === undefined ? undefined : cacheToParkingSeconds[i];
+        return v == null || v >= PARK_UNREACHABLE_SENTINEL
+          ? Number.POSITIVE_INFINITY
+          : v;
+      };
+      const fitsTimeBudget = (order: readonly number[]): boolean =>
+        timeBudgetSeconds === null ||
+        closedLoopMeters(order, secondsAt, parkToSeconds, toParkSeconds) +
+          order.length * visitSecondsPerCache <=
+          timeBudgetSeconds;
 
       // Group dropped reps into atomic units (whole adventure, or one non-AL
       // rep). A unit is eligible only if every dropped rep in it is reclaimable.
@@ -491,7 +520,8 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         const reordered = order.map((i) => candidate[i]!);
         if (
           closedLoopMeters(reordered, distAt, parkTo, toPark) <=
-          input.distanceBudgetMeters
+            input.distanceBudgetMeters &&
+          fitsTimeBudget(reordered)
         ) {
           current = reordered;
           for (const id of members) reAdded.add(id);

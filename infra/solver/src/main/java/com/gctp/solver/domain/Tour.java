@@ -16,15 +16,16 @@ import ai.timefold.solver.core.api.domain.variable.PlanningListVariable;
  * matrix data and budget caps (carried as plain fields, not planning data, so
  * constraint streams can read them without joining problem facts).
  *
- * Caches absent from {@link #visitOrder} are simply skipped — Timefold's list
- * variable allows the solver to leave items out when including them would
- * break a hard constraint. The seed in {@code PlanService} starts with every
- * cache assigned; the solver may drop them to satisfy the budgets.
+ * Caches absent from {@link #visitOrder} are simply skipped. That needs
+ * {@code allowsUnassignedValues = true}: without it Timefold must assign every
+ * cache, so a set that can't fit the budget comes back infeasible instead of
+ * trimmed. The seed in {@code PlanService} starts with every cache assigned;
+ * the solver drops caches to satisfy the budgets.
  */
 @PlanningEntity
 public class Tour {
 
-    @PlanningListVariable
+    @PlanningListVariable(allowsUnassignedValues = true)
     private List<Cache> visitOrder = new ArrayList<>();
 
     /** Square matrix [i][j] = meters from candidateCaches[i] to candidateCaches[j]; null = unreachable. */
