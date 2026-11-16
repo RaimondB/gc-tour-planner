@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect } from "react";
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { PlanResult } from "@gctp/shared/tours";
 import { type LegPicks, resolvePick } from "../../lib/persistent-state.js";

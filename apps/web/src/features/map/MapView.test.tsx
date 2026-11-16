@@ -93,13 +93,13 @@ class FakeMap {
 }
 
 let lastMap: FakeMap | null = null;
+const setWorkerUrl = vi.hoisted(() => vi.fn());
 vi.mock("maplibre-gl", () => ({
-  default: {
-    Map: function (opts: { container: HTMLElement }): FakeMap {
-      const m = new FakeMap(opts);
-      lastMap = m;
-      return m; // a constructor returning an object makes `new Map()` yield it
-    },
+  setWorkerUrl,
+  Map: function (opts: { container: HTMLElement }): FakeMap {
+    const m = new FakeMap(opts);
+    lastMap = m;
+    return m; // a constructor returning an object makes `new Map()` yield it
   },
 }));
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
@@ -148,6 +148,15 @@ function RealisticLayer({ tick }: { tick: number }): null {
   }, [map, ready, tick]);
   return null;
 }
+
+describe("maplibre worker", () => {
+  // maplibre-gl 6 can't find its worker inside a bundle on its own; without an
+  // explicit setWorkerUrl the production build renders a blank map.
+  it("points maplibre at the bundled worker before any map is created", () => {
+    expect(setWorkerUrl).toHaveBeenCalledTimes(1);
+    expect(setWorkerUrl.mock.calls[0]?.[0]).toEqual(expect.any(String));
+  });
+});
 
 describe("MapView teardown", () => {
   it("does not crash when a child layer's cleanup touches the map on unmount", async () => {
