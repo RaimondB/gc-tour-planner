@@ -240,6 +240,24 @@ describe("SolverTourPlanner — determinism", () => {
     expect(res.droppedCacheIds).not.toContain(103);
   });
 
+  it("does not re-add a dropped cache past the time budget", async () => {
+    // Distance has room (8 km) but time doesn't: [101,102] walks 180 + 720 + 180 s
+    // plus 2 × 5 min visits = 28 min; adding 103 makes it ~46 min. The solver
+    // dropped 103 for time, so the distance-only re-add must not undo that.
+    (solverClient.plan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      orderedCacheIds: [101, 102],
+      totalMeters: 1000,
+      totalSeconds: 1000,
+      visitedCount: 2,
+    });
+    const res = await planner.planLoop(ownerId, {
+      ...input,
+      timeBudgetMinutes: 30,
+    });
+    expect(res.orderedCacheIds).not.toContain(103);
+    expect(res.droppedCacheIds).toContain(103);
+  });
+
   it("never emits a non-finite number when a null-leg cache is trimmed", async () => {
     // 102→103 is unrouteable but 101 links to both, so all 3 stay in one
     // component (pre-filter keeps them). The solved order [101,102,103] then has
