@@ -35,9 +35,9 @@ export const ParkingChoice = z.object({
 export type ParkingChoice = z.infer<typeof ParkingChoice>;
 
 export const PlanTotals = z.object({
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
-  visitMinutes: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
+  visitMinutes: z.number().finite().nonnegative(),
 });
 export type PlanTotals = z.infer<typeof PlanTotals>;
 
@@ -53,8 +53,8 @@ export type PlanTotals = z.infer<typeof PlanTotals>;
  * in place of the picker's selection without another OSRM round trip.
  */
 export const PlanLegAlternative = z.object({
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
   geometry: GeoJsonLineString,
 });
 export type PlanLegAlternative = z.infer<typeof PlanLegAlternative>;
@@ -76,8 +76,8 @@ export const PlanLeg = z.object({
   /** 0 = parking endpoint, otherwise a cache id from `orderedCacheIds`. */
   fromCacheId: z.number().int().nonnegative(),
   toCacheId: z.number().int().nonnegative(),
-  meters: z.number().nonnegative(),
-  seconds: z.number().nonnegative(),
+  meters: z.number().finite().nonnegative(),
+  seconds: z.number().finite().nonnegative(),
   geometry: GeoJsonLineString,
   alternatives: z.array(PlanLegAlternative).min(1),
   selectedAlternativeIndex: z.number().int().nonnegative(),
@@ -95,8 +95,12 @@ export type PlanLeg = z.infer<typeof PlanLeg>;
  *                             (marginal-trim outlier floor). Carries the marginal.
  *  - `fringe`               — out-and-back spur the route already passes
  *                             (greedy post-leg-pick overlap trim).
- *  - `unreachable`          — OSRM has no foot route to the rest of the set
- *                             (greedy `filterConnected`; solver sentinel parking legs).
+ *  - `unreachable`          — couldn't be linked into the loop on foot within
+ *                             `maxLinkMeters`: either no foot route at all, or one
+ *                             only longer than the link cap. Sources: cohesion
+ *                             gate (FR-T13), greedy/solver connected-component
+ *                             filter, solver sentinel parking legs. UI copy must
+ *                             not claim "no route exists" — a longer route may.
  *  - `adventure-incomplete` — solver AL-aware orphan trim: dropped to keep an
  *                             Adventure Lab whole (FR-I16).
  *  - `candidate-cap`        — a whole adventure / trailing cache cut BEFORE
@@ -121,7 +125,7 @@ export const DroppedCache = z.object({
    * loop. Lets the UI suggest "raise your budget by ~X to keep it". Absent for
    * reasons where a budget bump wouldn't help (unreachable, candidate-cap, …).
    */
-  neededBudgetMeters: z.number().nonnegative().optional(),
+  neededBudgetMeters: z.number().finite().nonnegative().optional(),
 });
 export type DroppedCache = z.infer<typeof DroppedCache>;
 
@@ -149,7 +153,7 @@ export const PlanResult = z.object({
   polyline: GeoJsonLineString,
   totals: PlanTotals,
   parking: ParkingChoice,
-  scoreBreakdown: z.record(z.string(), z.number()),
+  scoreBreakdown: z.record(z.string(), z.number().finite()),
   /**
    * Per-leg breakdown with the alternatives OSRM offered for each pair.
    * Default `[]` for back-compat with strategies that don't populate it
@@ -158,5 +162,13 @@ export const PlanResult = z.object({
    * still the source of truth for non-edit-mode rendering.
    */
   legs: z.array(PlanLeg).default([]),
+  /**
+   * Human "place" label for the tour — the nearest town / named park resolved
+   * server-side from OSM (ADR-0036), e.g. "Wageningen" or "Bospark". Drives a
+   * recognisable default tour name + GPX filename. Absent when nothing resolves
+   * (or for plans made before this existed); the client falls back to the
+   * parking name, then distance + cache count.
+   */
+  placeLabel: z.string().optional(),
 });
 export type PlanResult = z.infer<typeof PlanResult>;

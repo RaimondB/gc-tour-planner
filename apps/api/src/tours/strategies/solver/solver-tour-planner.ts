@@ -17,6 +17,7 @@ import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
 import { pickBestPqParking } from "../pick-pq-parking.js";
 import { largestConnectedComponent } from "../../adventure-cohesion.js";
+import { metricClosure } from "../../metric-closure.js";
 import { collapseColocated } from "../greedy/colocate.js";
 import { expandColocatedRoute } from "../greedy/expand-colocated.js";
 import {
@@ -166,12 +167,30 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     // Re-slice the matrices down to the kept component (indexed like `ids`).
     const allIdsIndex = new Map(allIds.map((id, i) => [id, i]));
     const keptIdxs = ids.map((id) => allIdsIndex.get(id)!);
-    const metersMatrix = keptIdxs.map((ri) =>
+    const metersSliced = keptIdxs.map((ri) =>
       keptIdxs.map((ci) => metersFull[ri]?.[ci] ?? null),
     );
-    const secondsMatrix = keptIdxs.map((ri) =>
+    const secondsSliced = keptIdxs.map((ri) =>
       keptIdxs.map((ci) => secondsFull[ri]?.[ci] ?? null),
     );
+
+    // Metric closure: the component is connected over the ≤maxLink graph, but a
+    // pair inside it can still have a `null` direct leg (routable only via
+    // intermediates). Fill those with the through-component distance so the
+    // solver, the marginal trim and the budget re-add never see an ∞ leg (the
+    // disconnected-over-trim failure mode). Finite direct legs are kept as-is.
+    const closure = metricClosure(
+      metersSliced,
+      input.maxLinkMeters,
+      secondsSliced,
+    );
+    const metersMatrix = closure.meters;
+    const secondsMatrix = closure.seconds ?? secondsSliced;
+    if (closure.filledLegs > 0) {
+      this.logger.debug(
+        `metric closure: filled ${closure.filledLegs} null leg(s) with through-component distance (maxLink=${input.maxLinkMeters} m)`,
+      );
+    }
 
     // Collapse caches within a few metres' walk of each other into one routing
     // node — most importantly the co-located stages of an Adventure Lab. The

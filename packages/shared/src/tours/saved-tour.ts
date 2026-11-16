@@ -2,8 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { z } from "zod";
-import { GeoJsonPoint } from "../geo/index.js";
+import { GeoJsonLineString, GeoJsonPoint } from "../geo/index.js";
 import { StoredPlan } from "./stored-plan.js";
+
+/**
+ * Lean footprint for the planner-map background layer (Feature 1, `GET
+ * /tours/footprints`): just enough to draw each saved tour's routed loop as a
+ * dim dashed polyline and open it on click. `geometry` is a simplified
+ * (`ST_Simplify`) LineString — kept off {@link SavedTourSummary} so the My
+ * Tours list stays geometry-free.
+ */
+export const SavedTourFootprint = z.object({
+  id: z.guid(),
+  name: z.string(),
+  geometry: GeoJsonLineString,
+});
+export type SavedTourFootprint = z.infer<typeof SavedTourFootprint>;
 
 /**
  * Lean per-tour row for `GET /tours` (FR-P2.1) — enough to render the My Tours
@@ -26,6 +40,13 @@ export const SavedTourSummary = z.object({
    * whether to render the thumbnail / offline basemap or to backfill it.
    */
   hasPreview: z.boolean(),
+  /**
+   * The tour's start anchor (`start_point` column) — lets the My Tours list show
+   * "X km away" and sort by proximity from the user's current location, computed
+   * client-side (the position never leaves the device). Mirrors the same field on
+   * the detail.
+   */
+  startPoint: GeoJsonPoint,
   createdAt: z.string(),
 });
 export type SavedTourSummary = z.infer<typeof SavedTourSummary>;
@@ -33,11 +54,10 @@ export type SavedTourSummary = z.infer<typeof SavedTourSummary>;
 /**
  * Full detail for `POST /tours` (the just-saved tour) and `GET /tours/:id`
  * (FR-P2.2). Carries the StoredPlan so the client re-renders the loop without
- * re-planning. `startPoint`/`parkingPoint` mirror the typed columns; the rest
- * of the geometry/totals live inside `plan`.
+ * re-planning. `startPoint` is inherited from the summary; `parkingPoint` and the
+ * full `plan` (geometry/totals/legs) are detail-only.
  */
 export const SavedTourDetail = SavedTourSummary.extend({
-  startPoint: GeoJsonPoint,
   parkingPoint: GeoJsonPoint.nullable(),
   plan: StoredPlan,
 });

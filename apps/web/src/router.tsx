@@ -16,6 +16,7 @@ import { LoginPage } from "./features/auth/LoginPage.js";
 import { RegisterPage } from "./features/auth/RegisterPage.js";
 import { LandingPage } from "./features/landing/LandingPage.js";
 import { MyToursPage } from "./features/tours/MyToursPage.js";
+import { SharedTourPage } from "./features/tours/SharedTourPage.js";
 
 /** Router context — the live auth state, injected by `RouterProvider`. */
 export interface RouterContext {
@@ -69,6 +70,17 @@ const toursRoute = createRoute({
   component: MyToursPage,
 });
 
+/**
+ * Public `/shared/:slug` route (M6-δ / FR-P3.2) — anonymous read-only shared
+ * tour. NO `beforeLoad` auth guard: a recipient without an account can open it.
+ * Renders its own minimal chrome (not the app shell).
+ */
+const sharedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/shared/$slug",
+  component: SharedTourPage,
+});
+
 /** Protected `/account` route — set/change password (FR-P5a). */
 const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -88,6 +100,7 @@ const routeTree = rootRoute.addChildren([
   registerRoute,
   toursRoute,
   accountRoute,
+  sharedRoute,
 ]);
 
 /**

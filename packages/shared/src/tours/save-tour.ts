@@ -23,3 +23,12 @@ export const SaveTourInput = z.object({
   plan: PlanResult,
 });
 export type SaveTourInput = z.infer<typeof SaveTourInput>;
+
+/**
+ * `PUT /tours/:id` body (FR-P2.4): overwrite an existing tour in place with a
+ * re-planned / edited route. Identical shape to {@link SaveTourInput} — the
+ * server re-derives the typed columns + cache snapshot exactly as on save, and
+ * preserves the tour's `created_at`, share slug, and stored preview.
+ */
+export const UpdateTourInput = SaveTourInput;
+export type UpdateTourInput = z.infer<typeof UpdateTourInput>;

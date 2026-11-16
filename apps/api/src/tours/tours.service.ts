@@ -17,6 +17,7 @@ import { RoutingRepository } from "../routing/routing.repository.js";
 import { RoutingService } from "../routing/routing.service.js";
 import { OSRM_CLIENT, type OsrmClient } from "../routing/osrm.client.js";
 import { OsrmVersionService } from "../routing/osrm-version.service.js";
+import { PlacesRepository } from "../osm/places.repository.js";
 import { AdventureLabEnricher } from "../sources/adventure-lab/al-enricher.service.js";
 import { GREEDY_PLANNER, SOLVER_PLANNER } from "./planner.tokens.js";
 import {
@@ -63,6 +64,7 @@ export class ToursService {
     @Inject(OSRM_CLIENT) private readonly osrm: OsrmClient,
     private readonly osrmVersion: OsrmVersionService,
     private readonly adventureLab: AdventureLabEnricher,
+    private readonly places: PlacesRepository,
   ) {}
 
   async discoverClusters(
@@ -120,7 +122,10 @@ export class ToursService {
       useSolver = rows.some((c) => c.type === "Adventure Lab");
     }
 
-    if (!useSolver) return this.greedy.planLoop(ownerId, input);
+    if (!useSolver)
+      return this.assertFinitePlan(
+        await this.withPlaceLabel(await this.greedy.planLoop(ownerId, input)),
+      );
 
     // Pull in any missing stages of adventures already in the selection so the
     // solver can keep them complete (FR-I16). Atomicity itself is enforced in the
@@ -147,7 +152,45 @@ export class ToursService {
         throw err;
       }
     }
-    return this.withPreplanDrops(result, preplanDrops);
+    return this.assertFinitePlan(
+      await this.withPlaceLabel(this.withPreplanDrops(result, preplanDrops)),
+    );
+  }
+
+  /**
+   * Attach a human "place" label (nearest town / named park, ADR-0036) resolved
+   * from the tour's start anchor, so the client can name the tour + its GPX
+   * file recognisably. Best-effort: any failure (or no match) leaves the plan
+   * unlabelled — naming falls back to the parking name, then distance + caches.
+   */
+  private async withPlaceLabel(
+    result: Tours.PlanResult,
+  ): Promise<Tours.PlanResult> {
+    if (result.placeLabel) return result;
+    const [lng, lat] = result.parking.point.coordinates;
+    try {
+      const label = await this.places.resolvePlaceLabel(lng, lat);
+      return label ? { ...result, placeLabel: label } : result;
+    } catch (err) {
+      this.logger.debug(
+        `place-label resolve failed: ${(err as Error).message}`,
+      );
+      return result;
+    }
+  }
+
+  /**
+   * Last-line guard before a plan leaves the service: re-validate it against the
+   * `PlanResult` schema, whose numeric fields are `.finite()`. The metric closure
+   * (`metric-closure.ts`) should keep any `∞`/`NaN` from ever reaching here, and
+   * both planners already sanitise non-finite scores at the wire boundary — but a
+   * future leak would otherwise serialise `Infinity`→JSON `null` and be dropped
+   * *silently* by the web's `PlanResult.parse`. Parsing server-side turns that
+   * into a loud 500 at the source instead. `.parse` re-applies defaults and
+   * strips nothing we set, so the validated value is returned as-is.
+   */
+  private assertFinitePlan(result: Tours.PlanResult): Tours.PlanResult {
+    return Tours.PlanResult.parse(result);
   }
 
   /**

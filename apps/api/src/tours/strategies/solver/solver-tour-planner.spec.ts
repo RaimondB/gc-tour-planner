@@ -297,8 +297,11 @@ describe("SolverTourPlanner — determinism", () => {
     });
   });
 
-  it("posts the matrix with null cells preserved for unreachable pairs", async () => {
-    // Replace one cell with null and confirm the request mirrors it.
+  it("fills a null-but-reachable matrix leg via the metric closure before solving", async () => {
+    // Null the direct 101→103 leg. 101 and 103 stay connected through 102
+    // (800 m + 900 m, both ≤ maxLink), so the metric closure refills the leg
+    // with the through-component distance rather than handing the solver/trim an
+    // ∞ leg (the disconnected-over-trim failure mode). 103 is NOT dropped.
     const brokenMatrix: Routing.Matrix = {
       ...matrix,
       legs: matrix.legs.map((row, i) =>
@@ -311,8 +314,15 @@ describe("SolverTourPlanner — determinism", () => {
     await planner.planLoop(ownerId, input);
     const req = (solverClient.plan as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as SolverPlanRequest;
-    expect(req.matrixMeters[0]![2]).toBeNull();
-    expect(req.matrixSeconds[0]![2]).toBeNull();
+    // 101→103 refilled with 101→102→103 = 800 + 900 m; seconds carried along the
+    // same shortest-metre path = 720 + 800 s.
+    expect(req.matrixMeters[0]![2]).toBe(1700);
+    expect(req.matrixSeconds[0]![2]).toBe(1520);
+    // The closure guarantee: no null cell survives into the posted rep matrix.
+    for (const row of req.matrixMeters)
+      for (const v of row) expect(v).not.toBeNull();
+    for (const row of req.matrixSeconds)
+      for (const v of row) expect(v).not.toBeNull();
   });
 });
 

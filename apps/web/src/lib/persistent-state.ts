@@ -227,3 +227,71 @@ export function buildEditedPolyline(
     }),
   };
 }
+
+/**
+ * Bake the user's per-leg edits (alt swaps / via-points) into a PlanResult so an
+ * **edited tour can be re-saved** (FR-P2.4) and re-render the edits when reopened.
+ * For each leg the resolved geometry/meters/seconds become the leg envelope; an
+ * `alt` pick re-points `selectedAlternativeIndex`, and a `via` pick is appended
+ * as a new alternative and selected (so `alternatives` stays non-empty and the
+ * custom detour survives the round-trip). The polyline + distance/time totals are
+ * recomputed from the resolved legs; `visitMinutes` and `scoreBreakdown` are left
+ * as the planner produced them (a leg edit changes the walk, not the stops).
+ * Returns the plan unchanged when there are no edits.
+ */
+export function applyLegEdits(
+  plan: PlanResult,
+  legPicks: LegPicks,
+): PlanResult {
+  const hasEdits = Object.keys(legPicks).length > 0;
+  if (!hasEdits || plan.legs.length === 0) return plan;
+
+  let meters = 0;
+  let seconds = 0;
+  const legs = plan.legs.map((leg) => {
+    const pick = legPicks[leg.index];
+    const r = resolvePick(leg, pick);
+    meters += r.meters;
+    seconds += r.seconds;
+    if (pick && typeof pick === "object" && pick.kind === "via") {
+      const alternatives = [
+        ...leg.alternatives,
+        { meters: r.meters, seconds: r.seconds, geometry: r.geometry },
+      ];
+      return {
+        ...leg,
+        meters: r.meters,
+        seconds: r.seconds,
+        geometry: r.geometry,
+        alternatives,
+        selectedAlternativeIndex: alternatives.length - 1,
+      };
+    }
+    // `alt` pick (or none): select the chosen alternative, clamped to a real
+    // index so the stored plan never points past the array.
+    const altIndex =
+      pick && typeof pick === "object" && pick.kind === "alt"
+        ? pick.altIndex
+        : typeof pick === "number"
+          ? pick
+          : leg.selectedAlternativeIndex;
+    const selectedAlternativeIndex =
+      altIndex >= 0 && altIndex < leg.alternatives.length
+        ? altIndex
+        : leg.selectedAlternativeIndex;
+    return {
+      ...leg,
+      meters: r.meters,
+      seconds: r.seconds,
+      geometry: r.geometry,
+      selectedAlternativeIndex,
+    };
+  });
+
+  return {
+    ...plan,
+    legs,
+    polyline: buildEditedPolyline(plan, legPicks),
+    totals: { ...plan.totals, meters, seconds },
+  };
+}

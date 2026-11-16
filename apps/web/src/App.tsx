@@ -16,6 +16,8 @@ import type {
   ClusterCandidate,
   ClusterDiagnostics,
   PlanResult,
+  SavedTourDetail,
+  SavedTourSummary,
 } from "@gctp/shared/tours";
 import {
   augmentClusterLabs,
@@ -25,10 +27,11 @@ import {
   saveTour,
   saveTourPreview,
   tourPreviewUrl,
+  updateTour,
 } from "./lib/api.js";
 import { planToGpxRoute, planToGpxTrack } from "./lib/gpx-export.js";
 import { downloadGpx } from "./lib/gpx-download.js";
-import { tourFilename } from "./lib/tour-filename.js";
+import { suggestTourName, tourFilename } from "./lib/tour-filename.js";
 import { captureMapSnapshot } from "./lib/map-snapshot.js";
 import {
   useOnline,
@@ -36,6 +39,7 @@ import {
 } from "./features/shell/ConnectivityProvider.js";
 import { useTourSession } from "./features/tours/TourSessionProvider.js";
 import {
+  applyLegEdits,
   buildEditedPolyline,
   type LegPicks,
   planSignature,
@@ -47,11 +51,16 @@ import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
 import { MapView } from "./features/map/MapView.js";
+import { CurrentLocationLayer } from "./features/map/CurrentLocationLayer.js";
+import { FollowTargetLayer } from "./features/map/FollowTargetLayer.js";
+import { useLocation } from "./features/location/LocationProvider.js";
+import { advanceFollow } from "./features/location/follow.js";
 import {
   CachesLayer,
   type SelectedParking,
 } from "./features/map/CachesLayer.js";
 import { ClustersPreviewLayer } from "./features/map/ClustersPreviewLayer.js";
+import { SavedToursLayer } from "./features/map/SavedToursLayer.js";
 import { LanduseLayer } from "./features/map/LanduseLayer.js";
 import { LegAlternativePreviewLayer } from "./features/map/LegAlternativePreviewLayer.js";
 import {
@@ -88,6 +97,7 @@ import { UploadDropzone } from "./features/upload/UploadDropzone.js";
 import {
   Crosshair,
   Download,
+  LocateFixed,
   Menu,
   Navigation,
   Route,
@@ -95,6 +105,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { parkingNavTarget } from "./lib/maps.js";
+import { haversineMeters } from "@gctp/shared/geo";
 import { analyticsEnabled } from "./lib/cloudflare-analytics.js";
 import { Logo } from "./features/shell/Logo.js";
 import { OfflineBadge, OfflineBanner } from "./features/shell/OfflineBadge.js";
@@ -163,6 +174,8 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     includeAdventuresInClustering: s.includeAdventuresInClustering,
     topNClusters: s.topNClusters,
     landuseWeight: s.landuseWeight,
+    centerProximityWeight: s.centerProximityWeight,
+    excludeSavedTourCaches: s.excludeSavedTourCaches,
     landuseProfileId: s.landuseProfileId ?? null,
     startPreference: s.startPreference,
     osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
@@ -263,6 +276,20 @@ export default function App(): JSX.Element {
   // clear-on-plan behaviour — now a derivation, not a side-effect).
   const planResult = plannedResult ?? openedPlan;
   const viewingOpenedTour = plannedResult === null && openedPlan !== null;
+
+  // The saved tour the current plan belongs to (FR-P2.4), so "Save changes" can
+  // overwrite it. Set when a tour is opened; preserved across a re-plan *of that
+  // tour* (captured in `setPlannedResult` before the session closes); cleared
+  // when a plan is made with no tour open (a genuinely fresh tour). Survives only
+  // within the planner session — leaving the route (App unmount) resets it.
+  const [editingTour, setEditingTour] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  useEffect(() => {
+    if (openedDetail)
+      setEditingTour({ id: openedDetail.id, name: openedDetail.name });
+  }, [openedDetail]);
   /** Manual cluster selection (shift-click markers) — drives the Cluster Lab. */
   const [selectedCacheIds, setSelectedCacheIds] = useState<ReadonlySet<number>>(
     () => new Set(),
@@ -275,6 +302,34 @@ export default function App(): JSX.Element {
   /** Last OSRM /route probe result, rendered as a bright-green polyline. */
   const [testRoute, setTestRoute] = useState<TestRouteResponse | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // ── Current location (opt-in GPS) ────────────────────────────────────
+  const location = useLocation();
+  // After enabling from "off", fly to the first fix once it lands.
+  const recenterOnFixRef = useRef(false);
+  useEffect(() => {
+    if (location.position && recenterOnFixRef.current) {
+      recenterOnFixRef.current = false;
+      mapRef.current?.flyTo({
+        center: location.position,
+        zoom: Math.max(14, mapRef.current.getZoom()),
+        essential: true,
+      });
+    }
+  }, [location.position]);
+  const onLocateClick = useCallback(() => {
+    if (location.position) {
+      mapRef.current?.flyTo({
+        center: location.position,
+        zoom: Math.max(15, mapRef.current.getZoom()),
+        essential: true,
+      });
+    } else {
+      recenterOnFixRef.current = true;
+      location.enable();
+    }
+  }, [location]);
+
   // Bottom obstruction (px) from the mobile command sheet — reported by
   // CommandPanel. Map-fit adds it as bottom padding so framed clusters/tours
   // land in the visible area above the sheet instead of behind it. 0 on desktop.
@@ -331,13 +386,21 @@ export default function App(): JSX.Element {
       setPlannedResultRaw(next);
       if (next) {
         setActiveStep("tour");
+        // If a saved tour was open, this re-plan is an *edit of that tour* —
+        // keep it as the "Save changes" target. A plan with no tour open is a
+        // brand-new tour, so clear any stale editing target.
+        setEditingTour(
+          openedDetail
+            ? { id: openedDetail.id, name: openedDetail.name }
+            : null,
+        );
         closeTour();
       }
       setSelectedLegIndex(null);
       setPreviewAlternativeIndex(null);
       setViaDrag(null);
     },
-    [setActiveStep, closeTour],
+    [setActiveStep, closeTour, openedDetail],
   );
 
   const startViaDrag = useCallback(
@@ -452,39 +515,115 @@ export default function App(): JSX.Element {
     },
   });
 
-  // ── Save tour (M6-γ, FR-P1) ──────────────────────────────────────────
-  const saveMutation = useMutation({
-    mutationFn: (name: string) => {
-      if (!planResult) throw new Error("No tour to save");
-      return saveTour({ name, plan: planResult });
-    },
+  // ── Save tour (M6-γ FR-P1, M6 FR-P2.4) ───────────────────────────────
+  // A single awaited sequence shared by create / overwrite / copy so the save
+  // is deterministic: the tour is persisted, its preview captured + uploaded,
+  // and the My Tours cache reconciled — all BEFORE we navigate. No fire-and-
+  // forget preview race, and the list row + thumbnail are present on arrival.
+  const [saving, setSaving] = useState<"saving" | "preview" | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = window.setTimeout(() => setJustSaved(false), 2500);
+    return () => window.clearTimeout(t);
+  }, [justSaved]);
+
+  const summaryOf = (
+    detail: SavedTourDetail,
+    hasPreview: boolean,
+  ): SavedTourSummary => ({
+    id: detail.id,
+    name: detail.name,
+    totalMeters: detail.totalMeters,
+    totalSeconds: detail.totalSeconds,
+    cacheCount: detail.cacheCount,
+    isShared: detail.isShared,
+    hasPreview,
+    startPoint: detail.startPoint,
+    createdAt: detail.createdAt,
   });
-  const onSaveTour = useCallback(() => {
-    if (!planResult || saveMutation.isPending || !online) return;
-    const name = window.prompt("Name this tour")?.trim();
-    if (!name) return;
-    saveMutation.mutate(name, {
-      onSuccess: async (detail) => {
-        // Snapshot the framed tour for its offline preview / list thumbnail
-        // (FR-W4) BEFORE navigating away unmounts the map. Capture the blob
-        // synchronously (the tour is already drawn + idle), then upload in the
-        // background — best-effort, never blocks the save or the nav.
+
+  const persistTour = useCallback(
+    async (target: { id: string; name: string } | null, name: string) => {
+      if (!planResult) return;
+      // Bake the user's per-leg edits (alt/via picks) into what gets stored so a
+      // reopened tour re-renders them (FR-P2.4 / FR-E2..E5).
+      const plan = applyLegEdits(planResult, legPicks);
+      setJustSaved(false);
+      setSaving("saving");
+      try {
+        const detail = target
+          ? await updateTour(target.id, { name, plan })
+          : await saveTour({ name, plan });
+
+        // Capture + upload the preview while the map is still mounted (FR-W4).
+        // Best-effort: a failed/blocked capture must not fail the save.
+        setSaving("preview");
+        let hasPreview = detail.hasPreview;
         const map = mapRef.current;
         if (map) {
-          const blob = await captureMapSnapshot(map);
-          if (blob)
-            void saveTourPreview(detail.id, blob)
-              // Refresh My Tours so the new thumbnail shows without a manual
-              // reload (the list was fetched before the upload landed).
-              .then(() =>
-                queryClient.invalidateQueries({ queryKey: ["tours"] }),
-              )
-              .catch(() => {});
+          const blob = await captureMapSnapshot(map).catch(() => null);
+          if (blob) {
+            try {
+              await saveTourPreview(detail.id, blob);
+              hasPreview = true;
+            } catch {
+              /* tour is saved; the preview is best-effort */
+            }
+          }
         }
-        void navigate({ to: "/tours" });
-      },
-    });
-  }, [planResult, saveMutation, navigate, queryClient, online]);
+
+        // Make My Tours deterministic: optimistically upsert the summary +
+        // cache the detail, then await the reconcile so the list is correct the
+        // instant the user lands on it (no missing-row flicker, no late thumb).
+        const summary = summaryOf(detail, hasPreview);
+        queryClient.setQueryData<SavedTourSummary[]>(["tours"], (old) => [
+          summary,
+          ...(old ?? []).filter((t) => t.id !== detail.id),
+        ]);
+        queryClient.setQueryData(["tour", detail.id], {
+          ...detail,
+          hasPreview,
+        });
+        await queryClient.invalidateQueries({ queryKey: ["tours"] });
+        // Refresh the planner-map footprints layer with the new/edited loop.
+        await queryClient.invalidateQueries({ queryKey: ["tour-footprints"] });
+        if (target) {
+          await queryClient.invalidateQueries({
+            queryKey: ["tour", target.id],
+          });
+        }
+        // The stored plan carries the baked edits, so the new signature's edit
+        // keys are redundant — drop them so a reopen renders cleanly.
+        prunePlanEditKeys(planSignature(plan));
+      } finally {
+        setSaving(null);
+      }
+    },
+    [planResult, legPicks, queryClient],
+  );
+
+  // Save as a brand-new tour (POST) — first save, or an explicit copy.
+  const onSaveNew = useCallback(async () => {
+    if (!planResult || saving || !online) return;
+    // Pre-fill an editable suggestion: "<name> (copy)" for a copy, else a
+    // recognisable place·distance·caches default the user can accept or tweak.
+    const suggested = editingTour
+      ? `${editingTour.name} (copy)`
+      : suggestTourName(planResult);
+    const name = window.prompt("Name this tour", suggested)?.trim();
+    if (!name) return;
+    await persistTour(null, name);
+    void navigate({ to: "/tours" });
+  }, [planResult, saving, online, editingTour, persistTour, navigate]);
+
+  // Overwrite the tour being edited (PUT), keeping its name. Stays on the tour
+  // view with a transient "Saved ✓" — the user is mid-edit, not done browsing.
+  const onSaveChanges = useCallback(async () => {
+    if (!planResult || saving || !online || !editingTour) return;
+    await persistTour(editingTour, editingTour.name);
+    setJustSaved(true);
+  }, [planResult, saving, online, editingTour, persistTour]);
 
   // ── Opened saved tour (M6-γ, FR-P2.2 / FR-W3) ────────────────────────
   // Opening, resuming, switching and the offline-durable data all live in
@@ -574,6 +713,7 @@ export default function App(): JSX.Element {
           clusterDensityWeight: 1,
           loopCompactnessWeight: 1,
           landuseWeight: planSettings.landuseWeight,
+          centerProximityWeight: planSettings.centerProximityWeight,
           ...(planSettings.landuseProfileId
             ? { landuseProfileId: planSettings.landuseProfileId }
             : {}),
@@ -582,6 +722,7 @@ export default function App(): JSX.Element {
         clusteringStrategy: planSettings.clusteringStrategy,
         includeAdventuresInClustering:
           planSettings.includeAdventuresInClustering,
+        excludeSavedTourCaches: planSettings.excludeSavedTourCaches,
         topNClusters: planSettings.topNClusters,
         // Cluster discovery (Pass 1) doesn't use the start point — it's a
         // Pass-2 parking concern — so we no longer send it here. The map-picked
@@ -813,6 +954,58 @@ export default function App(): JSX.Element {
       ),
     [cachesQuery.data, haloCachesQuery.data, tourCaches],
   );
+
+  // ── Follow mode: guide the user through the open tour's stops in order ───
+  const [following, setFollowing] = useState(false);
+  const [followVisited, setFollowVisited] = useState<ReadonlySet<number>>(
+    new Set(),
+  );
+  // Reset when the open tour (or the plan) changes — fresh walk, fresh progress.
+  useEffect(() => {
+    setFollowVisited(new Set());
+    setFollowing(false);
+  }, [openTourId, currentPlanSignature]);
+
+  // The ordered stops with their coordinates, from the plan + cache snapshots.
+  const followStops = useMemo(() => {
+    if (!planResult) return [];
+    const byId = new Map((caches ?? []).map((c) => [c.id, c]));
+    return planResult.orderedCacheIds
+      .map((id) => byId.get(id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        coord: c.location.coordinates as [number, number],
+      }));
+  }, [planResult, caches]);
+
+  const follow = useMemo(() => {
+    if (!following || !location.position || followStops.length === 0) {
+      return null;
+    }
+    return advanceFollow(
+      followStops.map((s) => s.coord),
+      location.position,
+      followVisited,
+    );
+  }, [following, location.position, followStops, followVisited]);
+
+  // Persist auto-advance (arrived stops marked visited). advanceFollow is
+  // idempotent, so this settles after one pass and never loops.
+  useEffect(() => {
+    if (follow && follow.visited.size !== followVisited.size) {
+      setFollowVisited(follow.visited);
+    }
+  }, [follow, followVisited]);
+
+  const followTarget =
+    follow && follow.targetIndex >= 0 ? followStops[follow.targetIndex] : null;
+  const followDistanceM =
+    followTarget && location.position
+      ? haversineMeters(location.position, followTarget.coord)
+      : null;
 
   // Cover the opened saved tour with the search circle (recenter): its caches
   // load and the circle frames it, instead of the circle staying at the old
@@ -1348,26 +1541,148 @@ export default function App(): JSX.Element {
           >
             <Navigation size={16} aria-hidden="true" /> Navigate to parking
           </a>
-          <div className="gpx-quick">
-            <button
-              type="button"
-              className="primary"
-              onClick={onSaveTour}
-              disabled={saveMutation.isPending || !online}
-              title={
-                !online
-                  ? OFFLINE_REASON
-                  : "Save this tour to My Tours so you can re-open it later."
-              }
-            >
-              {saveMutation.isPending ? (
-                "Saving…"
+
+          {followStops.length > 0 && (
+            <div className="follow">
+              {!following ? (
+                <button
+                  type="button"
+                  className="follow__start"
+                  onClick={() => {
+                    if (!location.position) location.enable();
+                    setFollowing(true);
+                  }}
+                  disabled={location.status === "unavailable"}
+                  title="Track your position and guide you stop-to-stop; walking directions open in your maps app."
+                >
+                  <LocateFixed size={16} aria-hidden="true" /> Follow on foot
+                </button>
+              ) : !location.position ? (
+                <div className="follow__status muted">
+                  Waiting for your GPS position…
+                  <button type="button" onClick={() => setFollowing(false)}>
+                    Stop
+                  </button>
+                </div>
+              ) : followTarget ? (
+                <div className="follow__active">
+                  <div className="follow__next">
+                    <span className="follow__next-label">Next</span>
+                    <strong>{followTarget.code}</strong>
+                    <span className="follow__next-dist">
+                      {followDistanceM! < 950
+                        ? `${Math.round(followDistanceM! / 10) * 10} m`
+                        : `${(followDistanceM! / 1000).toFixed(2)} km`}
+                    </span>
+                  </div>
+                  <div className="follow__actions">
+                    <a
+                      className="follow__nav"
+                      href={
+                        parkingNavTarget({
+                          coordinates: followTarget.coord,
+                        }).href
+                      }
+                      {...(parkingNavTarget({
+                        coordinates: followTarget.coord,
+                      }).external
+                        ? { target: "_blank", rel: "noreferrer" }
+                        : {})}
+                      title="Walking directions to this stop (opens your maps app)"
+                    >
+                      <Navigation size={14} aria-hidden="true" /> Navigate
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        follow &&
+                        setFollowVisited((p) =>
+                          new Set(p).add(follow.targetIndex),
+                        )
+                      }
+                    >
+                      Mark done
+                    </button>
+                    <button type="button" onClick={() => setFollowing(false)}>
+                      Stop
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <>
-                  <Save size={16} aria-hidden="true" /> Save tour
-                </>
+                <div className="follow__done">
+                  <span>Tour complete 🎉</span>
+                  <button
+                    type="button"
+                    onClick={() => setFollowVisited(new Set())}
+                  >
+                    Restart
+                  </button>
+                  <button type="button" onClick={() => setFollowing(false)}>
+                    Stop
+                  </button>
+                </div>
               )}
-            </button>
+            </div>
+          )}
+
+          <div className="gpx-quick">
+            {editingTour ? (
+              <>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={onSaveChanges}
+                  disabled={!!saving || !online}
+                  title={
+                    !online
+                      ? OFFLINE_REASON
+                      : `Overwrite “${editingTour.name}” with your edits.`
+                  }
+                >
+                  {saving === "saving" ? (
+                    "Saving…"
+                  ) : saving === "preview" ? (
+                    "Capturing preview…"
+                  ) : justSaved ? (
+                    "Saved ✓"
+                  ) : (
+                    <>
+                      <Save size={16} aria-hidden="true" /> Save changes
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={onSaveNew}
+                  disabled={!!saving || !online}
+                  title="Save these edits as a separate new tour, keeping the original."
+                >
+                  Save as a copy
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="primary"
+                onClick={onSaveNew}
+                disabled={!!saving || !online}
+                title={
+                  !online
+                    ? OFFLINE_REASON
+                    : "Save this tour to My Tours so you can re-open it later."
+                }
+              >
+                {saving === "saving" ? (
+                  "Saving…"
+                ) : saving === "preview" ? (
+                  "Capturing preview…"
+                ) : (
+                  <>
+                    <Save size={16} aria-hidden="true" /> Save tour
+                  </>
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => saveGpx("track")}
@@ -1730,6 +2045,7 @@ export default function App(): JSX.Element {
             onBasemapError={recheckConnectivity}
           >
             <LanduseLayer params={params} />
+            <SavedToursLayer enabled={planSettings.showSavedTours} />
             <OsmParkingLayer
               access={planSettings.osmParkingAccessFilter}
               fee={planSettings.osmParkingFeeFilter}
@@ -1825,8 +2141,51 @@ export default function App(): JSX.Element {
               onStatsChange={setWalkingGraphStats}
             />
             <TestRouteLayer result={testRoute} />
+            <CurrentLocationLayer
+              position={location.position}
+              accuracyM={location.accuracyM}
+            />
+            <FollowTargetLayer target={followTarget?.coord ?? null} />
             <ZoomDebugBadge />
           </MapView>
+
+          <button
+            type="button"
+            className={`map-locate-btn${location.status === "watching" ? " map-locate-btn--active" : ""}`}
+            onClick={onLocateClick}
+            disabled={
+              location.status === "denied" || location.status === "unavailable"
+            }
+            aria-pressed={location.status === "watching"}
+            aria-label={
+              location.status === "denied"
+                ? "Location permission denied"
+                : location.status === "watching"
+                  ? "Centre on my location"
+                  : "Show my location"
+            }
+            title={
+              location.status === "denied"
+                ? "Location permission was denied — allow it in your browser settings."
+                : location.status === "unavailable"
+                  ? "Location isn’t available on this device."
+                  : location.status === "locating"
+                    ? "Locating…"
+                    : location.status === "watching"
+                      ? "Centre on my location"
+                      : "Show my location on the map"
+            }
+          >
+            <LocateFixed
+              size={20}
+              aria-hidden="true"
+              className={
+                location.status === "locating"
+                  ? "map-locate-btn__spin"
+                  : undefined
+              }
+            />
+          </button>
 
           {/* Offline fallback: when basemap tiles can't load, show the opened
               tour's stored snapshot (FR-W4) — it bakes in the basemap + route.

@@ -30,6 +30,17 @@ export interface ScoreClusterInput {
   landuseWeight: number;
   /** Request-scoped projection for the parking-presence proximity check. */
   projection: Geo.Projection;
+  /** Search-area center [lng, lat] — anchor for the `centerProximity` term. */
+  center: readonly [number, number];
+  /** This cluster's centroid [lng, lat] (mean of its caches). */
+  centroid: readonly [number, number];
+  /** Search radius (m) — normaliser for the `centerProximity` falloff. */
+  radiusM: number;
+  /**
+   * Weight applied to `centerProximity` (resolved on the main thread from the
+   * request override or `PLANNER_CENTER_BIAS_WEIGHT`). 0 disables the term.
+   */
+  centerProximityWeight: number;
 }
 
 export interface ClusterScore {
@@ -65,6 +76,10 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     preferredLanduseKinds,
     landuseWeight,
     projection,
+    center,
+    centroid,
+    radiusM,
+    centerProximityWeight,
   } = input;
 
   const breakdown: Record<string, number> = {};
@@ -172,6 +187,16 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     }
     const fraction = caches.length > 0 ? hits / caches.length : 0;
     breakdown.landuseMatch = fraction * landuseWeight;
+  }
+
+  // Center proximity: linear falloff of the cluster centroid's distance from
+  // the search center — 1 at the center, 0 at the radius edge, clamped to 0
+  // beyond (grow-mode boundary clusters lose the bonus, never go negative).
+  // Pushes central clusters up the ranking; the user controls the weight.
+  if (centerProximityWeight > 0) {
+    const dCenter = projection.distanceMeters(centroid, center);
+    const t = Math.max(0, 1 - dCenter / Math.max(radiusM, 1));
+    breakdown.centerProximity = t * centerProximityWeight;
   }
 
   const total = Object.values(breakdown).reduce((s, v) => s + v, 0);

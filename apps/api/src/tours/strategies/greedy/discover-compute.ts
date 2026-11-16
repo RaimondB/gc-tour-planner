@@ -78,6 +78,8 @@ export function computeClusters(
     const estimatedTourMeters = estimateTourLength(cluster.length, (i, j) =>
       clusterDistanceMeters(cluster[i]!.id, cluster[j]!.id),
     );
+    const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
+    const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
     const { total, breakdown } = scoreCluster({
       caches: cluster,
       mstLengthMeters: mst,
@@ -88,9 +90,11 @@ export function computeClusters(
       preferredLanduseKinds,
       landuseWeight: input.softPreferences.landuseWeight ?? 1,
       projection: ctx.projection,
+      center: input.center,
+      centroid: [meanLng, meanLat],
+      radiusM: input.radiusM,
+      centerProximityWeight: ctx.centerProximityWeight,
     });
-    const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
-    const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));
     // Pass-1 clustered on adventure representatives (one node per Adventure
     // Lab); expand each rep back to all of its stages so the cluster the client
     // selects — and Pass-2 routes — contains the whole adventure (FR-I17).

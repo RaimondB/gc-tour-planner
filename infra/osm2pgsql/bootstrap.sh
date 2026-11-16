@@ -160,4 +160,6 @@ ON CONFLICT (id) DO UPDATE SET
 
 LANDUSE_COUNT=$(${PSQL} -c "SELECT count(*) FROM landuse_polygons")
 PARKING_COUNT=$(${PSQL} -c "SELECT count(*) FROM parking_facilities")
-echo "[landuse-import] done — ${LANDUSE_COUNT} polygons in landuse_polygons, ${PARKING_COUNT} rows in parking_facilities"
+PLACE_COUNT=$(${PSQL} -c "SELECT count(*) FROM place_points")
+PLACE_SIZE=$(${PSQL} -c "SELECT pg_size_pretty(pg_total_relation_size('place_points'))")
+echo "[landuse-import] done — ${LANDUSE_COUNT} polygons in landuse_polygons, ${PARKING_COUNT} rows in parking_facilities, ${PLACE_COUNT} rows in place_points (${PLACE_SIZE})"

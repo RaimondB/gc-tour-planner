@@ -14,6 +14,7 @@ import { setUnauthorizedHandler } from "./lib/api.js";
 import { router } from "./router.js";
 import { ConnectivityProvider } from "./features/shell/ConnectivityProvider.js";
 import { TourSessionProvider } from "./features/tours/TourSessionProvider.js";
+import { LocationProvider } from "./features/location/LocationProvider.js";
 import { PwaUpdatePrompt } from "./features/shell/PwaUpdatePrompt.js";
 import { PwaInstallProvider } from "./features/shell/PwaInstallProvider.js";
 import { GpxDownloadToast } from "./features/shell/GpxDownloadToast.js";
@@ -79,9 +80,11 @@ createRoot(rootEl).render(
       <ConnectivityProvider>
         <AuthProvider>
           <TourSessionProvider>
-            <PwaInstallProvider>
-              <AppRouter />
-            </PwaInstallProvider>
+            <LocationProvider>
+              <PwaInstallProvider>
+                <AppRouter />
+              </PwaInstallProvider>
+            </LocationProvider>
           </TourSessionProvider>
         </AuthProvider>
         <PwaUpdatePrompt />

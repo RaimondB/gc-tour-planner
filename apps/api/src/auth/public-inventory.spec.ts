@@ -19,6 +19,7 @@ import { OsmController } from "../osm/osm.controller.js";
 import { ParkingFacilitiesController } from "../osm/parking-facilities.controller.js";
 import { RoutingController } from "../routing/routing.controller.js";
 import { ToursController } from "../tours/tours.controller.js";
+import { SharedTourController } from "../tours/shared-tour.controller.js";
 import { LanduseProfilesController } from "../landuse-profiles/landuse-profiles.controller.js";
 import { AdminUploadsController } from "../admin/uploads/admin-uploads.controller.js";
 import { AdminPrecomputeController } from "../admin/precompute/admin-precompute.controller.js";
@@ -37,6 +38,7 @@ const CONTROLLERS: Ctor[] = [
   ParkingFacilitiesController,
   RoutingController,
   ToursController,
+  SharedTourController,
   LanduseProfilesController,
   AdminUploadsController,
   AdminPrecomputeController,
@@ -44,10 +46,10 @@ const CONTROLLERS: Ctor[] = [
 ];
 
 /**
- * The normative public-endpoint inventory (FR-P11 / design §7 / ADR-0021). This
- * is the M6-α set; M6-δ will add `GET /shared/:slug`. Any change to the live
- * `@Public()` set must update this expectation in the same PR — that is the
- * whole point of the test: the no-auth surface cannot drift silently.
+ * The normative public-endpoint inventory (FR-P11 / design §7 / ADR-0021,
+ * ADR-0022). Any change to the live `@Public()` set must update this expectation
+ * in the same PR — that is the whole point of the test: the no-auth surface
+ * cannot drift silently.
  */
 const EXPECTED_PUBLIC = new Set<string>([
   "POST /auth/register",
@@ -55,6 +57,7 @@ const EXPECTED_PUBLIC = new Set<string>([
   "GET /auth/google",
   "GET /auth/google/callback",
   "GET /health",
+  "GET /shared/:slug",
 ]);
 
 const METHOD_NAME: Record<number, string> = {

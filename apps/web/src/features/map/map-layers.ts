@@ -35,6 +35,10 @@ export const MAP_LAYER_ORDER: readonly string[] = [
   "gctp-start-pick-circle",
   "gctp-start-pick-label",
 
+  // — Saved-tour footprints (faint dashed loops, background context) —
+  "gctp-saved-tours-line",
+  "gctp-saved-tours-hit",
+
   // — Cluster preview loops (an "area shape" hint, below the caches) —
   "gctp-cluster-preview-lines",
 
@@ -97,6 +101,12 @@ export const MAP_LAYER_ORDER: readonly string[] = [
   "gctp-parking-preview-line",
   "gctp-parking-preview-hit",
   "gctp-parking-owner-link-line",
+
+  // — Current GPS position (you-are-here) — above the tour so it's always visible —
+  "gctp-user-location-accuracy",
+  "gctp-user-location-dot",
+  // — Follow-mode current-target highlight —
+  "gctp-follow-target-ring",
 
   // — Debug overlays —
   "gctp-walking-graph-edges",

@@ -236,10 +236,36 @@ export interface LandusePolygonsTable {
   /** Canonical kind from packages/shared/src/landuse. */
   kind: string;
   /**
+   * OSM `name` of the feature, when tagged — a named park / forest / nature
+   * reserve a tour can be labelled by (ADR-0036). NULL for the many unnamed
+   * polygons. Migration `1786000000000_landuse_polygons_name.sql`.
+   */
+  name: string | null;
+  /**
    * MultiPolygon (geometry, SRID 4326). osm2pgsql normalises closed ways
    * and multipolygon relations into MultiPolygon. Repositories use
    * ST_AsGeoJSON to read.
    */
+  geom: string;
+}
+
+/**
+ * Named OSM settlement nodes (place=city/town/village/hamlet/suburb) — the
+ * source of a tour's "place" label, resolved by nearest-point to the tour start
+ * (ADR-0036). Populated by the osm2pgsql pass that builds landuse_polygons;
+ * schema declared in `infra/osm2pgsql/osm-features.lua` and
+ * `packages/db/migrations/1786000000001_place_points.sql` — keep in lockstep.
+ * Freshness shares `landuse_import_meta` (same osm2pgsql invocation).
+ */
+export interface PlacePointsTable {
+  /** OSM node id. */
+  osm_id: number;
+  /** place kind: city | town | village | hamlet | suburb. */
+  place: string;
+  name: string;
+  /** Best-effort integer population; NULL when untagged. Breaks ties. */
+  population: number | null;
+  /** Point geometry, SRID 4326. Repositories use ST_Distance/ST_AsGeoJSON. */
   geom: string;
 }
 
@@ -479,6 +505,7 @@ export interface Database {
   cache_finds: CacheFindsTable;
   landuse_polygons: LandusePolygonsTable;
   parking_facilities: ParkingFacilitiesTable;
+  place_points: PlacePointsTable;
   car_roads: CarRoadsTable;
   landuse_import_meta: LanduseImportMetaTable;
   landuse_profiles: LanduseProfilesTable;

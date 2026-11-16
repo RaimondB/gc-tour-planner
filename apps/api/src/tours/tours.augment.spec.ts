@@ -83,6 +83,7 @@ function makeService(opts: {
     null as never, // osrm
     null as never, // osrmVersion
     adventureLab,
+    null as never, // places (PlacesRepository) — unused by augment paths
   );
   return { svc, enrich };
 }

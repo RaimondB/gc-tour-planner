@@ -288,8 +288,14 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       cacheIds: clusterCacheIds,
       distanceBudgetMeters: 8_000,
       timePerCacheMinutes: 5,
+      // Bypassing the wire schema means schema defaults don't apply, so set the
+      // fields planLoop reads explicitly: maxLinkMeters (the connected-component
+      // pre-filter treats an undefined cap as "no edges" and drops every cache)
+      // and alStageVisitMinutes (an undefined term makes visitMinutes NaN).
+      alStageVisitMinutes: 2,
       toolBonusMinutes: 5,
       startPreference: "parking-waypoint",
+      maxLinkMeters: 1_000,
     });
     expect(result.orderedCacheIds).toHaveLength(clusterCacheIds.length);
     expect(new Set(result.orderedCacheIds)).toEqual(new Set(clusterCacheIds));
@@ -316,6 +322,7 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       toolBonusMinutes: 5,
       startPreference: "user-supplied-point",
       userSuppliedStart: start,
+      maxLinkMeters: 1_000,
     });
     expect(result.parking.type).toBe("user");
     expect(result.parking.point.coordinates).toEqual(start);

@@ -109,19 +109,32 @@ CREATE TABLE additional_waypoints (
 CREATE INDEX additional_waypoints_location_gist ON additional_waypoints USING GIST (location);
 
 -- ADR-0009 replaced the Overpass-fed osm_landuse with osm2pgsql-fed
--- landuse_polygons. ADR-0011 adds parking_facilities and ADR-0012 adds
--- car_roads to the same import. All three tables are populated by
--- infra/osm2pgsql/osm-features.lua in a single PBF pass, with freshness
--- recorded in landuse_import_meta.
+-- landuse_polygons. ADR-0011 adds parking_facilities, ADR-0012 adds car_roads,
+-- and ADR-0036 adds place_points + the landuse `name` column — all to the same
+-- import. The four tables are populated by infra/osm2pgsql/osm-features.lua in a
+-- single PBF pass, with freshness recorded in landuse_import_meta.
 CREATE TABLE landuse_polygons (
   osm_id    BIGINT NOT NULL,                                  -- OSM way / relation id
   osm_type  CHAR(1) NOT NULL,                                 -- 'W' (way) | 'R' (relation), uppercase from osm2pgsql flex
   kind      TEXT NOT NULL,                                    -- 'forest', 'park', 'residential', ... (see packages/shared/src/landuse)
+  name      TEXT,                                             -- ADR-0036: named park/forest → tour "place" anchor; NULL for unnamed
   geom      GEOMETRY(MultiPolygon, 4326) NOT NULL,
   PRIMARY KEY (osm_type, osm_id)
 );
 CREATE INDEX landuse_polygons_geom_gix ON landuse_polygons USING GIST (geom);
 CREATE INDEX landuse_polygons_kind_idx ON landuse_polygons (kind);
+
+CREATE TABLE place_points (                                   -- ADR-0036
+  osm_id     BIGINT NOT NULL,                                 -- OSM node id
+  place      TEXT NOT NULL,                                   -- city | town | village | hamlet | suburb
+  name       TEXT NOT NULL,
+  population INTEGER,                                          -- best-effort; breaks ties toward the bigger settlement
+  geom       GEOMETRY(Point, 4326) NOT NULL,                  -- settlement centre node
+  PRIMARY KEY (osm_id)
+);
+-- Nearest-place lookup names a tour by its town (KNN geom <-> point + ST_Distance cap).
+CREATE INDEX place_points_geom_gix  ON place_points USING GIST (geom);
+CREATE INDEX place_points_place_idx ON place_points (place);
 
 CREATE TABLE parking_facilities (                              -- ADR-0011
   osm_id        BIGINT NOT NULL,

@@ -267,6 +267,11 @@ type PlanResult = {
   // the wire `polyline` above remains the concatenation of the
   // picker's chosen alternatives for back-compat with older clients.
   legs: PlanLeg[];
+  // ADR-0036: human "place" for the tour — nearest town / named park resolved
+  // server-side from OSM (place_points / named landuse). Drives the default tour
+  // name + GPX filename. Absent when nothing resolves (client falls back to the
+  // parking name, then distance + caches).
+  placeLabel?: string;
 };
 
 type PlanLeg = {
@@ -380,6 +385,7 @@ Full design — session model, guard swap, the normative public-endpoint invento
 | `GET /tours` | session | — | Owner-scoped summaries (FR-P2) |
 | `GET /tours/:id` | session | — | Full detail; cross-tenant → 404 |
 | `PATCH /tours/:id` | session | yes | Rename |
+| `PUT /tours/:id` | session | yes | Overwrite route + snapshot in place (FR-P2.4); keeps `created_at`, share slug, preview |
 | `DELETE /tours/:id` | session | yes | Delete (revokes any share) |
 | `POST /tours/:id/share` | session | yes | Mint slug (idempotent) |
 | `DELETE /tours/:id/share` | session | yes | Revoke (old URL 404s) |
@@ -400,6 +406,11 @@ type SavedTourSummary = {
   totalSeconds: number;
   cacheCount: number;
   isShared: boolean;
+  hasPreview: boolean;
+  // The tour's start anchor — the My Tours list computes "X km away" + the
+  // nearest-first sort from the user's current position client-side (ADR-0037);
+  // the position never leaves the device.
+  startPoint: { type: "Point"; coordinates: [number, number] };
   createdAt: string;
 };
 ```

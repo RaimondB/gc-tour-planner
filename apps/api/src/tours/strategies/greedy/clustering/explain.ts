@@ -60,6 +60,8 @@ export async function explainSelection(
     topNClusters: 5,
     clusteringStrategy: input.clusteringStrategy,
     includeAdventuresInClustering: true,
+    // Diagnostics see the full pool — don't anti-join saved tours here.
+    excludeSavedTourCaches: false,
   };
 
   const ctx = await prepareClusteringContext(ownerId, planInput, {
@@ -246,6 +248,13 @@ function describeSelection(
     preferredLanduseKinds: [],
     landuseWeight: 0,
     projection: ctx.projection,
+    center: ctx.input.center,
+    centroid: [
+      mean(present.map((c) => c.location.coordinates[0]!)),
+      mean(present.map((c) => c.location.coordinates[1]!)),
+    ],
+    radiusM: ctx.input.radiusM,
+    centerProximityWeight: 0,
   });
 
   return {
@@ -487,6 +496,13 @@ function computeAttribution(
       preferredLanduseKinds: [],
       landuseWeight: 0,
       projection: ctx.projection,
+      center: ctx.input.center,
+      centroid: [
+        mean(cluster.map((c) => c.location.coordinates[0]!)),
+        mean(cluster.map((c) => c.location.coordinates[1]!)),
+      ],
+      radiusM: ctx.input.radiusM,
+      centerProximityWeight: 0,
     });
     const meanLng = mean(cluster.map((c) => c.location.coordinates[0]!));
     const meanLat = mean(cluster.map((c) => c.location.coordinates[1]!));

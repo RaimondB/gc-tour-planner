@@ -45,3 +45,6 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0033](0033-machine-ingestion-api.md)                         | Machine ingestion API for external source adapters            | Accepted                                      |
 | [0034](0034-adventure-lab-collapse.md)                        | Collapse Adventure Labs to one node for clustering + the map   | Accepted                                      |
 | [0035](0035-compositional-marker-model.md)                    | Compositional marker model & colour-blind-safe palette         | Accepted                                      |
+| [0036](0036-osm-place-names.md)                               | OSM place names (settlement nodes + named landuse) for tour naming | Accepted                                  |
+| [0037](0037-location-awareness-and-follow-mode.md)            | Location awareness, nearby tours & follow-mode navigation     | Accepted                                      |
+| [0038](0038-exclude-saved-tour-caches-from-discovery.md)      | Exclude saved-tour caches from cluster discovery (default on)  | Accepted                                      |

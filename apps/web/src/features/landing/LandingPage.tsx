@@ -78,7 +78,7 @@ const FEATURES: readonly { title: string; body: string }[] = [
   },
   {
     title: "Cluster discovery — or build your own",
-    body: "Automatically detects dense clusters of caches that admit a closed walking loop within your budget, or hand-pick a set on the map and plan it. When a cache is left out, the planner tells you why.",
+    body: "Automatically detects dense clusters of caches that admit a closed walking loop within your budget, or hand-pick a set on the map and plan it. Discovery favours clusters near the centre of your search and skips caches already in your saved tours, so it keeps finding new ground — both adjustable. When a cache is left out, the planner tells you why.",
   },
   {
     title: "Adventure Lab aware",
@@ -94,7 +94,19 @@ const FEATURES: readonly { title: string; body: string }[] = [
   },
   {
     title: "Saved tours & Google sign-in",
-    body: "Create an account or sign in with Google, then save your planned tours and pick up where you left off.",
+    body: "Create an account or sign in with Google, then save your planned tours and pick up where you left off — edit and re-save a tour, or save a copy.",
+  },
+  {
+    title: "Saved tours on the map",
+    body: "Your saved loops show as faint footprints on the planner map, so you can see at a glance which areas you've already covered. Click one to open it.",
+  },
+  {
+    title: "Share a read-only link",
+    body: "Send anyone a private link to a tour — they see the map, the stops, and the totals, no account needed. Revoke it anytime.",
+  },
+  {
+    title: "Find tours near you & follow on foot",
+    body: "Turn on your location to see your position on the map, how far each saved tour is, and which are closest — then follow a tour stop-by-stop with walking directions handed to your phone’s maps app. Your location stays on your device.",
   },
 ];
 

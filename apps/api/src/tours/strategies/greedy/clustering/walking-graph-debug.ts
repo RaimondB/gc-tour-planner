@@ -63,6 +63,7 @@ export async function buildWalkingGraphResponse(
     osmParkingFeeFilter: "any",
     topNClusters: 5,
     includeAdventuresInClustering: true,
+    excludeSavedTourCaches: false,
   };
   const ctx = await prepareClusteringContext(ownerId, planInput, {
     caches: deps.caches,
