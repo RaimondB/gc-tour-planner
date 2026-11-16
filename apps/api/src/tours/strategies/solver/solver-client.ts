@@ -23,6 +23,9 @@ export interface SolverPlanRequest {
     /** True when this node belongs to a *linear* adventure — its stages must be
      *  visited in `stageSequence` order (other caches may still interleave). */
     adventureSequential: boolean;
+    /** This node's visit time (s): per-type minutes, AL stage time, tool bonus,
+     *  summed over co-located members. Falls back to `visitSecondsPerCache`. */
+    visitSeconds?: number;
   }>;
   /** N×N. `null` cells mark unreachable pairs. */
   matrixMeters: (number | null)[][];

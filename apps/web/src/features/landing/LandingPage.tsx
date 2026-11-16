@@ -74,7 +74,7 @@ const FEATURES: readonly { title: string; body: string }[] = [
   },
   {
     title: "Route profiles",
-    body: "Save your favourite setups — which caches, what makes a walk interesting, time per cache and budget — as named profiles, and switch with one tap. Start from built-in presets like Quick traditionals, Forest walk or Adventure Lab day.",
+    body: "Save complete planner setups — which caches, what makes a walk interesting, time per cache, how far and how long — as named profiles, and switch with one tap. Set a time limit and plans fit your walking pace plus time at each cache. Start from built-in presets like Quick traditionals, Forest walk or Adventure Lab day.",
   },
   {
     title: "Surroundings-aware scoring",

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Raimond Brookman and contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { Tours } from "@gctp/shared";
+import { Tours } from "@gctp/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
 import { CachesService } from "../../src/caches/caches.service.js";
@@ -311,6 +311,43 @@ describe("M5-α tour planner integration (PostGIS via Testcontainers)", () => {
       result.polyline.coordinates[result.polyline.coordinates.length - 1]!;
     expect(first).toEqual(result.parking.point.coordinates);
     expect(last).toEqual(result.parking.point.coordinates);
+  });
+
+  it("planLoop counts per-type visit minutes (ADR-0039)", async () => {
+    const result = await planner.planLoop(
+      ownerId,
+      Tours.PlanLoopInput.parse({
+        cacheIds: clusterCacheIds,
+        startPreference: "parking-waypoint",
+        maxLinkMeters: 1_000,
+        visitMinutesByType: { Traditional: 7 },
+      }),
+    );
+    expect(result.orderedCacheIds).toHaveLength(clusterCacheIds.length);
+    expect(result.totals.visitMinutes).toBe(7 * clusterCacheIds.length);
+  });
+
+  it("planLoop trims to the time budget on the greedy path (ADR-0039)", async () => {
+    const plan = (timeBudgetMinutes?: number) =>
+      planner.planLoop(
+        ownerId,
+        Tours.PlanLoopInput.parse({
+          cacheIds: clusterCacheIds,
+          startPreference: "parking-waypoint",
+          maxLinkMeters: 1_000,
+          timePerCacheMinutes: 20,
+          ...(timeBudgetMinutes ? { timeBudgetMinutes } : {}),
+        }),
+      );
+    const full = await plan();
+    expect(full.orderedCacheIds).toHaveLength(clusterCacheIds.length);
+
+    // 20 min per cache: a 70 min budget can't hold them all.
+    const timed = await plan(70);
+    expect(timed.orderedCacheIds.length).toBeLessThan(clusterCacheIds.length);
+    expect(timed.orderedCacheIds.length).toBeGreaterThanOrEqual(2);
+    expect(timed.totals.visitMinutes).toBeLessThanOrEqual(70);
+    expect(timed.droppedCaches.every((d) => d.reason === "budget")).toBe(true);
   });
 
   it("planLoop honors user-supplied start point", async () => {

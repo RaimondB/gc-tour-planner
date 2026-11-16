@@ -3255,49 +3255,33 @@ button.danger:hover:not(:disabled) {
   flex-direction: column;
   gap: 0.75rem;
 }
-.profile-editor__group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+.profile-editor__settings {
+  padding: 0;
 }
-.profile-editor__group legend {
-  padding: 0 0.25rem;
-  font-weight: 600;
-  font-size: 0.9rem;
+.settings-heading {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.95rem;
 }
-.profile-editor__row {
-  display: flex;
+.settings-types {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 0.5rem;
+}
+.settings-types > small {
+  grid-column: 1 / -1;
+}
+.settings-per-type summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+.sidebar .settings-per-type__row {
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.85rem;
 }
-.profile-editor__row input[type="number"] {
-  width: 5.5rem;
-}
-.profile-editor__check {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-}
-.profile-editor__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.75rem;
-  font-size: 0.85rem;
-}
-.profile-editor__chips > span {
-  flex-basis: 100%;
-  color: #475569;
-}
-.profile-editor__more summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: #475569;
+.sidebar .settings-per-type__row input[type="number"] {
+  width: 5rem;
 }
 .profile-editor__actions {
   display: flex;

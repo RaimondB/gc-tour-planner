@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { z } from "zod";
+import { CacheType } from "../caches/index.js";
 import { LngLat } from "../geo/index.js";
 import {
   ParkingAccessChip,
@@ -23,6 +24,11 @@ export const PlanLoopInput = z.object({
   cacheIds: z.array(z.number().int().positive()).min(2).max(50),
   distanceBudgetMeters: z.number().int().positive().max(25_000).default(8_000),
   timeBudgetMinutes: z.number().int().positive().max(720).optional(),
+  /**
+   * Walking pace for the time budget (ADR-0039): travel time = routed metres ÷
+   * this speed, the same model the web uses to display walking time. Default 5.
+   */
+  walkingKmh: z.number().min(1).max(10).default(5),
   /** Per-cache visit time used in time-budget math. Default per FR-T3 = 5. */
   timePerCacheMinutes: z.number().int().nonnegative().max(120).default(5),
   /**
@@ -32,6 +38,14 @@ export const PlanLoopInput = z.object({
    * separate, smaller default (2 min) keeps tour-time estimates realistic.
    */
   alStageVisitMinutes: z.number().int().nonnegative().max(120).default(2),
+  /**
+   * Per-cache-type visit minutes overriding `timePerCacheMinutes` (ADR-0039),
+   * e.g. `{ Multi: 20 }`. Adventure Lab stages always use
+   * `alStageVisitMinutes`. See `visitMinutesFor`.
+   */
+  visitMinutesByType: z
+    .partialRecord(CacheType, z.number().int().nonnegative().max(240))
+    .default({}),
   /**
    * Adventure-Lab solver toggle (FR-I16): when an Adventure is in scope, include
    * it **completely or not at all** — never a partial adventure. The solver pulls

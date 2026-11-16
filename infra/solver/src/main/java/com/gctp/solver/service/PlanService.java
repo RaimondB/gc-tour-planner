@@ -63,6 +63,7 @@ public class PlanService {
             cache.setAdventureId(c.adventureId());
             cache.setStageSequence(c.stageSequence());
             cache.setAdventureSequential(Boolean.TRUE.equals(c.adventureSequential()));
+            cache.setVisitSeconds(c.visitSeconds());
             caches.add(cache);
             if (c.adventureId() != null) {
                 adventureCandidateCounts.merge(c.adventureId(), 1L, Long::sum);

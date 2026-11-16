@@ -77,3 +77,57 @@ describe("scoreCluster — centerProximity term", () => {
     expect(beyond.breakdown.centerProximity).toBe(0);
   });
 });
+
+describe("scoreCluster — variety and preferred types (ADR-0039)", () => {
+  const typed = (
+    id: number,
+    type: Caches.CacheType,
+    difficulty: number,
+  ): Caches.CacheDTO =>
+    ({
+      ...cache(id, CENTER[0], CENTER[1]),
+      type,
+      difficulty,
+    }) as Caches.CacheDTO;
+  const withCaches = (
+    caches: Caches.CacheDTO[],
+    prefs: Partial<Tours.SoftPreferences>,
+  ): ScoreClusterInput => ({
+    ...input(CENTER, 0),
+    caches,
+    softPrefs: { ...SOFT_PREFS, ...prefs },
+  });
+
+  const same = [1, 2, 3, 4].map((i) => typed(i, "Traditional", 1.5));
+  const mixed = [
+    typed(1, "Traditional", 1.5),
+    typed(2, "Multi", 2.5),
+    typed(3, "Mystery", 3.5),
+    typed(4, "Letterbox", 4.5),
+  ];
+
+  it("is absent unless a variety weight is set", () => {
+    expect(scoreCluster(withCaches(mixed, {})).breakdown.variety).toBe(
+      undefined,
+    );
+  });
+
+  it("scores an even mix 1 × weight and a uniform cluster 0", () => {
+    expect(
+      scoreCluster(withCaches(mixed, { varietyWeight: 2 })).breakdown.variety,
+    ).toBeCloseTo(2);
+    expect(
+      scoreCluster(withCaches(same, { varietyWeight: 2 })).breakdown.variety,
+    ).toBe(0);
+  });
+
+  it("scores the share of preferred types × weight", () => {
+    const res = scoreCluster(
+      withCaches(mixed, {
+        preferredTypes: ["Multi", "Mystery"],
+        preferredTypeWeight: 3,
+      }),
+    );
+    expect(res.breakdown.preferredTypes).toBeCloseTo(1.5);
+  });
+});

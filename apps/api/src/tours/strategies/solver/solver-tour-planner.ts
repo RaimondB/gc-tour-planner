@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
 import { Tsp } from "@gctp/shared";
-import { hasToolRequirement } from "@gctp/shared/caches";
+import { visitMinutesFor } from "@gctp/shared/tours";
 import { CachesService } from "../../../caches/caches.service.js";
 import { RoutingService } from "../../../routing/routing.service.js";
 import {
@@ -13,7 +13,10 @@ import {
   type OsrmLeg,
 } from "../../../routing/osrm.client.js";
 import { ParkingFacilitiesRepository } from "../../../osm/parking-facilities.repository.js";
-import { GreedyTspPlanner } from "../greedy/greedy-tsp-planner.js";
+import {
+  GreedyTspPlanner,
+  visitModelOf,
+} from "../greedy/greedy-tsp-planner.js";
 import { pickOsmParking } from "../pick-osm-parking.js";
 import { pickBestPqParking } from "../pick-pq-parking.js";
 import { largestConnectedComponent } from "../../adventure-cohesion.js";
@@ -223,7 +226,12 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
         repOrigIdx.map((rj) => (ri === rj ? 0 : (m[ri]?.[rj] ?? null))),
       );
     const repMatrixMeters = subMatrix(metersMatrix);
-    const repMatrixSeconds = subMatrix(secondsMatrix);
+    // Travel time = metres at the user's pace (ADR-0039) — the model the web
+    // displays and the greedy time budget uses — not OSRM's fixed foot speed.
+    const secondsPerMeter = 3.6 / input.walkingKmh;
+    const toSeconds = (m: number | null): number | null =>
+      m === null ? null : m * secondsPerMeter;
+    const repMatrixSeconds = repMatrixMeters.map((row) => row.map(toSeconds));
 
     // Parking: same algorithm as greedy. Picked BEFORE the solver so the
     // anchor-to-parking legs go in as constants in the problem instance.
@@ -248,17 +256,24 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     const parkingToCacheMeters = parkingLegs.map(
       (l) => l?.meters ?? PARK_UNREACHABLE_SENTINEL,
     );
-    const parkingToCacheSeconds = parkingLegs.map(
-      (l) => l?.seconds ?? PARK_UNREACHABLE_SENTINEL,
+    const parkingToCacheSeconds = parkingLegs.map((l) =>
+      l ? l.meters * secondsPerMeter : PARK_UNREACHABLE_SENTINEL,
     );
     const cacheToParkingMeters = closingLegs.map(
       (l) => l?.meters ?? PARK_UNREACHABLE_SENTINEL,
     );
-    const cacheToParkingSeconds = closingLegs.map(
-      (l) => l?.seconds ?? PARK_UNREACHABLE_SENTINEL,
+    const cacheToParkingSeconds = closingLegs.map((l) =>
+      l ? l.meters * secondsPerMeter : PARK_UNREACHABLE_SENTINEL,
     );
 
     const visitSecondsPerCache = input.timePerCacheMinutes * 60;
+    // Each rep's own visit time: the sum over its co-located members.
+    const visitModel = visitModelOf(input);
+    const repVisitSeconds = (repId: number): number =>
+      membersOf(repId).reduce((sum, id) => {
+        const c = byId.get(id);
+        return c ? sum + visitMinutesFor(c, visitModel) * 60 : sum;
+      }, 0);
     const timeBudgetSeconds = input.timeBudgetMinutes
       ? input.timeBudgetMinutes * 60
       : null;
@@ -273,6 +288,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
           adventureId: c.adventureId ?? null,
           stageSequence: c.stageSequence ?? null,
           adventureSequential: c.adventureSequential ?? false,
+          visitSeconds: repVisitSeconds(id),
         };
       }),
       matrixMeters: repMatrixMeters,
@@ -481,7 +497,7 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
       const fitsTimeBudget = (order: readonly number[]): boolean =>
         timeBudgetSeconds === null ||
         closedLoopMeters(order, secondsAt, parkToSeconds, toParkSeconds) +
-          order.length * visitSecondsPerCache <=
+          order.reduce((sum, id) => sum + repVisitSeconds(id), 0) <=
           timeBudgetSeconds;
 
       // Group dropped reps into atomic units (whole adventure, or one non-AL
@@ -676,24 +692,11 @@ export class SolverTourPlanner implements Tours.TourPlannerStrategy {
     const parkingDetourMeters =
       (allLegs[0]?.meters ?? 0) + (allLegs[allLegs.length - 1]?.meters ?? 0);
 
-    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes` on top of its
-    // base visit time. Adventure Lab stages use their own (smaller) per-stage
-    // visit time (`alStageVisitMinutes`) — labs are quick and often clustered.
-    // Mirrors GreedyTspPlanner; only affects `totals.visitMinutes`.
-    let toolStopCount = 0;
-    let alStageCount = 0;
-    for (const id of orderedIdsFinal) {
+    // Visit time per stop (FR-SF7, ADR-0039) — see `visitMinutesFor`.
+    const visitMinutes = orderedIdsFinal.reduce((sum, id) => {
       const c = byId.get(id);
-      if (!c) continue;
-      if (c.type === "Adventure Lab") alStageCount += 1;
-      if (hasToolRequirement(c.attributeIds, c.descriptionHints))
-        toolStopCount += 1;
-    }
-    const regularStops = orderedIdsFinal.length - alStageCount;
-    const visitMinutes =
-      input.timePerCacheMinutes * regularStops +
-      input.alStageVisitMinutes * alStageCount +
-      input.toolBonusMinutes * toolStopCount;
+      return c ? sum + visitMinutesFor(c, visitModel) : sum;
+    }, 0);
 
     // Project the in-memory legs into the wire shape (parking endpoints use the
     // sentinel cache id 0). Each leg carries the alternatives the picker

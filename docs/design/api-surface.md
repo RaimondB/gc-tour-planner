@@ -364,29 +364,53 @@ type SaveRouteProfileInput = {
 };
 type RouteProfileSettings = {
   version: 1;
+  search: { radiusM: number };
   filters: {
     types: CacheType[]; multiSubtype: "all" | "field-puzzle" | "mini" | "full";
+    excludeFound: boolean; includeDisabled: boolean;
     hideToolCaches: boolean; solvedMysteriesOnly: boolean; contexts: LanduseKind[];
     difficulty: { min: number; max: number }; terrain: { min: number; max: number };
-    includeAdventureLabs: boolean; excludeSavedTourCaches: boolean;
+    excludeSavedTourCaches: boolean;
   };
-  adventures: { keepTogether: boolean; interleave: boolean };
+  adventures: { include: boolean; keepTogether: boolean; interleave: boolean };
   objective: {
     landuseProfileId: string | null; landuseWeight: number; // 0..5
-    varietyWeight: number; preferredTypes: CacheType[]; preferredWeight: number;
+    centerProximityWeight: number; varietyWeight: number;
+    preferredTypes: CacheType[]; preferredWeight: number;
   };
   time: {
     visitMinutes: number; visitMinutesByType: Partial<Record<CacheType, number>>;
     alStageVisitMinutes: number; toolBonusMinutes: number; walkingKmh: number;
-    bufferMinutes: number;
   };
-  budget: { distanceBudgetMeters: number; defaultDurationMinutes: number | null };
+  budget: {
+    distanceBudgetMeters: number;
+    durationMinutes: number | null; // time available; null = no limit
+    bufferMinutes: number; // time budget = duration − buffer
+  };
+  parking: {
+    startPreference: StartPreference;
+    osmAccess: ParkingAccessChip[]; osmFee: ParkingFeeFilter;
+  };
+  advanced: {
+    minClusterSize: number; maxLinkMeters: number;
+    clusteringStrategy: ClusteringStrategyName; topNClusters: number;
+    fringeTrimMeters: number;
+  };
 };
 ```
 
-The classic planner applies a profile **client-side** (`applyRouteProfile` maps it
-onto the search filters and plan settings), so `PlanInput` / `PlanLoopInput` gain
-nothing beyond the D/T range in `hardFilters`. Seeded presets: *Quick
+A profile holds every planner setting except the search centre and display
+toggles; the planner applies one **client-side** (`applyRouteProfile`, one-to-one
+with `profileFromPlanner`). The settings that profiles made generic reach the
+planner as ordinary request fields:
+
+- `PlanInput.hardFilters.difficulty` / `.terrain` — D/T range (FR-SF11).
+- `PlanInput.softPreferences.varietyWeight`, `.preferredTypes`,
+  `.preferredTypeWeight` — the `variety` / `preferredTypes` ranking terms.
+- `PlanLoopInput.visitMinutesByType` (per-type visit minutes),
+  `PlanLoopInput.walkingKmh` (pace for the time model, default 5) and the
+  existing `timeBudgetMinutes` (= time available − buffer) — now enforced on
+  both planner paths (FR-T3). Seeded presets: *Quick
 traditionals*, *Forest walk*, *Adventure Lab day*.
 
 ## `GET /parking-facilities` (ADR-0011)

@@ -45,6 +45,12 @@ public class Cache {
      * data-driven (per cache), so no tour-level flag is needed.
      */
     private boolean adventureSequential;
+    /**
+     * Minutes-at-the-cache in seconds for this cache (per-type visit time, tool
+     * bonus, Adventure Lab stage time), or {@code null} to use the tour's
+     * uniform {@code visitSecondsPerCache}.
+     */
+    private Long visitSeconds;
 
     public Cache() {
     }
@@ -115,5 +121,13 @@ public class Cache {
     @Override
     public String toString() {
         return "Cache#" + id;
+    }
+
+    public Long getVisitSeconds() {
+        return visitSeconds;
+    }
+
+    public void setVisitSeconds(Long visitSeconds) {
+        this.visitSeconds = visitSeconds;
     }
 }

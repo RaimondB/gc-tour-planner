@@ -69,7 +69,7 @@ export function RouteProfilePicker({
       createRouteProfile({
         name: newName,
         description: null,
-        settings: profileFromPlanner(state, active?.settings),
+        settings: profileFromPlanner(state),
       }),
     onSuccess: saved,
     onError: (err) => setError(saveErrorMessage(err)),
@@ -79,7 +79,7 @@ export function RouteProfilePicker({
       updateRouteProfile(p.id, {
         name: p.name,
         description: p.description,
-        settings: profileFromPlanner(state, p.settings),
+        settings: profileFromPlanner(state),
       }),
     onSuccess: saved,
     onError: (err) => setError(saveErrorMessage(err)),

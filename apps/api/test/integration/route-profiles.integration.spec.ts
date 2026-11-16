@@ -73,7 +73,8 @@ describe("route profiles (FR-T19, PostGIS via Testcontainers)", () => {
     expect(forest.settings.objective.landuseProfileId).toBe(FOREST_LANDUSE);
     expect(forest.settings.budget).toEqual({
       distanceBudgetMeters: 8000,
-      defaultDurationMinutes: 180,
+      durationMinutes: 180,
+      bufferMinutes: 10,
     });
     expect(forest.settings.time.visitMinutes).toBe(5);
     await service.delete(ownerId, own.id);

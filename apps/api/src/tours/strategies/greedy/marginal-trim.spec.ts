@@ -395,3 +395,55 @@ describe("resolveMarginalTrimConfig", () => {
     expect(resolveMarginalTrimConfig().outlierFactor).toBe(2.0);
   });
 });
+
+describe("trimMarginalCaches — time budget (ADR-0039)", () => {
+  // 4 caches on a 500 m square, parking 250 m from each: loop = 250 + 3×500 +
+  // 250 = 2000 m. At 5 km/h (0.72 s/m) that's 1440 s walking.
+  const ids = [1, 2, 3, 4];
+  const d = (a: number, b: number) => (a === b ? 0 : 500);
+  const distances = ids.map((a) => ids.map((b) => d(a, b)));
+  const park = [250, 250, 250, 250];
+  const base = {
+    orderedIds: ids,
+    originalIds: ids,
+    distances,
+    parkingToCacheM: park,
+    cacheToParkingM: park,
+    thresholdMeters: 1500,
+    minRemaining: 1,
+  };
+  const timeBudget = (minutes: number, visitMin: number) => ({
+    budgetSeconds: minutes * 60,
+    secondsPerMeter: 3.6 / 5,
+    visitSeconds: () => visitMin * 60,
+  });
+
+  it("keeps every cache when walking + visits fit", async () => {
+    // 1440 s + 4 × 5 min = 2640 s = 44 min.
+    const res = await trimMarginalCaches({
+      ...base,
+      timeBudget: timeBudget(45, 5),
+    });
+    expect(res.orderedIds).toHaveLength(4);
+  });
+
+  it("drops caches until walking + visits fit, tagged `budget`", async () => {
+    // With 15 min per cache: 4 caches = 84 min, 3 = 1500·0.72 s + 45 min = 63 min,
+    // 2 = 1000·0.72 s + 30 min = 42 min. A 45 min budget keeps 2.
+    const res = await trimMarginalCaches({
+      ...base,
+      timeBudget: timeBudget(45, 15),
+    });
+    expect(res.orderedIds).toHaveLength(2);
+    expect(res.drops.every((x) => x.reason === "budget")).toBe(true);
+  });
+
+  it("applies the tighter of distance and time", async () => {
+    const res = await trimMarginalCaches({
+      ...base,
+      budgetMeters: 10_000,
+      timeBudget: timeBudget(45, 15),
+    });
+    expect(res.orderedIds).toHaveLength(2);
+  });
+});

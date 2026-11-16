@@ -3,7 +3,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Caches, Geo, Routing, Tours } from "@gctp/shared";
-import { hasToolRequirement } from "@gctp/shared/caches";
+import { visitMinutesFor, type VisitTimeModel } from "@gctp/shared/tours";
 import { CachesService } from "../../../caches/caches.service.js";
 import { CachesRepository } from "../../../caches/caches.repository.js";
 import { SavedToursRepository } from "../../saved-tours.repository.js";
@@ -330,6 +330,20 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     // floor; the distance budget + outlier factor drive the actual drops.
     const trimThreshold = input.maxLinkMeters;
     const trimCfg = resolveMarginalTrimConfig();
+    // Time budget (ADR-0039): routed metres at the user's pace + each stop's
+    // visit minutes. A collapsed rep stands for all its co-located members.
+    const visitModel = visitModelOf(input);
+    const timeBudget = input.timeBudgetMinutes
+      ? {
+          budgetSeconds: input.timeBudgetMinutes * 60,
+          secondsPerMeter: 3.6 / input.walkingKmh,
+          visitSeconds: (repId: number): number =>
+            (groupMembers.get(repId) ?? [repId]).reduce((sum, id) => {
+              const c = byId.get(id);
+              return c ? sum + visitMinutesFor(c, visitModel) * 60 : sum;
+            }, 0),
+        }
+      : undefined;
     const trim = await trimMarginalCaches({
       orderedIds: initialOrderedIds,
       originalIds: connectedIds,
@@ -346,6 +360,7 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
             outlierThresholdMeters: trimCfg.outlierFactor * trimThreshold,
           }
         : {}),
+      ...(timeBudget ? { timeBudget } : {}),
       // Re-order survivors on the worker pool, not the event loop.
       solve: (d, s) => this.computePool.solveTwoOpt(d, s),
     });
@@ -660,25 +675,13 @@ export class GreedyTspPlanner implements Tours.TourPlannerStrategy {
     const parkingDetourMeters =
       (allLegs[0]?.meters ?? 0) + (allLegs[allLegs.length - 1]?.meters ?? 0);
 
-    // FR-SF7: each cache that needs a tool gets `toolBonusMinutes` on top of its
-    // base visit time. Adventure Lab stages use their own (smaller) per-stage
-    // visit time (`alStageVisitMinutes`) instead of `timePerCacheMinutes` —
-    // labs are quick and often clustered at one spot. Only affects
-    // `totals.visitMinutes`; distance/parking/leg-picking use the flat time.
-    let toolStopCount = 0;
-    let alStageCount = 0;
-    for (const id of orderedIdsFinal) {
+    // Visit time per stop (FR-SF7, ADR-0039): per-type minutes, AL stage
+    // minutes, tool bonus — see `visitMinutesFor`. Only affects
+    // `totals.visitMinutes` (and the time budget above).
+    const visitMinutes = orderedIdsFinal.reduce((sum, id) => {
       const c = byId.get(id);
-      if (!c) continue;
-      if (c.type === "Adventure Lab") alStageCount += 1;
-      if (hasToolRequirement(c.attributeIds, c.descriptionHints))
-        toolStopCount += 1;
-    }
-    const regularStops = orderedIdsFinal.length - alStageCount;
-    const visitMinutes =
-      input.timePerCacheMinutes * regularStops +
-      input.alStageVisitMinutes * alStageCount +
-      input.toolBonusMinutes * toolStopCount;
+      return c ? sum + visitMinutesFor(c, visitModel) : sum;
+    }, 0);
 
     // Project the in-memory legs into the wire shape. Parking endpoints use the
     // sentinel cache id 0. Each leg carries the alternatives the picker
@@ -1272,4 +1275,14 @@ function concatLineStrings(
     coords.push([p[0], p[1]]);
   }
   return { type: "LineString", coordinates: coords };
+}
+
+/** The visit-time settings of a plan request, for `visitMinutesFor`. */
+export function visitModelOf(input: Tours.PlanLoopInput): VisitTimeModel {
+  return {
+    timePerCacheMinutes: input.timePerCacheMinutes,
+    alStageVisitMinutes: input.alStageVisitMinutes,
+    toolBonusMinutes: input.toolBonusMinutes,
+    visitMinutesByType: input.visitMinutesByType,
+  };
 }

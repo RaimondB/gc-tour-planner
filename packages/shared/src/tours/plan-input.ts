@@ -45,6 +45,15 @@ export const SoftPreferences = z.object({
    * back to the `PLANNER_CENTER_BIAS_WEIGHT` env default.
    */
   centerProximityWeight: z.number().min(0).max(5).optional(),
+  /**
+   * Reward clusters with a mix of cache types and difficulty bands (ADR-0039).
+   * 0..5; omitted / 0 = no `variety` term.
+   */
+  varietyWeight: z.number().min(0).max(5).optional(),
+  /** Cache types to favour; the `preferredTypes` term is the fraction of the
+   *  cluster's caches of these types × `preferredTypeWeight`. */
+  preferredTypes: z.array(CacheType).optional(),
+  preferredTypeWeight: z.number().min(0).max(5).optional(),
 });
 export type SoftPreferences = z.infer<typeof SoftPreferences>;
 

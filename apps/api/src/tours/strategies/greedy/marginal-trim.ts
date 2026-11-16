@@ -94,6 +94,17 @@ export interface MarginalTrimInput {
    */
   outlierThresholdMeters?: number;
   /**
+   * Optional time budget (ADR-0039). The loop's time is its routed length ×
+   * `secondsPerMeter` (the user's walking pace) plus every cache's visit
+   * seconds; while it exceeds `budgetSeconds` the trim cuts like it does for an
+   * over-distance loop. Works alongside or without `budgetMeters`.
+   */
+  timeBudget?: {
+    budgetSeconds: number;
+    secondsPerMeter: number;
+    visitSeconds: (id: number) => number;
+  };
+  /**
    * Optional safety cap on iterations. Default = `orderedIds.length` — the
    * trim could in principle drop every cache, but we want bounded work.
    */
@@ -190,8 +201,10 @@ export async function trimMarginalCaches(
     ((d, s): Promise<{ order: number[] }> =>
       Promise.resolve(Tsp.solveTwoOpt(d, s)));
 
-  const budgetMode =
+  const distanceBudgetMode =
     input.budgetMeters !== undefined && Number.isFinite(input.budgetMeters);
+  const timeBudget = input.timeBudget;
+  const budgetMode = distanceBudgetMode || timeBudget !== undefined;
   const outlierThreshold = input.outlierThresholdMeters ?? thresholdMeters;
 
   // No-op fast path. In budget-aware mode the budget + outlier floor govern
@@ -255,6 +268,17 @@ export async function trimMarginalCaches(
       endpointsEligible ? parkingToCache : () => 0,
       endpointsEligible ? cacheToParking : () => 0,
     );
+
+  const overBudget = (order: readonly number[]): "distance" | "time" | null => {
+    const meters = loopLength(order);
+    if (distanceBudgetMode && meters > input.budgetMeters!) return "distance";
+    if (timeBudget) {
+      let seconds = meters * timeBudget.secondsPerMeter;
+      for (const id of order) seconds += timeBudget.visitSeconds(id);
+      if (seconds > timeBudget.budgetSeconds) return "time";
+    }
+    return null;
+  };
 
   let surviving = input.orderedIds.slice();
   const droppedIds: number[] = [];
@@ -343,11 +367,13 @@ export async function trimMarginalCaches(
     let shouldDrop: boolean;
     let reason: MarginalDropReason;
     if (budgetMode) {
-      if (loopLength(surviving) > input.budgetMeters!) {
-        // Over budget: drop the worst-marginal cache as long as removing it
-        // actually shortens the loop. If even the worst marginal is ~0 the
-        // loop is irreducibly long — stop rather than spin.
-        shouldDrop = worstMarginal > 0;
+      const over = overBudget(surviving);
+      if (over !== null) {
+        // Over budget: drop the worst-marginal cache. Over distance, only while
+        // removing it actually shortens the loop (a ~0 worst marginal means the
+        // loop is irreducibly long — stop rather than spin). Over time, any drop
+        // helps: it saves at least that cache's visit time.
+        shouldDrop = over === "time" || worstMarginal > 0;
         reason = "budget";
       } else {
         // Within budget: keep normal caches, only cut genuine outliers.

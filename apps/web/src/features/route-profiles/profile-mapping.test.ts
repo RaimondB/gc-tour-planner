@@ -11,111 +11,114 @@ import {
   profileFromPlanner,
 } from "./profile-mapping.js";
 
-const quickTrads = RouteProfileSettings.parse({
+/** Every field away from its default, so a dropped mapping can't hide. */
+const custom = RouteProfileSettings.parse({
+  search: { radiusM: 12_000 },
   filters: {
-    types: ["Traditional"],
-    difficulty: { min: 1, max: 2.5 },
-    terrain: { min: 1, max: 2.5 },
-    includeAdventureLabs: false,
+    types: ["Traditional", "Multi"],
+    multiSubtype: "mini",
+    excludeFound: true,
+    includeDisabled: true,
+    hideToolCaches: true,
+    solvedMysteriesOnly: true,
+    contexts: ["forest", "park"],
+    difficulty: { min: 1.5, max: 3 },
+    terrain: { min: 2, max: 4.5 },
+    excludeSavedTourCaches: false,
   },
-  objective: { varietyWeight: 0 },
-  time: { visitMinutes: 3, visitMinutesByType: { Multi: 20 } },
-  budget: { distanceBudgetMeters: 5000, defaultDurationMinutes: 60 },
+  adventures: { include: false, keepTogether: false, interleave: false },
+  objective: {
+    landuseProfileId: "11111111-1111-1111-1111-111111111111",
+    landuseWeight: 3,
+    centerProximityWeight: 0.5,
+    varietyWeight: 2,
+    preferredTypes: ["Mystery"],
+    preferredWeight: 4,
+  },
+  time: {
+    visitMinutes: 8,
+    visitMinutesByType: { Multi: 20, Mystery: 15 },
+    alStageVisitMinutes: 3,
+    toolBonusMinutes: 10,
+    walkingKmh: 4.5,
+  },
+  budget: {
+    distanceBudgetMeters: 6_500,
+    durationMinutes: 150,
+    bufferMinutes: 20,
+  },
+  parking: {
+    startPreference: "osm-parking",
+    osmAccess: ["yes", "permit"],
+    osmFee: "free",
+  },
+  advanced: {
+    minClusterSize: 5,
+    maxLinkMeters: 900,
+    clusteringStrategy: "leiden",
+    topNClusters: 9,
+    fringeTrimMeters: 800,
+  },
 });
 
-const start = { search: DEFAULT_SEARCH, plan: DEFAULT_PLAN_SETTINGS };
+const defaults = { search: DEFAULT_SEARCH, plan: DEFAULT_PLAN_SETTINGS };
 
-describe("applyRouteProfile", () => {
-  it("fills the filters and plan settings the profile covers", () => {
-    const { search, plan } = applyRouteProfile(quickTrads, start);
-    expect(search.types).toEqual(["Traditional"]);
-    expect(search.difficulty).toEqual({ min: 1, max: 2.5 });
-    expect(plan.includeAdventuresInClustering).toBe(false);
-    expect(plan.timePerCacheMinutes).toBe(3);
-    expect(plan.distanceBudgetMeters).toBe(5000);
-    expect(plan.landuseProfileId).toBeUndefined();
+describe("profile ↔ planner mapping", () => {
+  it("planner defaults are exactly the profile defaults", () => {
+    expect(profileFromPlanner(defaults)).toEqual(
+      RouteProfileSettings.parse({}),
+    );
   });
 
-  it("leaves area, display and expert settings alone", () => {
-    const custom = {
+  it("round-trips every profile field through the planner", () => {
+    expect(profileFromPlanner(applyRouteProfile(custom, defaults))).toEqual(
+      custom,
+    );
+  });
+
+  it("leaves the search centre and display toggles alone", () => {
+    const state = {
       search: {
         ...DEFAULT_SEARCH,
         center: [4.9, 52.37] as [number, number],
-        radiusM: 8000,
         showLanduse: true,
       },
-      plan: {
-        ...DEFAULT_PLAN_SETTINGS,
-        maxLinkMeters: 900,
-        topNClusters: 9,
-        startPreference: "osm-parking" as const,
-      },
+      plan: { ...DEFAULT_PLAN_SETTINGS, showSavedTours: false },
     };
-    const { search, plan } = applyRouteProfile(quickTrads, custom);
+    const { search, plan } = applyRouteProfile(custom, state);
     expect(search.center).toEqual([4.9, 52.37]);
-    expect(search.radiusM).toBe(8000);
     expect(search.showLanduse).toBe(true);
-    expect(plan.maxLinkMeters).toBe(900);
-    expect(plan.topNClusters).toBe(9);
-    expect(plan.startPreference).toBe("osm-parking");
-  });
-});
-
-describe("profileFromPlanner", () => {
-  it("round-trips a profile through the planner unchanged", () => {
-    const applied = applyRouteProfile(quickTrads, start);
-    expect(profileFromPlanner(applied, quickTrads)).toEqual(quickTrads);
-  });
-
-  it("keeps walk-only fields from the base profile", () => {
-    const applied = applyRouteProfile(quickTrads, start);
-    const saved = profileFromPlanner(
-      { ...applied, plan: { ...applied.plan, distanceBudgetMeters: 6000 } },
-      quickTrads,
-    );
-    expect(saved.budget).toEqual({
-      distanceBudgetMeters: 6000,
-      defaultDurationMinutes: 60,
-    });
-    expect(saved.time.visitMinutesByType).toEqual({ Multi: 20 });
-    expect(saved.objective.varietyWeight).toBe(0);
-  });
-
-  it("defaults walk-only fields when there is no base profile", () => {
-    const saved = profileFromPlanner(start);
-    expect(saved.time.bufferMinutes).toBe(10);
-    expect(saved.budget.defaultDurationMinutes).toBeNull();
+    expect(plan.showSavedTours).toBe(false);
   });
 });
 
 describe("plannerDiffersFromProfile", () => {
-  it("is false right after applying, true after a covered setting changes", () => {
-    const applied = applyRouteProfile(quickTrads, start);
-    expect(plannerDiffersFromProfile(quickTrads, applied)).toBe(false);
+  it("is false right after applying, true after any profile setting changes", () => {
+    const applied = applyRouteProfile(custom, defaults);
+    expect(plannerDiffersFromProfile(custom, applied)).toBe(false);
     expect(
-      plannerDiffersFromProfile(quickTrads, {
+      plannerDiffersFromProfile(custom, {
         ...applied,
-        search: { ...applied.search, terrain: { min: 1, max: 4 } },
+        plan: { ...applied.plan, topNClusters: 3 },
       }),
     ).toBe(true);
   });
 
-  it("ignores settings a profile doesn't cover, and list order", () => {
-    const applied = applyRouteProfile(
-      RouteProfileSettings.parse({
-        filters: { types: ["Traditional", "Multi"] },
-      }),
-      start,
-    );
-    const profile = profileFromPlanner(applied);
+  it("ignores list/key order and the centre and display toggles", () => {
+    const applied = applyRouteProfile(custom, defaults);
     expect(
-      plannerDiffersFromProfile(profile, {
+      plannerDiffersFromProfile(custom, {
         search: {
           ...applied.search,
           types: ["Multi", "Traditional"],
-          radiusM: 12_000,
+          center: [6, 51],
+          showLanduse: true,
         },
-        plan: { ...applied.plan, topNClusters: 12 },
+        plan: {
+          ...applied.plan,
+          visitMinutesByType: { Mystery: 15, Multi: 20 },
+          showSavedTours: false,
+        },
       }),
     ).toBe(false);
   });
