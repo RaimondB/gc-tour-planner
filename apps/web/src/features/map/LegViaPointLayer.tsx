@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from "react";
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import type { GeoJsonLineString } from "@gctp/shared/geo";
 import type { ViaRouteResponse } from "@gctp/shared/tours";
 import { fetchViaRoute } from "../../lib/api.js";

@@ -3,7 +3,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import { listTourFootprints } from "../../lib/api.js";
 import { useOnline } from "../shell/ConnectivityProvider.js";
 import { useTourSession } from "../tours/TourSessionProvider.js";

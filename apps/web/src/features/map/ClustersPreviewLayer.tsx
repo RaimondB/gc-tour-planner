@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useMemo } from "react";
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import type { CacheSummaryDTO } from "@gctp/shared/caches";
 import type { ClusterCandidate } from "@gctp/shared/tours";
 import { collapseByProximity } from "./marker-collapse.js";

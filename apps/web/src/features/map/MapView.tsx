@@ -2,10 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapContext, isMapStyleLive, type MapApi } from "./MapContext.js";
 import { exposeMapForE2E } from "../../lib/test-helpers.js";
+
+// maplibre-gl 6 is ESM-only and derives its worker URL from `import.meta.url` at
+// runtime, which the bundler can't see: without this the production build has no
+// worker file and the map stays blank (dev still works, Vite serves node_modules).
+// `?worker&url` bundles the worker together with its shared chunk.
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 const DEFAULT_CENTER: [number, number] = [5.1214, 52.0907]; // Utrecht, NL — placeholder
 const DEFAULT_ZOOM = 11;

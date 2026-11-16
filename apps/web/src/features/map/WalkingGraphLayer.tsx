@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import type { WalkingGraphResponse } from "@gctp/shared/tours";
 import { fetchLeg, fetchWalkingGraph } from "../../lib/api.js";
 import type { SearchParams } from "../../lib/search-params.js";
