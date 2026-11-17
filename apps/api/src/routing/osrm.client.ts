@@ -52,11 +52,14 @@ export interface OsrmClient {
   ): Promise<OsrmLeg | null>;
   /**
    * OD matrix in one call. Returns an N×N grid of { meters, seconds } or null
-   * per cell (disconnected). Diagonals are { meters: 0, seconds: 0 }.
+   * per cell (disconnected). Diagonals are { meters: 0, seconds: 0 }. With
+   * `sources` / `destinations` (indices into `coords`), only those rows /
+   * columns are computed and returned, in that order.
    */
   table(
     coords: readonly [number, number][],
     profile: Routing.RoutingProfile,
+    opts?: TableOptions,
   ): Promise<(OsrmMatrixEntry | null)[][]>;
   /**
    * Snap a coordinate to the nearest routable node in the OSRM graph for the
@@ -69,6 +72,11 @@ export interface OsrmClient {
     point: [number, number],
     profile: Routing.RoutingProfile,
   ): Promise<[number, number] | null>;
+}
+
+export interface TableOptions {
+  sources?: readonly number[];
+  destinations?: readonly number[];
 }
 
 export const OSRM_CLIENT = Symbol.for("@gctp/api/routing/OSRM_CLIENT");
@@ -241,14 +249,24 @@ export class HttpOsrmClient implements OsrmClient {
   table(
     coords: readonly [number, number][],
     profile: Routing.RoutingProfile,
+    opts: TableOptions = {},
   ): Promise<(OsrmMatrixEntry | null)[][]> {
     if (coords.length === 0) return Promise.resolve([]);
+    const rows = opts.sources ?? coords.map((_, i) => i);
+    const cols = opts.destinations ?? coords.map((_, i) => i);
     if (coords.length === 1)
-      return Promise.resolve([[{ meters: 0, seconds: 0 }]]);
+      return Promise.resolve(
+        rows.map(() => cols.map(() => ({ meters: 0, seconds: 0 }))),
+      );
     return this.withSemaphore(async () => {
+      const subset =
+        (opts.sources ? `&sources=${opts.sources.join(";")}` : "") +
+        (opts.destinations
+          ? `&destinations=${opts.destinations.join(";")}`
+          : "");
       const url =
         `${this.base}/table/v1/${profile}/${coords.map(fmt).join(";")}` +
-        `?annotations=distance,duration`;
+        `?annotations=distance,duration${subset}`;
       const res = await this.fetchWithTimeout(url);
       if (!res.ok) {
         const body = await res.text();
@@ -259,9 +277,9 @@ export class HttpOsrmClient implements OsrmClient {
         throw new Error(`OSRM /table returned code=${json.code}`);
       }
       const out: (OsrmMatrixEntry | null)[][] = [];
-      for (let i = 0; i < coords.length; i += 1) {
+      for (let i = 0; i < rows.length; i += 1) {
         const row: (OsrmMatrixEntry | null)[] = [];
-        for (let j = 0; j < coords.length; j += 1) {
+        for (let j = 0; j < cols.length; j += 1) {
           const d = json.distances[i]?.[j];
           const t = json.durations[i]?.[j];
           if (d === null || d === undefined || t === null || t === undefined) {

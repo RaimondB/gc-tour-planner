@@ -10,6 +10,7 @@ import {
   type OsrmClient,
   type OsrmLeg,
   type OsrmMatrixEntry,
+  type TableOptions,
 } from "../../src/routing/osrm.client.js";
 import { RoutingRepository } from "../../src/routing/routing.repository.js";
 import { RoutingService } from "../../src/routing/routing.service.js";
@@ -26,6 +27,7 @@ import {
   fakeComputePool,
   fakeWalkingQueue,
   makeOsrmVersion,
+  subsetTable,
 } from "./integration-helpers.js";
 
 class FakeOsrmClient implements OsrmClient {
@@ -47,9 +49,11 @@ class FakeOsrmClient implements OsrmClient {
 
   async table(
     coords: readonly [number, number][],
+    _profile?: unknown,
+    opts: TableOptions = {},
   ): Promise<(OsrmMatrixEntry | null)[][]> {
     this.tableCalls += 1;
-    return coords.map((a, i) =>
+    const full = coords.map((a, i) =>
       coords.map((b, j) =>
         i === j
           ? { meters: 0, seconds: 0 }
@@ -59,6 +63,7 @@ class FakeOsrmClient implements OsrmClient {
             },
       ),
     );
+    return subsetTable(full, opts);
   }
 
   // The loop-aware leg picker (Pass 2) asks for alternatives; the fake offers

@@ -18,10 +18,15 @@ import {
   type OsrmClient,
   type OsrmLeg,
   type OsrmMatrixEntry,
+  type TableOptions,
 } from "../../src/routing/osrm.client.js";
 import { RoutingRepository } from "../../src/routing/routing.repository.js";
 import { prepareClusteringContext } from "../../src/tours/strategies/greedy/clustering/context.js";
-import { makeCachesService, makeOsrmVersion } from "./integration-helpers.js";
+import {
+  makeCachesService,
+  makeOsrmVersion,
+  subsetTable,
+} from "./integration-helpers.js";
 import {
   type PostgresFixture,
   startPostgres,
@@ -55,8 +60,10 @@ class FakeOsrmClient implements OsrmClient {
   }
   async table(
     coords: readonly [number, number][],
+    _profile?: unknown,
+    opts: TableOptions = {},
   ): Promise<(OsrmMatrixEntry | null)[][]> {
-    return coords.map((a, i) =>
+    const full = coords.map((a, i) =>
       coords.map((b, j) =>
         i === j
           ? { meters: 0, seconds: 0 }
@@ -66,6 +73,7 @@ class FakeOsrmClient implements OsrmClient {
             },
       ),
     );
+    return subsetTable(full, opts);
   }
   async routeAlternatives(
     from: [number, number],

@@ -69,3 +69,21 @@ the actual walking directions to the phone's maps app.
 
 **Not in scope**
 - Turn-by-turn, compass-heading arrow, background/geofenced tracking.
+
+## Amendment (2026-11-17) — position sent during an active ad-hoc walk
+
+[ADR-0040](0040-ad-hoc-walk-planning.md) (FR-T18) needs the walker's position
+on the server: replanning routes from where you are to your return point with
+OSRM, which runs server-side. Decision §1 ("never sent to the server") is
+narrowed to:
+
+- The position and return point are sent **only** in `POST /walks/replan`
+  bodies, and only while the user has an ad-hoc walk running. Nothing else
+  changes: the map dot, nearby tours and follow mode stay on-device.
+- The server uses them for that request only. **Not persisted** (no walk
+  session, no table, no cache), **not logged** (request bodies aren't logged;
+  `osrm-routed` runs at `--verbosity WARNING`, so its per-request access lines,
+  which contain coordinates, are no longer written).
+- Each replan is a deliberate user action or a debounced event during the walk,
+  and is throttled per user. There is no background tracking (§1's tab-hidden
+  teardown still applies).

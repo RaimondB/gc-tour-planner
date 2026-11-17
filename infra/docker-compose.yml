@@ -145,6 +145,9 @@ services:
       # for higher single-tenant throughput, lower if OSRM is starving
       # postgres / api under load.
       OSRM_THREADS: ${OSRM_THREADS:-4}
+      # WARNING drops per-request access logs (they contain coordinates; the
+      # ad-hoc walk sends the walker's position). INFO to debug requests.
+      OSRM_VERBOSITY: ${OSRM_VERBOSITY:-WARNING}
     volumes:
       - ./osrm/bootstrap.sh:/srv/bootstrap.sh:ro
       # Custom foot profile (ADR-0013): walkable cycleways. Mounted next to the

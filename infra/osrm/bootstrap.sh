@@ -97,7 +97,12 @@ MAX_TABLE_SIZE="${OSRM_MAX_TABLE_SIZE:-5000}"
 # OSRM_MAX_CONCURRENCY cap (HttpOsrmClient) — that bounds inbound, this
 # bounds parallelism per request inside OSRM.
 OSRM_THREADS="${OSRM_THREADS:-4}"
+# WARNING keeps osrm-routed's per-request access lines out of the logs: their
+# URLs carry coordinates, which during an ad-hoc walk include the walker's
+# position (ADR-0037 amendment, ADR-0040). Set INFO locally to debug requests.
+OSRM_VERBOSITY="${OSRM_VERBOSITY:-WARNING}"
 exec osrm-routed --algorithm MLD --port 5000 \
   --max-table-size "${MAX_TABLE_SIZE}" \
   --threads "${OSRM_THREADS}" \
+  --verbosity "${OSRM_VERBOSITY}" \
   "${OSRM_BASE}"

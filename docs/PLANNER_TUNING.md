@@ -183,6 +183,18 @@ request crunches; only serializable pure functions cross the boundary (all OSRM
 | `PLANNER_WORKER_THREADS`    | `max(1, cpus-1)` capped at 4 | Pool size — how many planner CPU tasks run in parallel across cores. Raise for more concurrent planning throughput on a bigger box; the default leaves a core for the event loop + OSRM (the host is 4C/8T and OSRM already uses ~4). Clamped 1..16. |
 | `PLANNER_WORKER_TIMEOUT_MS` | `30000`                      | Per-task abort budget. A task exceeding it is aborted (surfaced as an error) so a pathological input can't tie up a worker. The TSP VND cap still bounds a single solve; this is the outer safety net.                                               |
 
+## Ad-hoc walk replan (ADR-0040)
+
+`POST /walks/replan` plans an open path from the walker's position to their
+return point before the deadline (FR-T18). The route profile carries the walk's
+settings; these env knobs only bound the server's work.
+
+| Env | Default | What it does |
+| --- | --- | --- |
+| `WALK_MAX_CANDIDATES` | `60` | Cap on caches the orienteering solver considers per replan, after the reach ellipse. Highest prize first, then smallest detour. Solve time grows roughly with the square of this; 60 solves in ~0.1–0.2 s. |
+| `WALK_HYSTERESIS_PCT` | `10` | Stability rule: the new route replaces the walker's current one only if it scores at least `max(1, this % of the current score)` higher. Raise it if routes flip too often; lower it to pick up improvements sooner. |
+| `OSRM_VERBOSITY` | `WARNING` | `osrm-routed` log level. `WARNING` keeps per-request access lines (URLs with coordinates, including the walker's position) out of the logs. Set `INFO` only to debug locally. |
+
 ## Symptom → knob
 
 | Symptom                                                                      | Probable cause                                                                    | Adjust                                                                                                                        |

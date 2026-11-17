@@ -1,0 +1,96 @@
+// Copyright (C) 2026 Raimond Brookman and contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { describe, expect, it } from "vitest";
+import { RouteProfiles } from "@gctp/shared";
+import {
+  cachePrize,
+  insideReach,
+  reachCircle,
+  schedule,
+  walkPace,
+} from "./walk-plan.js";
+
+const profile = RouteProfiles.RouteProfileSettings.parse({
+  time: { walkingKmh: 4 },
+  objective: {
+    preferredTypes: ["Multi"],
+    preferredWeight: 2,
+    landuseWeight: 3,
+  },
+});
+
+describe("walkPace (ADR-0040 §4)", () => {
+  it("walks out at the calibrated pace but never back faster than the profile", () => {
+    const fast = walkPace(profile, { paceFactor: 1.25, dwellFactor: 1 });
+    expect(fast.outSecondsPerMeter).toBeCloseTo(3.6 / 5);
+    expect(fast.backSecondsPerMeter).toBeCloseTo(3.6 / 4);
+    const slow = walkPace(profile, { paceFactor: 0.8, dwellFactor: 1 });
+    expect(slow.backSecondsPerMeter).toBeCloseTo(slow.outSecondsPerMeter);
+  });
+
+  it("clamps calibration to sane bounds", () => {
+    const wild = walkPace(profile, { paceFactor: 4, dwellFactor: 0.1 });
+    expect(wild.outSecondsPerMeter).toBeCloseTo(3.6 / (4 * 1.5));
+    expect(wild.dwellFactor).toBe(0.5);
+  });
+});
+
+describe("cachePrize (ADR-0040 §2)", () => {
+  const forest = new Set(["forest"]);
+  it("adds the preferred-type and scenic bonuses to the base 1", () => {
+    expect(
+      cachePrize({ type: "Traditional" }, [], profile.objective, forest),
+    ).toBe(1);
+    expect(cachePrize({ type: "Multi" }, [], profile.objective, forest)).toBe(
+      3,
+    );
+    expect(
+      cachePrize({ type: "Multi" }, ["forest"], profile.objective, forest),
+    ).toBe(6);
+  });
+});
+
+describe("reach", () => {
+  const s: [number, number] = [5.1, 52.09];
+  const e: [number, number] = [5.12, 52.09]; // ~1.37 km east
+  it("keeps caches whose straight-line detour fits", () => {
+    expect(insideReach(s, e, [5.11, 52.092], 2_000)).toBe(true);
+    expect(insideReach(s, e, [5.11, 52.12], 2_000)).toBe(false);
+  });
+  it("bounds the ellipse with a circle around the midpoint", () => {
+    const c = reachCircle(s, e, 2_000);
+    expect(c.center[0]).toBeCloseTo(5.11);
+    expect(c.center[1]).toBeCloseTo(52.09);
+    expect(c.radiusM).toBe(1_000);
+  });
+});
+
+describe("schedule", () => {
+  it("lays out arrival / leave times and the return", () => {
+    const start = Date.parse("2026-11-17T10:00:00Z");
+    const res = schedule(
+      start,
+      [
+        { cacheId: 1, travelSeconds: 600, visitSeconds: 300 },
+        { cacheId: 2, travelSeconds: 300, visitSeconds: 300 },
+      ],
+      900,
+    );
+    expect(res.stops).toEqual([
+      {
+        cacheId: 1,
+        arriveAt: "2026-11-17T10:10:00.000Z",
+        leaveAt: "2026-11-17T10:15:00.000Z",
+      },
+      {
+        cacheId: 2,
+        arriveAt: "2026-11-17T10:20:00.000Z",
+        leaveAt: "2026-11-17T10:25:00.000Z",
+      },
+    ]);
+    expect(new Date(res.returnMs).toISOString()).toBe(
+      "2026-11-17T10:40:00.000Z",
+    );
+  });
+});

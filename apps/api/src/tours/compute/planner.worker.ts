@@ -38,8 +38,16 @@ export interface ClusterTask {
   preferredLanduseKinds: string[];
 }
 
-export type PlannerTask = TspTask | ClusterTask;
-export type PlannerResult = Tsp.TwoOptResult | Tours.DiscoverClustersResult;
+export interface OrienteeringTask {
+  kind: "orienteering";
+  problem: Tsp.OrienteeringProblem;
+  seed: number[];
+}
+export type PlannerTask = TspTask | ClusterTask | OrienteeringTask;
+export type PlannerResult =
+  | Tsp.TwoOptResult
+  | Tours.DiscoverClustersResult
+  | Tsp.OrienteeringResult;
 
 export default function plannerTask(task: PlannerTask): PlannerResult {
   switch (task.kind) {
@@ -60,6 +68,8 @@ export default function plannerTask(task: PlannerTask): PlannerResult {
         task.preferredLanduseKinds,
       );
     }
+    case "orienteering":
+      return Tsp.solveOrienteering(task.problem, task.seed);
     default: {
       const exhaustive: never = task;
       throw new Error(`unknown planner task: ${JSON.stringify(exhaustive)}`);

@@ -145,11 +145,7 @@ export class RoutingService {
       else cellMap.set(k, { meters: r.meters, seconds: r.seconds });
     }
 
-    // 2. Identify rows that are entirely cached vs need an OSRM /table call.
-    //    `osrm.table([origin, ...dests])` returns row 0 for the origin's
-    //    distances to every destination — same shape Pass 1's walking-graph
-    //    builder uses. One call per origin with missing cells keeps the
-    //    request size well below the 5000-coord --max-table-size cap.
+    // 2. Fill the gaps from OSRM (below).
     const toPersist: Array<{
       fromCacheId: number;
       toCacheId: number;
@@ -164,55 +160,57 @@ export class RoutingService {
       profile: Routing.RoutingProfile;
     }> = [];
 
-    let osrmCalls = 0;
-    for (const from of ids) {
-      const missing = ids.filter(
+    // One OSRM /table for every row that has gaps: `sources` = those rows,
+    // destinations = all caches. (Was one full square /table per row, run one
+    // after another — tens of seconds on a cold 60-cache matrix.)
+    const missingOf = (from: number): number[] =>
+      ids.filter(
         (to) =>
           to !== from &&
           !cellMap.has(cellKey(from, to)) &&
           !noRouteSet.has(cellKey(from, to)),
       );
-      if (missing.length === 0) continue;
-      osrmCalls += 1;
-      const fromC = coords.get(from)!;
-      const dests = missing.map<[number, number]>((to) => {
-        const c = coords.get(to)!;
+    const gapRows = ids.filter((from) => missingOf(from).length > 0);
+    let osrmCalls = 0;
+    if (gapRows.length > 0) {
+      osrmCalls = 1;
+      const position = new Map(ids.map((id, i) => [id, i]));
+      const allCoords = ids.map<[number, number]>((id) => {
+        const c = coords.get(id)!;
         return [c.lng, c.lat];
       });
-      const matrix = await this.osrm.table(
-        [[fromC.lng, fromC.lat], ...dests],
-        profile,
-      );
-      const row0 = matrix[0];
-      if (!row0) continue;
-      for (let j = 0; j < missing.length; j += 1) {
-        const cell = row0[j + 1]; // skip diagonal (origin → origin)
-        const to = missing[j]!;
-        if (!cell) {
-          noRouteSet.add(cellKey(from, to));
-          toPersistNoRoute.push({
+      const rows = await this.osrm.table(allCoords, profile, {
+        sources: gapRows.map((id) => position.get(id)!),
+      });
+      gapRows.forEach((from, r) => {
+        for (const to of missingOf(from)) {
+          const cell = rows[r]?.[position.get(to)!];
+          if (!cell) {
+            noRouteSet.add(cellKey(from, to));
+            toPersistNoRoute.push({
+              fromCacheId: from,
+              toCacheId: to,
+              profile,
+            });
+            continue;
+          }
+          const meters = round2(cell.meters);
+          const seconds = round2(cell.seconds);
+          cellMap.set(cellKey(from, to), { meters, seconds });
+          toPersist.push({
             fromCacheId: from,
             toCacheId: to,
             profile,
+            meters,
+            seconds,
           });
-          continue;
         }
-        const meters = round2(cell.meters);
-        const seconds = round2(cell.seconds);
-        cellMap.set(cellKey(from, to), { meters, seconds });
-        toPersist.push({
-          fromCacheId: from,
-          toCacheId: to,
-          profile,
-          meters,
-          seconds,
-        });
-      }
+      });
     }
 
     if (toPersist.length > 0) {
       this.logger.debug(
-        `getMatrix: ${osrmCalls} OSRM /table calls; persisting ${toPersist.length} new cells`,
+        `getMatrix: ${osrmCalls} OSRM /table call; persisting ${toPersist.length} new cells`,
       );
       await this.repo.upsertMatrixCells(toPersist, version);
     } else if (osrmCalls === 0) {
