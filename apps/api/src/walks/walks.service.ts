@@ -17,6 +17,7 @@ import {
 } from "../tours/compute/compute-pool.service.js";
 import {
   cachePrize,
+  keepPreviousRoute,
   insideReach,
   reachCircle,
   schedule,
@@ -36,6 +37,7 @@ type LngLat = [number, number];
 export class WalksService {
   private readonly maxCandidates: number;
   private readonly hysteresisPct: number;
+  private readonly hysteresisSaveSeconds: number;
 
   constructor(
     private readonly caches: CachesService,
@@ -49,6 +51,8 @@ export class WalksService {
   ) {
     this.maxCandidates = positiveInt(config.get("WALK_MAX_CANDIDATES"), 60);
     this.hysteresisPct = positiveInt(config.get("WALK_HYSTERESIS_PCT"), 10);
+    this.hysteresisSaveSeconds =
+      positiveInt(config.get("WALK_HYSTERESIS_SAVE_MIN"), 10) * 60;
   }
 
   async replan(
@@ -242,12 +246,12 @@ export class WalksService {
     );
     const fresh = await this.pool.solveOrienteering(problem, previous);
     const prevEval = Tsp.evaluatePath(previous, problem);
-    const margin = Math.max(1, (this.hysteresisPct / 100) * prevEval.score);
     const keepPrevious =
       previous.length > 0 &&
-      prevEval.feasible &&
-      prevEval.valid &&
-      fresh.score < prevEval.score + margin;
+      keepPreviousRoute(prevEval, fresh, {
+        scorePct: this.hysteresisPct,
+        saveSeconds: this.hysteresisSaveSeconds,
+      });
     const order = keepPrevious ? previous : fresh.order;
     const reason = keepPrevious
       ? "Kept your current route: the alternative wasn't clearly better."
@@ -348,7 +352,7 @@ export class WalksService {
   }): Promise<Walks.WalkReplanResult> {
     const path = [...(args.lead ? [args.lead] : []), ...args.stops];
     const legs: ScheduleLeg[] = path.map((s) => ({
-      cacheId: s.cache.id,
+      cache: s.cache,
       travelSeconds: s.travel,
       visitSeconds: s.visit,
     }));

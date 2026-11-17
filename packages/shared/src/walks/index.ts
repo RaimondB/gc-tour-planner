@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { GeoJsonLineString, LngLat } from "../geo/index.js";
+import { CacheType } from "../caches/index.js";
 import { RouteProfileSettings } from "../route-profiles/index.js";
 
 /**
@@ -48,6 +49,11 @@ export type WalkReplanInput = z.infer<typeof WalkReplanInput>;
 
 export const WalkStop = z.object({
   cacheId: z.number().int().positive(),
+  /** Enough to show and reach the stop offline, without the map's cache list. */
+  code: z.string(),
+  name: z.string(),
+  type: CacheType,
+  location: LngLat,
   arriveAt: z.iso.datetime({ offset: true }),
   leaveAt: z.iso.datetime({ offset: true }),
 });

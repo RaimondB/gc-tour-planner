@@ -59,4 +59,10 @@ describe("MAP_LAYER_ORDER", () => {
       at("gctp-leg-via-marker-circle"),
     );
   });
+  it("draws the walk above the tour but under the you-are-here dot", () => {
+    expect(at("gctp-walk-path-line")).toBeGreaterThan(at("gctp-tour-line"));
+    expect(at("gctp-walk-stops-label")).toBeLessThan(
+      at("gctp-user-location-dot"),
+    );
+  });
 });

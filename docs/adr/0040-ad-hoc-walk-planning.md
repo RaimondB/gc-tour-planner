@@ -95,7 +95,12 @@ Today's planners can't express this:
      it fits again. It is then scored under the fresh times.
    - The new solution replaces it only if its score is higher by at least
      `max(1 cache-equivalent, WALK_HYSTERESIS_PCT % of the old score)`
-     (default 10 %). The response says `kept: "previous" | "new"` and why.
+     (default 10 %), or if it scores no less and saves at least
+     `WALK_HYSTERESIS_SAVE_MIN` minutes (default 10). The response says
+     `kept: "previous" | "new"` and why.
+   - The client skips the rule — sending no previous route — on a manual
+     Replan and when the walker has gone off the route. In both cases the
+     walker wants a plan from where they are now.
    - A locked next stop is always kept.
 6. **Locked next stop.** The solver plans from `L` with what is left of the time
    after `S → L` and the visit at `L`. If even `S → L → E` doesn't fit, the

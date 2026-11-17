@@ -61,9 +61,13 @@ Nothing about the walk is stored. The client resends the whole state each time
 7. **Solve.**
    - `Tsp.solveOrienteering` runs in the compute pool, seeded with the
      previous order after `Tsp.repairPath`.
-   - Stability rule: keep the repaired previous route unless the new score
-     exceeds it by `max(1, WALK_HYSTERESIS_PCT % of it)`. The result reports
+   - Stability rule (`walk-plan.ts#keepPreviousRoute`): keep the repaired
+     previous route unless the new score exceeds it by
+     `max(1, WALK_HYSTERESIS_PCT % of it)`, or the new route scores no less
+     and saves `WALK_HYSTERESIS_SAVE_MIN` minutes. The result reports
      `kept: "previous" | "new"`.
+   - The client sends no previous route on a manual Replan or after going
+     off-route, so those always plan fresh from the current position.
 8. **Respond.**
    - Per-stop `arriveAt`/`leaveAt`, `returnAt`, `slackMinutes`, and
      `leaveLastBy` (latest departure from the last stop).

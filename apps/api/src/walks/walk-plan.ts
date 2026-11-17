@@ -89,7 +89,7 @@ export interface ScheduleLeg {
   /** Travel seconds into this stop. */
   travelSeconds: number;
   visitSeconds: number;
-  cacheId: number;
+  cache: Pick<Caches.CacheDTO, "id" | "code" | "name" | "type" | "location">;
 }
 
 /** Arrival/leave times along the path, and the return. Times are epoch ms. */
@@ -105,11 +105,53 @@ export function schedule(
     const arriveAt = new Date(t).toISOString();
     t += leg.visitSeconds * 1000;
     stops.push({
-      cacheId: leg.cacheId,
+      cacheId: leg.cache.id,
+      code: leg.cache.code,
+      name: leg.cache.name,
+      type: leg.cache.type,
+      location: [
+        leg.cache.location.coordinates[0]!,
+        leg.cache.location.coordinates[1]!,
+      ],
       arriveAt,
       leaveAt: new Date(t).toISOString(),
     });
   }
   const leaveLastMs = t;
   return { stops, returnMs: t + backSeconds * 1000, leaveLastMs };
+}
+
+export interface StabilityRule {
+  /** The new route must score this % higher (at least one cache's worth)… */
+  scorePct: number;
+  /** …or score no less and save this many seconds. */
+  saveSeconds: number;
+}
+
+/**
+ * ADR-0040 §5: keep the walker's current route unless the new one is clearly
+ * better — more value, or the same value in noticeably less time (e.g. after
+ * the walker moved away from the old route).
+ */
+export function keepPreviousRoute(
+  previous: {
+    score: number;
+    seconds: number;
+    feasible: boolean;
+    valid: boolean;
+  },
+  fresh: { score: number; seconds: number },
+  rule: StabilityRule,
+): boolean {
+  if (!previous.feasible || !previous.valid) return false;
+  const eps = 1e-9;
+  const margin = Math.max(1, (rule.scorePct / 100) * previous.score);
+  if (fresh.score >= previous.score + margin - eps) return false;
+  if (
+    fresh.score >= previous.score - eps &&
+    fresh.seconds <= previous.seconds - rule.saveSeconds
+  ) {
+    return false;
+  }
+  return true;
 }

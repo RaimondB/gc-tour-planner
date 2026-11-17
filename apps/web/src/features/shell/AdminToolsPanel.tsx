@@ -19,6 +19,7 @@ import {
   type PlanSettings,
 } from "../planning/PlannerSidebar.js";
 import { AdminPrecomputePanel } from "../admin/AdminPrecomputePanel.js";
+import { useLocation } from "../location/LocationProvider.js";
 
 export interface AdminToolsPanelProps {
   open: boolean;
@@ -78,6 +79,7 @@ export function AdminToolsPanel({
           </button>
         </header>
         <div className="tools-drawer__body">
+          <SimulateLocationToggle />
           <p className="muted">
             Queue dashboard (pause / retry / clean failed, all queues):{" "}
             <a href="/api/admin/queues" target="_blank" rel="noreferrer">
@@ -225,5 +227,23 @@ function AdventureLabWalkingPanel(): JSX.Element {
         ) : null}
       </div>
     </details>
+  );
+}
+
+/**
+ * Testing mode: pretend to be wherever you tap on the map, to try the ad-hoc
+ * walk and follow mode without going outside. Device-only.
+ */
+function SimulateLocationToggle(): JSX.Element {
+  const location = useLocation();
+  return (
+    <label className="checkbox admin-sim">
+      <input
+        type="checkbox"
+        checked={location.simulated}
+        onChange={(e) => location.setSimulated(e.target.checked)}
+      />
+      Simulate my location (testing) — tap the map to move
+    </label>
   );
 }

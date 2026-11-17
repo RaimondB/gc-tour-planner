@@ -102,6 +102,13 @@ export const MAP_LAYER_ORDER: readonly string[] = [
   "gctp-parking-preview-hit",
   "gctp-parking-owner-link-line",
 
+  // — Ad-hoc walk (FR-T18): path, stops, return point — above the tour —
+  "gctp-walk-path-line",
+  "gctp-walk-stops-circle",
+  "gctp-walk-stops-label",
+  "gctp-walk-return-circle",
+  "gctp-walk-return-label",
+
   // — Current GPS position (you-are-here) — above the tour so it's always visible —
   "gctp-user-location-accuracy",
   "gctp-user-location-dot",

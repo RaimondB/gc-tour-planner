@@ -31,6 +31,7 @@ import {
 import type { BoundingBox } from "@gctp/shared/geo";
 import { LanduseResponse, type LanduseKind } from "@gctp/shared/landuse";
 import { LanduseProfilesResponse } from "@gctp/shared/landuse-profiles";
+import { WalkReplanResult, type WalkReplanInput } from "@gctp/shared/walks";
 import {
   RouteProfile,
   RouteProfilesResponse,
@@ -288,6 +289,23 @@ export async function updateRouteProfile(
 
 export async function deleteRouteProfile(id: string): Promise<void> {
   await request<void>(`/route-profiles/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Replan an ad-hoc walk (FR-T18, ADR-0040). Stateless: the whole walk goes in
+ * the body, including the position (used for this request only).
+ */
+export async function replanWalk(
+  input: WalkReplanInput,
+  signal?: AbortSignal,
+): Promise<WalkReplanResult> {
+  const raw = await request<unknown>("/walks/replan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  });
+  return WalkReplanResult.parse(raw);
 }
 
 export interface UploadGpxResult {

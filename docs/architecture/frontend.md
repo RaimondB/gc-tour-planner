@@ -18,6 +18,7 @@ fast agent checklist in the [`frontend-pwa-offline`](../../.claude/skills/fronte
   (`GET /api/health`) lifted into a `ConnectivityProvider`/`useOnline` context;
   an offline indicator + banner; online-only actions disabled with a reason;
   view/open/export of an already-loaded tour stay available.
+- **The ad-hoc walk has one owner above the router** (FR-W6, ADR-0040). `WalkSessionProvider` (inside `LocationProvider`) holds the active walk as one record in IndexedDB (`features/walk/walk-store.ts`), written on every action through a pure reducer (`walk-session.ts`). The server is stateless, so each replan sends the whole record. Pure, unit-tested helpers decide when to replan (`replan-trigger.ts`), guard the deadline offline (`deadline-guard.ts`) and calibrate pace and visit time (`calibration.ts`). `App` only owns whether the start form is open and the map-picked return point; Walk mode swaps the command panel's content and hides the planner overlays.
 - **The opened tour has one owner above the router.** `TourSessionProvider`
   (mounted around the router) owns "which saved tour is open" + its data —
   persisted id in `localStorage`, full detail mirrored to **IndexedDB**

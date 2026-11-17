@@ -84,3 +84,37 @@ See [design/frontend.md](../design/frontend.md) and
   to the phone's maps app (gctp is not a turn-by-turn engine). Geolocation is
   opt-in, battery-aware (paused while the tab is hidden), works offline, and
   degrades cleanly when permission is denied/unavailable.
+- **FR-W6 (ad-hoc walk field mode, [FR-T18](tour-planning.md), [ADR-0040](../adr/0040-ad-hoc-walk-planning.md)).**
+  - **Start.** A **Walk** button on the map opens the start form:
+    - route profile (the last one used is remembered);
+    - how long you have (duration chips, or a "back by" time);
+    - **start from**: where you are now (default), a point tapped on the map, or the open tour's parking;
+    - **end at**: back where you start (default), or explicitly somewhere else (same three choices).
+
+    Starting needs a connection, and location when "where I am now" is used.
+  - **Starting somewhere else.** With a start point away from you (more than 150 m), the walk is planned **from that point**.
+    - The panel shows "Not started yet", directions to the start (driving), and **Start walking now**.
+    - With a duration, the clock only starts when you reach the start point. A back-by time stays fixed.
+    - Once you're there, replans follow your live position.
+  - **Walk and planner.** **Planner** switches the panel back to the cluster planner while the walk keeps running. A **Back to walk** button on the map returns to it. **End walk** stops it.
+  - **During the walk.** The command panel switches to Walk mode, hiding the planner's journey.
+    - **Deadline guard,** always visible: *leave the last cache by HH:MM · N min spare*. It turns amber under 15 min spare, and red ("Head back now") once walking straight home is due.
+    - **Next stop:** its distance and planned arrival, with a **Navigate** button that asks the phone's maps app for **walking** directions.
+    - **At a cache.** Within ~30 m of a planned stop, the panel offers **Found / DNF / Skip**.
+    - **The route ahead,** with arrival times. **Go here next** is available on any stop and in the cache popup. If that stop can't fit, a confirmation shows how late it makes you.
+    - **Replan and Head back** buttons, and a log of what's been done.
+    - **On the map:** the walk path, numbered stops, gray done stops, the return point "R", and a ring on the next stop.
+  - **Replans** happen after each Found / DNF / Skip / Go here next, and automatically every few minutes or when the walker leaves the planned path (debounced; poor GPS fixes are ignored). Pace and time-at-cache are calibrated from the walk itself and sent with each replan.
+  - **Resume and privacy.**
+    - The whole walk is stored on the device (IndexedDB, written on every action). A reload, a killed PWA or a phone restart resumes it.
+    - Signing out ends it.
+    - The position is sent only in replan requests ([ADR-0037 amendment](../adr/0037-location-awareness-and-follow-mode.md)).
+  - **Offline.**
+    - The last route stays, and the deadline guard runs on-device (straight-line × 1.3 at the profile pace, never faster).
+    - Replans pause, and **Found is queued** and sent when back online.
+  - **End.** **Save as tour & end** saves the caches actually visited along the walked GPS track as a normal saved tour; **End walk** discards it.
+  - **Testing mode (admins).** Admin tools → *Simulate my location*.
+    - While it's on, the position comes from map taps instead of GPS, so a walk can be tried from a desk: tap next to a stop to "arrive", tap elsewhere to go off-plan.
+    - Follow mode and nearby tours use the simulated position too.
+    - A purple banner on the map shows the mode is on and has a **Stop** button.
+    - It's device-only and kept across reloads until stopped.

@@ -193,6 +193,7 @@ settings; these env knobs only bound the server's work.
 | --- | --- | --- |
 | `WALK_MAX_CANDIDATES` | `60` | Cap on caches the orienteering solver considers per replan, after the reach ellipse. Highest prize first, then smallest detour. Solve time grows roughly with the square of this; 60 solves in ~0.1–0.2 s. |
 | `WALK_HYSTERESIS_PCT` | `10` | Stability rule: the new route replaces the walker's current one only if it scores at least `max(1, this % of the current score)` higher. Raise it if routes flip too often; lower it to pick up improvements sooner. |
+| `WALK_HYSTERESIS_SAVE_MIN` | `10` | Stability rule, time side: a new route with no less value replaces the current one when it saves at least this many minutes (e.g. after the walker moved away from the old route). |
 | `OSRM_VERBOSITY` | `WARNING` | `osrm-routed` log level. `WARNING` keeps per-request access lines (URLs with coordinates, including the walker's position) out of the logs. Set `INFO` only to debug locally. |
 
 ## Symptom → knob

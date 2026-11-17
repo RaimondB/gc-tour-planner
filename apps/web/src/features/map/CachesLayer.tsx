@@ -233,6 +233,10 @@ export interface CachesLayerProps {
    * the drop reason (no separate popup competes for the gray "×" marker).
    */
   droppedById?: ReadonlyMap<number, Tours.DroppedCache>;
+  /** During an ad-hoc walk: the popup offers "Go here next" (FR-T18). */
+  onGoHereNext?: (cacheId: number) => void;
+  /** False while the map is used to pick a point: taps don't open popups. */
+  popupsEnabled?: boolean;
 }
 
 export function CachesLayer({
@@ -244,6 +248,8 @@ export function CachesLayer({
   onParkingSelect,
   online = true,
   droppedById,
+  onGoHereNext,
+  popupsEnabled = true,
 }: CachesLayerProps): null {
   const { map, ready } = useMap();
   const queryClient = useQueryClient();
@@ -255,6 +261,10 @@ export function CachesLayer({
   // the live drop-reason map through a ref instead of rebinding the layer.
   const droppedByIdRef = useRef(droppedById);
   droppedByIdRef.current = droppedById;
+  const onGoHereNextRef = useRef(onGoHereNext);
+  onGoHereNextRef.current = onGoHereNext;
+  const popupsEnabledRef = useRef(popupsEnabled);
+  popupsEnabledRef.current = popupsEnabled;
 
   // Latest rendered caches, for the popup's Adventure-Lab completion rollup
   // (FR-I19) — the click handler can't see `renderCaches`'s local `caches`.
@@ -774,6 +784,7 @@ export function CachesLayer({
       // Ignore clicks that are really the tail of a pan — under the reticle
       // model the user pans over caches constantly to reposition the area.
       if (isDragGesture(downPointRef.current, e.point)) return;
+      if (!popupsEnabledRef.current) return;
       const f = e.features?.[0];
       if (!f) return;
       const props = f.properties as unknown as CacheProps;
@@ -857,6 +868,14 @@ export function CachesLayer({
             online={onlineRef.current}
             dropReason={drop?.reason ?? null}
             neededBudgetMeters={drop?.neededBudgetMeters ?? null}
+            onGoHereNext={
+              onGoHereNextRef.current
+                ? () => {
+                    onGoHereNextRef.current?.(id);
+                    popup.remove();
+                  }
+                : undefined
+            }
             onToggleFound={async () => {
               if (!onlineRef.current) return;
               try {
@@ -936,6 +955,7 @@ export function CachesLayer({
       },
     ) => {
       if (isDragGesture(downPointRef.current, e.point)) return;
+      if (!popupsEnabledRef.current) return;
       const f = e.features?.[0];
       if (!f) return;
       const props = f.properties as { cacheCode?: string; cacheId?: number };
@@ -964,6 +984,7 @@ export function CachesLayer({
       },
     ) => {
       if (isDragGesture(downPointRef.current, e.point)) return;
+      if (!popupsEnabledRef.current) return;
       const f = e.features?.[0];
       if (!f) return;
       const props = f.properties as unknown as AlAdventureProps;

@@ -103,6 +103,8 @@ export interface CachePopupProps {
   dropReason?: Tours.DropReason | null;
   /** Extra walking metres this cache adds — budget hint for `budget`/`outlier`. */
   neededBudgetMeters?: number | null;
+  /** During an ad-hoc walk: make this the next stop (FR-T18). */
+  onGoHereNext?: () => void;
 }
 
 export function CachePopup({
@@ -128,6 +130,7 @@ export function CachePopup({
   online = true,
   dropReason = null,
   neededBudgetMeters = null,
+  onGoHereNext,
 }: CachePopupProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [clearingSolved, setClearingSolved] = useState(false);
@@ -255,6 +258,17 @@ export function CachePopup({
         >
           Full details on geocaching.com ↗
         </a>
+      )}
+      {onGoHereNext && !foundByMe && (
+        <button
+          type="button"
+          className="cache-popup__btn"
+          onClick={onGoHereNext}
+          disabled={!online}
+          title={online ? undefined : "Changing the route needs a connection."}
+        >
+          Go here next
+        </button>
       )}
       <button
         type="button"

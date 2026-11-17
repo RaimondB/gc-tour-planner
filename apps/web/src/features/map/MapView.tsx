@@ -68,6 +68,11 @@ export interface MapViewProps {
    */
   onPickCenter?: (lngLat: [number, number]) => void;
   /**
+   * While picking a point on purpose (e.g. an ad-hoc walk's start), a tap sets
+   * it even on top of a cache or parking feature.
+   */
+  pickAnywhere?: boolean;
+  /**
    * Fires once when the map instance is created and again with `null` on
    * unmount. Use to grab a ref for imperative camera moves like flyTo.
    */
@@ -93,6 +98,7 @@ export function MapView({
   initialCenter = DEFAULT_CENTER,
   initialZoom = DEFAULT_ZOOM,
   onPickCenter,
+  pickAnywhere = false,
   onReady,
   onViewportChange,
   onBasemapError,
@@ -113,6 +119,8 @@ export function MapView({
   );
   const onPickRef = useRef(onPickCenter);
   onPickRef.current = onPickCenter;
+  const pickAnywhereRef = useRef(pickAnywhere);
+  pickAnywhereRef.current = pickAnywhere;
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const onViewportRef = useRef(onViewportChange);
@@ -170,6 +178,10 @@ export function MapView({
       );
     }
     const clickHandler = (e: maplibregl.MapMouseEvent) => {
+      if (pickAnywhereRef.current) {
+        onPickRef.current?.([e.lngLat.lng, e.lngLat.lat]);
+        return;
+      }
       // Skip if the click hit a feature layer (those have their own
       // handlers). `map.getLayer` requires `map.style` to be loaded —
       // bound only after the `"load"` event below so this is safe.

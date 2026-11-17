@@ -31,7 +31,22 @@ interface LocationValue {
   enabled: boolean;
   enable: () => void;
   disable: () => void;
+  /**
+   * Testing mode: the position comes from a point set by hand (a map tap)
+   * instead of GPS, so walks / follow mode can be tried from a desk.
+   */
+  simulated: boolean;
+  setSimulated: (on: boolean) => void;
+  setSimulatedPosition: (p: [number, number]) => void;
 }
+
+interface SimState {
+  on: boolean;
+  point: [number, number] | null;
+}
+
+/** How precise a simulated fix claims to be. */
+const SIM_ACCURACY_M = 5;
 
 const LocationContext = createContext<LocationValue | null>(null);
 
@@ -57,6 +72,11 @@ export function LocationProvider({
   const [position, setPosition] = useState<[number, number] | null>(null);
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
   const [status, setStatus] = useState<LocationStatus>("off");
+  // Testing mode (device-only, persisted so a reload keeps simulating).
+  const [sim, setSim] = useLocalStorageState<SimState>("location-sim", {
+    on: false,
+    point: null,
+  });
   // Distinguish "tab hidden" pause from "off" without re-rendering on every flip.
   const hiddenRef = useRef(false);
 
@@ -70,16 +90,28 @@ export function LocationProvider({
   }, [setEnabled]);
 
   const disable = useCallback(() => {
+    setSim({ on: false, point: null });
     setEnabled(false);
     setPosition(null);
     setAccuracyM(null);
     setStatus("off");
-  }, [setEnabled]);
+  }, [setEnabled, setSim]);
+
+  const setSimulated = useCallback(
+    (on: boolean) =>
+      // Start from the last real fix so turning it on doesn't jump anywhere.
+      setSim((prev) => ({ on, point: on ? (prev.point ?? position) : null })),
+    [setSim, position],
+  );
+  const setSimulatedPosition = useCallback(
+    (p: [number, number]) => setSim({ on: true, point: p }),
+    [setSim],
+  );
 
   // The live watch. Runs only when enabled and the tab is visible; re-created on
   // visibility change so a hidden tab doesn't keep the GPS warm.
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || sim.on) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setStatus("unavailable");
       return;
@@ -126,11 +158,44 @@ export function LocationProvider({
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
-  }, [enabled, setEnabled]);
+  }, [enabled, setEnabled, sim.on]);
 
   const value = useMemo<LocationValue>(
-    () => ({ position, accuracyM, status, enabled, enable, disable }),
-    [position, accuracyM, status, enabled, enable, disable],
+    () =>
+      sim.on
+        ? {
+            position: sim.point,
+            accuracyM: sim.point ? SIM_ACCURACY_M : null,
+            status: sim.point ? "watching" : "locating",
+            enabled: true,
+            enable,
+            disable,
+            simulated: true,
+            setSimulated,
+            setSimulatedPosition,
+          }
+        : {
+            position,
+            accuracyM,
+            status,
+            enabled,
+            enable,
+            disable,
+            simulated: false,
+            setSimulated,
+            setSimulatedPosition,
+          },
+    [
+      sim,
+      position,
+      accuracyM,
+      status,
+      enabled,
+      enable,
+      disable,
+      setSimulated,
+      setSimulatedPosition,
+    ],
   );
 
   return (

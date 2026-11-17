@@ -54,3 +54,29 @@ export function parkingNavTarget(point: GeoPoint): {
       return { href: googleMapsDirUrl(point), external: true };
   }
 }
+
+/**
+ * Like {@link parkingNavTarget}, but asks the maps app for **walking**
+ * directions — the ad-hoc walk's "Navigate" to the next cache or back to the
+ * return point (FR-T18).
+ */
+export function walkNavTarget(point: GeoPoint): {
+  href: string;
+  external: boolean;
+} {
+  const [lng, lat] = point.coordinates;
+  switch (detectPlatform()) {
+    case "android":
+      return {
+        href: `google.navigation:q=${lat},${lng}&mode=w`,
+        external: false,
+      };
+    case "ios":
+      return { href: `maps://?daddr=${lat},${lng}&dirflg=w`, external: false };
+    default:
+      return {
+        href: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`,
+        external: true,
+      };
+  }
+}
