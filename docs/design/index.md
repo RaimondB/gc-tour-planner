@@ -8,6 +8,7 @@ Concrete-level design — schemas, API shapes, algorithms. Read [../requirements
 - [API surface](api-surface.md) — selected endpoints with zod schemas
 - [Auth + saved tours + sharing](auth-and-sharing.md) — M6 session model, guard swap, public-endpoint inventory, sharing links
 - [Tour planning](tour-planning.md) — `GreedyTspPlanner` algorithm (Pass 1 + Pass 2)
+- [Walk planning](walk-planning.md) — ad-hoc walk replan: open-path orienteering to a return point before a deadline (ADR-0040)
 - [Precompute](precompute.md) — upload-triggered `walking-precompute` + `overpass-refresh` jobs and `cache_precompute_state` lifecycle
 - [GPX parsing](gpx-parsing.md) — Pocket Query + generic GPX
 - [OSM context — Overpass](osm-overpass.md) — landuse fetch, cell scheme, hard-filter integration

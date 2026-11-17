@@ -8,6 +8,7 @@ import {
   type OsrmClient,
   type OsrmLeg,
   type OsrmMatrixEntry,
+  type TableOptions,
 } from "../../src/routing/osrm.client.js";
 import { RoutingRepository } from "../../src/routing/routing.repository.js";
 import { RoutingService } from "../../src/routing/routing.service.js";
@@ -16,7 +17,11 @@ import {
   startPostgres,
   stopPostgres,
 } from "./postgres-fixture.js";
-import { makeGpxService, makeOsrmVersion } from "./integration-helpers.js";
+import {
+  makeGpxService,
+  makeOsrmVersion,
+  subsetTable,
+} from "./integration-helpers.js";
 
 const fixturePath = fileURLToPath(
   new URL(
@@ -49,6 +54,8 @@ class FakeOsrmClient implements OsrmClient {
 
   async table(
     coords: readonly [number, number][],
+    _profile?: unknown,
+    opts: TableOptions = {},
   ): Promise<(OsrmMatrixEntry | null)[][]> {
     this.tableCalls.push({ coords });
     const n = coords.length;
@@ -65,7 +72,7 @@ class FakeOsrmClient implements OsrmClient {
       }
       out.push(row);
     }
-    return out;
+    return subsetTable(out, opts);
   }
 }
 

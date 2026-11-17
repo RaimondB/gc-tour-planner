@@ -49,3 +49,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0037](0037-location-awareness-and-follow-mode.md)            | Location awareness, nearby tours & follow-mode navigation     | Accepted                                      |
 | [0038](0038-exclude-saved-tour-caches-from-discovery.md)      | Exclude saved-tour caches from cluster discovery (default on)  | Accepted                                      |
 | [0039](0039-route-profiles.md)                               | Route profiles (saved, server-side planning presets)           | Accepted                                      |
+| [0040](0040-ad-hoc-walk-planning.md)                         | Ad-hoc walk planning: open path, deadline, rolling replan       | Accepted                                      |

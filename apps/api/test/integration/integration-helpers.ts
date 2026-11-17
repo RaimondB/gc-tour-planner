@@ -76,5 +76,21 @@ export function fakeComputePool(): ComputePool {
     async computeClusters(ctx, strategyName, preferredLanduseKinds) {
       return computeClusters(ctx, strategyName, [...preferredLanduseKinds]);
     },
+    async solveOrienteering(problem, seed) {
+      return Tsp.solveOrienteering(problem, seed);
+    },
   };
+}
+
+/**
+ * Apply OSRM /table `sources` / `destinations` to a full N×N fake matrix, so
+ * fakes return exactly the rows and columns the real client would.
+ */
+export function subsetTable<T>(
+  full: T[][],
+  opts: { sources?: readonly number[]; destinations?: readonly number[] } = {},
+): T[][] {
+  const rows = opts.sources ?? full.map((_, i) => i);
+  const cols = opts.destinations ?? full.map((_, i) => i);
+  return rows.map((i) => cols.map((j) => full[i]![j]!));
 }

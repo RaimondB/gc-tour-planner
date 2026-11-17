@@ -413,6 +413,38 @@ planner as ordinary request fields:
   both planner paths (FR-T3). Seeded presets: *Quick
 traditionals*, *Forest walk*, *Adventure Lab day*.
 
+## `POST /walks/replan` (FR-T18, ADR-0040)
+
+Replan an ad-hoc walk. **Stateless:** the body carries the whole walk; nothing
+is stored. Authenticated + CSRF; **throttled per user** (30 / min → 429). The
+body's `position` / `returnPoint` are used for this request only and never
+logged; a validation failure is a generic 400 that doesn't echo the body. A
+`lockedNextId` that isn't the caller's cache is 404. Algorithm:
+[walk-planning.md](walk-planning.md).
+
+```ts
+type WalkReplanInput = {
+  position: [lng, lat]; accuracyM?: number;
+  returnPoint: [lng, lat];
+  deadline: string; now: string;           // ISO, both on the client's clock
+  profile: RouteProfileSettings;           // snapshot
+  calibration?: { paceFactor?: number; dwellFactor?: number }; // clamped server-side
+  visitedIds?: number[]; skippedIds?: number[]; dnfIds?: number[];
+  lockedNextId?: number;                   // "Go here next"
+  previousOrder?: number[];                // for the stability rule
+};
+type WalkReplanResult = {
+  feasible: boolean;
+  kept: "previous" | "new"; reason: string;
+  order: { cacheId: number; arriveAt: string; leaveAt: string }[];
+  returnAt: string; leaveLastBy: string; slackMinutes: number;
+  minutesToReturn: number; lateByMinutes?: number;
+  geometry: GeoJsonLineString | null;      // here → stops → return point
+  nextLeg: { geometry: GeoJsonLineString; meters: number; seconds: number } | null;
+  candidates: number;
+};
+```
+
 ## `GET /parking-facilities` (ADR-0011)
 
 Returns OSM `amenity=parking` features in a bbox, populated by the same osm2pgsql import that fills `landuse_polygons`. Mirrors `/landuse` shape — server-side LOD (`ST_SimplifyPreserveTopology` + envelope-area floor), same `MAX_DELTA_DEG = 2.5°` per-axis bbox cap. Unconditional server-side drop of `access=private`.

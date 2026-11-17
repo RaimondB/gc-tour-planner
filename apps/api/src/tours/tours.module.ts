@@ -154,6 +154,12 @@ const tourPlannerProvider: Provider = {
     solverPlannerProvider,
     tourPlannerProvider,
   ],
-  exports: [Tours.TOUR_PLANNER, ToursService],
+  // The walk replan (ADR-0040) shares the compute pool + saved-tour lookup.
+  exports: [
+    Tours.TOUR_PLANNER,
+    ToursService,
+    COMPUTE_POOL,
+    SavedToursRepository,
+  ],
 })
 export class ToursModule {}

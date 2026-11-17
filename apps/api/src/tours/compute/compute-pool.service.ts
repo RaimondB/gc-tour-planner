@@ -28,6 +28,11 @@ export interface ComputePool {
     strategyName: Tours.ClusteringStrategyName,
     preferredLanduseKinds: readonly string[],
   ): Promise<Tours.DiscoverClustersResult>;
+  /** Ad-hoc walk replan (ADR-0040). */
+  solveOrienteering(
+    problem: Tsp.OrienteeringProblem,
+    seed?: readonly number[],
+  ): Promise<Tsp.OrienteeringResult>;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -100,6 +105,17 @@ export class PiscinaComputePool implements ComputePool, OnModuleDestroy {
       ctx: serializableCtx,
       strategyName,
       preferredLanduseKinds: [...preferredLanduseKinds],
+    });
+  }
+
+  solveOrienteering(
+    problem: Tsp.OrienteeringProblem,
+    seed: readonly number[] = [],
+  ): Promise<Tsp.OrienteeringResult> {
+    return this.run<Tsp.OrienteeringResult>({
+      kind: "orienteering",
+      problem,
+      seed: [...seed],
     });
   }
 
