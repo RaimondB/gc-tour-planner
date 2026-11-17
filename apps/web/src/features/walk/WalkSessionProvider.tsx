@@ -48,6 +48,8 @@ import {
 const ARRIVE_M = 30;
 /** Fixes worse than this don't trigger an arrival. */
 const ARRIVE_MAX_ACCURACY_M = 50;
+/** Further than this from the cache you were at, without logging it: you left. */
+const LEAVE_M = 60;
 const TICK_MS = 15_000;
 
 export interface StartWalkOptions {
@@ -141,37 +143,45 @@ export function WalkSessionProvider({
     else if (hadUser.current && hydrated) commit(null);
   }, [user, hydrated, commit]);
 
-  const replan = useCallback(async () => {
-    const s = sessionRef.current;
-    const position = s ? planOrigin(s, positionRef.current) : null;
-    if (!s || !position || !online) return;
-    inFlight.current?.abort();
-    const ac = new AbortController();
-    inFlight.current = ac;
-    setReplanning(true);
-    try {
-      const res = await replanWalk(
-        replanInput(s, position, location.accuracyM),
-        ac.signal,
-      );
-      if (ac.signal.aborted || sessionRef.current?.id !== s.id) return;
-      planPositionRef.current = position;
-      dispatch({ type: "planned", plan: res, at: new Date().toISOString() });
-      setError(null);
-    } catch (err) {
-      if (ac.signal.aborted) return;
-      setError(
-        err instanceof ApiError && err.status === 429
-          ? "Replanning too often — try again in a minute."
-          : "Couldn't replan — the last route still applies.",
-      );
-    } finally {
-      if (inFlight.current === ac) {
-        inFlight.current = null;
-        setReplanning(false);
+  /**
+   * `fresh` drops the current route from the request, so the server plans
+   * from scratch instead of keeping it (manual Replan, or walked off the route).
+   */
+  const replan = useCallback(
+    async (fresh = false) => {
+      const s = sessionRef.current;
+      const position = s ? planOrigin(s, positionRef.current) : null;
+      if (!s || !position || !online) return;
+      inFlight.current?.abort();
+      const ac = new AbortController();
+      inFlight.current = ac;
+      setReplanning(true);
+      try {
+        const input = replanInput(s, position, location.accuracyM);
+        const res = await replanWalk(
+          fresh ? { ...input, previousOrder: [] } : input,
+          ac.signal,
+        );
+        if (ac.signal.aborted || sessionRef.current?.id !== s.id) return;
+        planPositionRef.current = position;
+        dispatch({ type: "planned", plan: res, at: new Date().toISOString() });
+        setError(null);
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        setError(
+          err instanceof ApiError && err.status === 429
+            ? "Replanning too often — try again in a minute."
+            : "Couldn't replan — the last route still applies.",
+        );
+      } finally {
+        if (inFlight.current === ac) {
+          inFlight.current = null;
+          setReplanning(false);
+        }
       }
-    }
-  }, [online, location.accuracyM, dispatch]);
+    },
+    [online, location.accuracyM, dispatch],
+  );
 
   const start = useCallback(
     (opts: StartWalkOptions) => {
@@ -276,6 +286,10 @@ export function WalkSessionProvider({
       return;
     }
     dispatch({ type: "tracked", point: [p[0], p[1], Date.now()] });
+    const at = s.atCache ? s.knownStops[s.atCache.cacheId] : undefined;
+    if (s.atCache && at && metersBetween(p, at.location) > LEAVE_M) {
+      dispatch({ type: "departed", cacheId: s.atCache.cacheId });
+    }
     if (
       location.accuracyM !== null &&
       location.accuracyM > ARRIVE_MAX_ACCURACY_M
@@ -306,17 +320,14 @@ export function WalkSessionProvider({
     const s = sessionRef.current;
     if (!s || !online || replanning || document.visibilityState === "hidden")
       return;
-    if (
-      autoReplanReason(
-        s,
-        now,
-        planOrigin(s, location.position),
-        s.pendingStart ? null : location.accuracyM,
-        planPositionRef.current,
-      )
-    ) {
-      void replan();
-    }
+    const reason = autoReplanReason(
+      s,
+      now,
+      planOrigin(s, location.position),
+      s.pendingStart ? null : location.accuracyM,
+      planPositionRef.current,
+    );
+    if (reason) void replan(reason === "off-plan");
   }, [now, online, replanning, location.position, location.accuracyM, replan]);
 
   // Send Found marks queued while offline.
@@ -361,7 +372,7 @@ export function WalkSessionProvider({
       log,
       lockNext,
       previewLock,
-      replanNow: () => void replan(),
+      replanNow: () => void replan(true),
       startNow,
     }),
     [

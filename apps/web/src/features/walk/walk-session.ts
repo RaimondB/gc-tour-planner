@@ -78,7 +78,8 @@ export type WalkAction =
   | { type: "calibrated"; calibration: WalkCalibration }
   | { type: "tracked"; point: [number, number, number] }
   | { type: "findsFlushed"; cacheIds: readonly number[] }
-  | { type: "started"; at: string };
+  | { type: "started"; at: string }
+  | { type: "departed"; cacheId: number };
 
 /** Thin the track: keep a point only every ~20 m, cap the length. */
 const TRACK_MIN_STEP_M = 20;
@@ -144,6 +145,8 @@ export function walkReducer(s: WalkSession, a: WalkAction): WalkSession {
             : track,
       };
     }
+    case "departed":
+      return s.atCache?.cacheId === a.cacheId ? { ...s, atCache: null } : s;
     case "started": {
       if (!s.pendingStart) return s;
       const deadline =

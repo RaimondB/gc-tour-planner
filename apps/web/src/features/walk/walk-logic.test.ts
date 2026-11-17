@@ -102,6 +102,14 @@ describe("walkReducer", () => {
     expect(s.pendingFinds).toEqual([1]);
   });
 
+  it("forgets the cache you were at once you've left it", () => {
+    let s = walkReducer(session(), { type: "arrived", cacheId: 4, at: iso(1) });
+    s = walkReducer(s, { type: "departed", cacheId: 5 });
+    expect(s.atCache?.cacheId).toBe(4);
+    s = walkReducer(s, { type: "departed", cacheId: 4 });
+    expect(s.atCache).toBeNull();
+  });
+
   it("only queues finds, and drops them once flushed", () => {
     let s = walkReducer(session(), {
       type: "logged",

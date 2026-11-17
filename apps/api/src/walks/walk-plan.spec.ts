@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { RouteProfiles } from "@gctp/shared";
 import {
   cachePrize,
+  keepPreviousRoute,
   insideReach,
   reachCircle,
   schedule,
@@ -101,5 +102,41 @@ describe("schedule", () => {
     expect(new Date(res.returnMs).toISOString()).toBe(
       "2026-11-17T10:40:00.000Z",
     );
+  });
+});
+
+describe("keepPreviousRoute (ADR-0040 §5)", () => {
+  const rule = { scorePct: 10, saveSeconds: 600 };
+  const prev = { score: 5, seconds: 3600, feasible: true, valid: true };
+
+  it("keeps the current route when the new one isn't clearly better", () => {
+    expect(keepPreviousRoute(prev, { score: 5.4, seconds: 3500 }, rule)).toBe(
+      true,
+    );
+  });
+
+  it("switches for at least a cache's worth more value", () => {
+    expect(keepPreviousRoute(prev, { score: 6, seconds: 4000 }, rule)).toBe(
+      false,
+    );
+  });
+
+  it("switches for the same value in 10+ minutes less — e.g. after moving away", () => {
+    expect(keepPreviousRoute(prev, { score: 5, seconds: 2900 }, rule)).toBe(
+      false,
+    );
+    expect(keepPreviousRoute(prev, { score: 4.9, seconds: 2000 }, rule)).toBe(
+      true,
+    );
+  });
+
+  it("never keeps a route that no longer fits", () => {
+    expect(
+      keepPreviousRoute(
+        { ...prev, feasible: false },
+        { score: 1, seconds: 1 },
+        rule,
+      ),
+    ).toBe(false);
   });
 });

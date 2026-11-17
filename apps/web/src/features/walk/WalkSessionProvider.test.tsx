@@ -127,6 +127,7 @@ function Harness(): JSX.Element {
       </button>
       <button onClick={() => w.log(7, "found")}>found</button>
       <button onClick={() => w.end()}>end</button>
+      <button onClick={() => w.replanNow()}>replan</button>
     </div>
   );
 }
@@ -286,5 +287,21 @@ describe("WalkSessionProvider (FR-T18)", () => {
     await waitFor(() =>
       expect(screen.getByTestId("pending").textContent).toBe("false"),
     );
+  });
+
+  it("a manual Replan plans fresh: it doesn't ask to keep the current route", async () => {
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("hydrated").textContent).toBe("true"),
+    );
+    fireEvent.click(screen.getByText("start"));
+    await waitFor(() =>
+      expect(screen.getByTestId("stops").textContent).toBe("1"),
+    );
+    fireEvent.click(screen.getByText("replan"));
+    await waitFor(() => expect(replanWalk).toHaveBeenCalledTimes(2));
+    expect(
+      (replanWalk.mock.calls[1]![0] as WalkReplanInput).previousOrder,
+    ).toEqual([]);
   });
 });
