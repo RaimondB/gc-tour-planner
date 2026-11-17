@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CachesService } from "../../src/caches/caches.service.js";
 import { CachesRepository } from "../../src/caches/caches.repository.js";
@@ -90,6 +91,53 @@ describe("M2 caches + gpx integration (PostGIS via Testcontainers)", () => {
       radiusM: 100,
     } as never);
     expect(empty.caches).toEqual([]);
+  });
+
+  it("filters by difficulty / terrain range, letting unrated caches through", async () => {
+    // GCAAA111 = D1.5/T2, GCBBB222 = D3.5/T1.5 (sample PQ); plus an unrated one.
+    const unrated = await pg.db
+      .insertInto("caches")
+      .values({
+        owner_id: ownerId,
+        source: "gpx",
+        source_id: "GCNORATE",
+        code: "GCNORATE",
+        type: "Traditional",
+        name: "no rating",
+        location: sql<string>`ST_SetSRID(ST_MakePoint(5.121, 52.091), 4326)::geography`,
+        raw: { test: true },
+      })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    try {
+      const codes = async (q: object) =>
+        (
+          await cachesService.list(ownerId, {
+            center: [5.12, 52.09],
+            radiusM: 5_000,
+            ...q,
+          } as never)
+        ).caches
+          .map((c) => c.code)
+          .sort();
+
+      expect(await codes({ difficulty: { min: 1, max: 2.5 } })).toEqual([
+        "GCAAA111",
+        "GCNORATE",
+      ]);
+      expect(await codes({ terrain: { min: 1, max: 1.5 } })).toEqual([
+        "GCBBB222",
+        "GCNORATE",
+      ]);
+      expect(
+        await codes({
+          difficulty: { min: 3, max: 5 },
+          terrain: { min: 1, max: 1.5 },
+        }),
+      ).toEqual(["GCBBB222", "GCNORATE"]);
+    } finally {
+      await pg.db.deleteFrom("caches").where("id", "=", unrated.id).execute();
+    }
   });
 
   it("re-uploading the same GPX updates rather than duplicates", async () => {

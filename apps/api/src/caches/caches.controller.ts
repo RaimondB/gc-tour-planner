@@ -101,6 +101,16 @@ export class CachesController {
     type: Boolean,
     description: "FR-SF6 — hide caches that require special equipment.",
   })
+  @ApiQuery({ name: "minDifficulty", required: false, type: Number })
+  @ApiQuery({ name: "maxDifficulty", required: false, type: Number })
+  @ApiQuery({ name: "minTerrain", required: false, type: Number })
+  @ApiQuery({
+    name: "maxTerrain",
+    required: false,
+    type: Number,
+    description:
+      "D/T range (ADR-0039), 1–5 in half steps; give min and max together. Unrated caches pass.",
+  })
   @ApiResponse({
     status: 200,
     description:
@@ -120,6 +130,10 @@ export class CachesController {
     @Query("solvedMysteriesOnly") solvedMysteriesOnlyRaw?: string,
     @Query("multiSubtype") multiSubtypeRaw?: string,
     @Query("hideToolCaches") hideToolCachesRaw?: string,
+    @Query("minDifficulty") minDifficultyRaw?: string,
+    @Query("maxDifficulty") maxDifficultyRaw?: string,
+    @Query("minTerrain") minTerrainRaw?: string,
+    @Query("maxTerrain") maxTerrainRaw?: string,
   ): Promise<Caches.CachesSummaryResponse> {
     const types =
       typesRaw === undefined
@@ -167,6 +181,8 @@ export class CachesController {
           ? undefined
           : multiSubtypeRaw,
       hideToolCaches,
+      difficulty: ratingRange(minDifficultyRaw, maxDifficultyRaw),
+      terrain: ratingRange(minTerrainRaw, maxTerrainRaw),
     });
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.flatten());
@@ -248,4 +264,17 @@ export class CachesController {
   ): Promise<{ cleared: boolean }> {
     return this.service.clearSolved(user.id, id);
   }
+}
+
+/**
+ * `?minX=&maxX=` → a range for zod to validate; both omitted → no filter. One
+ * bound alone is passed through half-empty so zod rejects it rather than
+ * silently widening it.
+ */
+function ratingRange(
+  minRaw: string | undefined,
+  maxRaw: string | undefined,
+): { min: number; max: number } | undefined {
+  if ((minRaw ?? "") === "" && (maxRaw ?? "") === "") return undefined;
+  return { min: Number(minRaw), max: Number(maxRaw) };
 }

@@ -5,7 +5,7 @@ import { useMemo, type JSX } from "react";
 import { Navigation } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { parkingNavTarget } from "../../lib/maps.js";
-import type { CacheSummaryDTO } from "@gctp/shared/caches";
+import type { CacheSummaryDTO, CacheType } from "@gctp/shared/caches";
 import {
   summarizeAdventureCompletion,
   type ClusterCandidate,
@@ -16,16 +16,13 @@ import {
   type TestRouteResponse,
   type WalkingGraphResponse,
 } from "@gctp/shared/tours";
-import {
-  PARKING_ACCESS_CHIPS,
-  PARKING_FEE_FILTER,
-  type ParkingAccessChip,
-  type ParkingFeeFilter,
+import type {
+  ParkingAccessChip,
+  ParkingFeeFilter,
 } from "@gctp/shared/parking-facilities";
 import {
   explainSelection,
   fetchParkingOptions,
-  listLanduseProfiles,
   purgeBogusWalkingCells,
   testOsrmRoute,
 } from "../../lib/api.js";
@@ -38,8 +35,17 @@ import {
   resolvePick,
 } from "../../lib/persistent-state.js";
 import { useQueryClient } from "@tanstack/react-query";
-import type { SearchParams } from "../../lib/search-params.js";
+import { narrowRange, type SearchParams } from "../../lib/search-params.js";
 import { AdvancedSection } from "../shell/AdvancedSection.js";
+import type { RouteProfileSettings } from "@gctp/shared/route-profiles";
+import {
+  AdventureLabsSection,
+  AdvancedSettingsSection,
+  BudgetSection,
+  InterestSection,
+  ParkingSection,
+  TimeSection,
+} from "../settings/SettingsSections.js";
 import { AdventureLabSyncButton } from "./AdventureLabSyncButton.js";
 
 export interface PlanSettings {
@@ -134,6 +140,17 @@ export interface PlanSettings {
   osmParkingAccessFilter: readonly ParkingAccessChip[];
   /** OSM-parking fee preference. `"any"` = no preference. */
   osmParkingFeeFilter: ParkingFeeFilter;
+  /** Reward a mix of cache types / difficulty bands in cluster ranking (0..5). */
+  varietyWeight: number;
+  /** Cache types to favour in cluster ranking, × `preferredTypeWeight`. */
+  preferredTypes: readonly CacheType[];
+  preferredTypeWeight: number;
+  /** Per-type visit-minute overrides (ADR-0039); absent types use the default. */
+  visitMinutesByType: Partial<Record<CacheType, number>>;
+  /** Time available (min); null = no time limit. Budget = this − buffer. */
+  durationMinutes: number | null;
+  /** Safety margin kept free inside `durationMinutes`. */
+  bufferMinutes: number;
 }
 
 export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
@@ -160,23 +177,21 @@ export const DEFAULT_PLAN_SETTINGS: PlanSettings = {
   // permit for is functionally private.
   osmParkingAccessFilter: ["yes", "customers"],
   osmParkingFeeFilter: "any",
+  varietyWeight: 0,
+  preferredTypes: [],
+  preferredTypeWeight: 1,
+  visitMinutesByType: {},
+  durationMinutes: null,
+  bufferMinutes: 10,
 };
-
-const STRATEGY_OPTIONS: ReadonlyArray<
-  readonly [ClusteringStrategyName, string]
-> = [
-  ["hdbscan-star", "HDBSCAN* (default)"],
-  ["louvain", "Louvain (community)"],
-  ["leiden", "Leiden (connected)"],
-  ["dbscan", "DBSCAN"],
-  ["hdbscan", "HDBSCAN (density)"],
-  ["components", "Components (baseline)"],
-];
 
 export interface PlannerSidebarProps {
   search: SearchParams;
   settings: PlanSettings;
   onSettingsChange: (next: PlanSettings) => void;
+  /** The planner's settings in profile shape, edited by the shared form. */
+  profile: RouteProfileSettings;
+  onProfileChange: (next: RouteProfileSettings) => void;
   clusters: ClusterCandidate[] | null;
   onClustersChange: (next: ClusterCandidate[] | null) => void;
   diagnostics: ClusterDiagnostics | null;
@@ -267,6 +282,8 @@ export function PlannerSidebar({
   search,
   settings,
   onSettingsChange,
+  profile,
+  onProfileChange,
   clusters,
   onClustersChange,
   diagnostics,
@@ -303,11 +320,6 @@ export function PlannerSidebar({
   discoverError,
   online = true,
 }: PlannerSidebarProps) {
-  const landuseProfilesQuery = useQuery({
-    queryKey: ["landuse-profiles"],
-    queryFn: listLanduseProfiles,
-    staleTime: 5 * 60_000, // profile list rarely changes mid-session
-  });
   // discoverMutation lifted to App.tsx (FR-UX1 follow-up) — see
   // `onDiscover` / `discoverPending` / `discoverError` props.
 
@@ -373,223 +385,27 @@ export function PlannerSidebar({
         carousel at the top of the drawer to plan its loop.
       </p>
 
-      <div className="field">
-        <label>
-          Tour length budget:{" "}
-          {settings.distanceBudgetMeters.toLocaleString("en-US")} m
-          <input
-            type="range"
-            min={1_000}
-            max={25_000}
-            step={500}
-            value={settings.distanceBudgetMeters}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                distanceBudgetMeters: Number(e.target.value),
-              })
-            }
-          />
-          <small className="muted">
-            Roughly how far you want to walk in one loop.
-          </small>
-        </label>
-      </div>
+      <BudgetSection value={profile} onChange={onProfileChange} />
+      <InterestSection value={profile} onChange={onProfileChange} />
+      <AdventureLabsSection value={profile} onChange={onProfileChange} />
+      <AdvancedSettingsSection value={profile} onChange={onProfileChange} />
 
-      <fieldset className="field">
-        <legend>Landuse preference</legend>
-        <label className="select">
-          <select
-            value={settings.landuseProfileId ?? ""}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                landuseProfileId:
-                  e.target.value === "" ? undefined : e.target.value,
-              })
-            }
-          >
-            <option value="">(no preference)</option>
-            {(landuseProfilesQuery.data?.profiles ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.ownerId === null ? "" : " (mine)"}
-              </option>
-            ))}
-          </select>
-        </label>
-        {settings.landuseProfileId &&
-          landuseProfilesQuery.data?.profiles.find(
-            (p) => p.id === settings.landuseProfileId,
-          ) && (
-            <p className="muted" style={{ marginTop: 4 }}>
-              {
-                landuseProfilesQuery.data.profiles.find(
-                  (p) => p.id === settings.landuseProfileId,
-                )?.description
-              }
-            </p>
-          )}
-        <label>
-          Landuse weight: {settings.landuseWeight.toFixed(1)}
-          <input
-            type="range"
-            min={0}
-            max={5}
-            step={0.5}
-            value={settings.landuseWeight}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                landuseWeight: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Prefer central clusters: {settings.centerProximityWeight.toFixed(1)}
-          <input
-            type="range"
-            min={0}
-            max={5}
-            step={0.5}
-            value={settings.centerProximityWeight}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                centerProximityWeight: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-      </fieldset>
-
-      <AdvancedSection title="Advanced cluster settings">
-        <div className="field">
-          <label>
-            Min caches per cluster: {settings.minClusterSize}
-            <input
-              type="range"
-              min={2}
-              max={50}
-              step={1}
-              value={settings.minClusterSize}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  minClusterSize: Number(e.target.value),
-                })
-              }
-            />
-          </label>
-          <label>
-            Clusters to show: {settings.topNClusters}
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step={1}
-              value={settings.topNClusters}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  topNClusters: Number(e.target.value),
-                })
-              }
-            />
-          </label>
-          <label>
-            Max gap between caches:{" "}
-            {settings.maxLinkMeters.toLocaleString("en-US")} m
-            <input
-              type="range"
-              min={200}
-              max={5_000}
-              step={100}
-              value={settings.maxLinkMeters}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  maxLinkMeters: Number(e.target.value),
-                })
-              }
-            />
-            <small className="muted">
-              Caches farther apart than this on foot aren&rsquo;t linked into
-              the same loop.
-            </small>
-          </label>
-        </div>
-
-        <fieldset className="field">
-          <legend>Clustering algorithm</legend>
-          {STRATEGY_OPTIONS.map(([val, label]) => (
-            <label key={val} className="checkbox">
-              <input
-                type="radio"
-                name="clustering-strategy"
-                checked={settings.clusteringStrategy === val}
-                onChange={() =>
-                  onSettingsChange({ ...settings, clusteringStrategy: val })
-                }
-              />
-              {label}
-            </label>
-          ))}
-        </fieldset>
-
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.includeAdventuresInClustering}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                includeAdventuresInClustering: e.target.checked,
-              })
-            }
-          />
-          Include Adventure Labs in clusters
-          <small className="muted">
-            Off plans loops from ordinary caches only — add adventures by hand.
-          </small>
-        </label>
-
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.excludeSavedTourCaches}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                excludeSavedTourCaches: e.target.checked,
-              })
-            }
-          />
-          Skip caches already in my tours
-          <small className="muted">
-            On surfaces new areas. Off re-discovers clusters over caches that
-            belong to your saved tours.
-          </small>
-        </label>
-
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.showSavedTours}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                showSavedTours: e.target.checked,
-              })
-            }
-          />
-          Show my saved tours on the map
-          <small className="muted">
-            Dim dashed footprints of your saved loops. Click one to open it.
-          </small>
-        </label>
-      </AdvancedSection>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={settings.showSavedTours}
+          onChange={(e) =>
+            onSettingsChange({
+              ...settings,
+              showSavedTours: e.target.checked,
+            })
+          }
+        />
+        Show my saved tours on the map
+        <small className="muted">
+          Dim dashed footprints of your saved loops. Click one to open it.
+        </small>
+      </label>
 
       {!hideDebugOverlays && (
         <DebugOverlaysPanel
@@ -1458,8 +1274,9 @@ export function DebugOverlaysPanel({
  * the user can tweak them without re-doing cluster discovery.
  */
 export interface TourSettingsPanelProps {
-  settings: PlanSettings;
-  onSettingsChange: (next: PlanSettings) => void;
+  /** The planner's settings in profile shape, edited by the shared form. */
+  profile: RouteProfileSettings;
+  onProfileChange: (next: RouteProfileSettings) => void;
   /** Map-picked start point ([lng, lat]) when `startPreference ===
    *  "user-supplied-point"`. `null` until the user clicks the map. */
   pickedStart?: [number, number] | null;
@@ -1468,194 +1285,21 @@ export interface TourSettingsPanelProps {
 }
 
 export function TourSettingsPanel({
-  settings,
-  onSettingsChange,
+  profile,
+  onProfileChange,
   pickedStart = null,
   onClearPickedStart,
 }: TourSettingsPanelProps): JSX.Element {
   return (
     <aside className="sidebar planner-sidebar">
       <h2>Tour settings</h2>
-
-      <div className="field">
-        <label>
-          Visit time per cache (min): {settings.timePerCacheMinutes}
-          <input
-            type="range"
-            min={0}
-            max={30}
-            step={1}
-            value={settings.timePerCacheMinutes}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                timePerCacheMinutes: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Visit time per Adventure Lab stage (min):{" "}
-          {settings.alStageVisitMinutes}
-          <input
-            type="range"
-            min={0}
-            max={30}
-            step={1}
-            value={settings.alStageVisitMinutes}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                alStageVisitMinutes: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.completeAdventuresOnly}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                completeAdventuresOnly: e.target.checked,
-              })
-            }
-          />
-          Adventure Labs: all stages or none
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={settings.adventureInterleave}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                adventureInterleave: e.target.checked,
-              })
-            }
-          />
-          Allow Adventure Lab stages to interleave
-        </label>
-        <label>
-          Extra time for tool caches (min): {settings.toolBonusMinutes}
-          <input
-            type="range"
-            min={0}
-            max={30}
-            step={1}
-            value={settings.toolBonusMinutes}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                toolBonusMinutes: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-        <label>
-          Avg walking speed (km/h): {settings.avgWalkingKmh.toFixed(1)}
-          <input
-            type="range"
-            min={2}
-            max={8}
-            step={0.1}
-            value={settings.avgWalkingKmh}
-            onChange={(e) =>
-              onSettingsChange({
-                ...settings,
-                avgWalkingKmh: Number(e.target.value),
-              })
-            }
-          />
-        </label>
-      </div>
-
-      <fieldset className="field">
-        <legend>Start preference</legend>
-        {(
-          [
-            ["auto", "Automatic (recommended)"],
-            ["parking-waypoint", "Cache-owner parking"],
-            ["osm-parking", "Public parking lots"],
-            ["osrm-nearest-road", "Nearest road I can drive to"],
-            ["user-supplied-point", "Pick a point on the map"],
-          ] as const
-        ).map(([val, label]) => (
-          <label key={val} className="checkbox">
-            <input
-              type="radio"
-              name="start-preference"
-              checked={settings.startPreference === val}
-              onChange={() =>
-                onSettingsChange({ ...settings, startPreference: val })
-              }
-            />
-            {label}
-          </label>
-        ))}
-        {settings.startPreference === "osm-parking" && (
-          <div className="osm-parking-filters" style={{ marginTop: 8 }}>
-            <div style={{ marginBottom: 6 }}>
-              <span className="muted" style={{ marginRight: 8 }}>
-                Access
-              </span>
-              {PARKING_ACCESS_CHIPS.map((chip) => {
-                const on = settings.osmParkingAccessFilter.includes(chip);
-                return (
-                  <label
-                    key={chip}
-                    className="checkbox"
-                    style={{ display: "inline-block", marginRight: 6 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        const next = on
-                          ? settings.osmParkingAccessFilter.filter(
-                              (c) => c !== chip,
-                            )
-                          : [...settings.osmParkingAccessFilter, chip];
-                        onSettingsChange({
-                          ...settings,
-                          osmParkingAccessFilter: next,
-                        });
-                      }}
-                    />
-                    {chip}
-                  </label>
-                );
-              })}
-            </div>
-            <div>
-              <span className="muted" style={{ marginRight: 8 }}>
-                Fee
-              </span>
-              {PARKING_FEE_FILTER.map((opt) => (
-                <label
-                  key={opt}
-                  className="checkbox"
-                  style={{ display: "inline-block", marginRight: 6 }}
-                >
-                  <input
-                    type="radio"
-                    name="osm-parking-fee"
-                    checked={settings.osmParkingFeeFilter === opt}
-                    onChange={() =>
-                      onSettingsChange({
-                        ...settings,
-                        osmParkingFeeFilter: opt,
-                      })
-                    }
-                  />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-        {settings.startPreference === "user-supplied-point" && (
+      <TimeSection value={profile} onChange={onProfileChange} />
+      <BudgetSection value={profile} onChange={onProfileChange} />
+      <AdventureLabsSection value={profile} onChange={onProfileChange} />
+      <ParkingSection
+        value={profile}
+        onChange={onProfileChange}
+        pickPointExtras={
           <div className="start-pick-hint" style={{ marginTop: 8 }}>
             {pickedStart ? (
               <div
@@ -1682,33 +1326,8 @@ export function TourSettingsPanel({
               </small>
             )}
           </div>
-        )}
-      </fieldset>
-
-      <AdvancedSection title="Advanced tour settings">
-        <div className="field">
-          <label>
-            Trim out-and-back spurs: {settings.fringeTrimMeters} m
-            <input
-              type="range"
-              min={100}
-              max={3000}
-              step={50}
-              value={settings.fringeTrimMeters}
-              onChange={(e) =>
-                onSettingsChange({
-                  ...settings,
-                  fringeTrimMeters: Number(e.target.value),
-                })
-              }
-            />
-            <small className="muted">
-              Drop a cache whose in-and-out path retraces more than this much of
-              itself (a dead-end spur).
-            </small>
-          </label>
-        </div>
-      </AdvancedSection>
+        }
+      />
     </aside>
   );
 }
@@ -1759,6 +1378,8 @@ export function ClusterLabPanel({
             search.multiSubtype !== "all" ? search.multiSubtype : undefined,
           hideToolCaches: search.hideToolCaches || undefined,
           contexts: search.contexts.length > 0 ? search.contexts : undefined,
+          difficulty: narrowRange(search.difficulty),
+          terrain: narrowRange(search.terrain),
         },
         maxLinkMeters: settings.maxLinkMeters,
         minClusterSize: settings.minClusterSize,

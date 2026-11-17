@@ -9,6 +9,7 @@ import { useAuth } from "./AuthProvider.js";
 import { setPasswordErrorMessage } from "./auth-messages.js";
 import { OfflineBadge } from "../shell/OfflineBadge.js";
 import { useOnline } from "../shell/ConnectivityProvider.js";
+import { RouteProfilesSection } from "../route-profiles/RouteProfilesSection.js";
 
 /**
  * Protected `/account` route — lets the signed-in user set or change their
@@ -233,6 +234,8 @@ export function AccountPage(): JSX.Element {
           {gcSaving ? "Saving…" : "Save GUID"}
         </button>
       </form>
+
+      <RouteProfilesSection />
     </div>
   );
 }

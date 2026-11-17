@@ -46,7 +46,11 @@ import {
   prunePlanEditKeys,
   useLocalStorageState,
 } from "./lib/persistent-state.js";
-import { DEFAULT_SEARCH, type SearchParams } from "./lib/search-params.js";
+import {
+  DEFAULT_SEARCH,
+  narrowRange,
+  type SearchParams,
+} from "./lib/search-params.js";
 import { coverCircle } from "./lib/cover-circle.js";
 import { useDebouncedValue } from "./lib/use-debounced-value.js";
 import type { ListCachesParams } from "./lib/api.js";
@@ -81,6 +85,15 @@ import type {
   WalkingGraphResponse,
 } from "@gctp/shared/tours";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
+import { RouteProfilePicker } from "./features/route-profiles/RouteProfilePicker.js";
+import {
+  timeBudgetMinutes,
+  type RouteProfileSettings,
+} from "@gctp/shared/route-profiles";
+import {
+  applyRouteProfile,
+  profileFromPlanner,
+} from "./features/route-profiles/profile-mapping.js";
 import {
   DEFAULT_PLAN_SETTINGS,
   PlannerSidebar,
@@ -121,8 +134,9 @@ import { useAuth } from "./features/auth/AuthProvider.js";
  * Stable key over just the settings (+ user-supplied start) that feed
  * `planLoop`. Used to detect when the Tour step's controls have drifted from
  * the settings the current `planResult` was built with, so we can surface a
- * "settings changed → Replan" affordance. Excludes `avgWalkingKmh`, which is
- * a client-side display factor (tour stats recompute live, no replan needed).
+ * "settings changed → Replan" affordance. `avgWalkingKmh` only counts while a
+ * time budget is set (it then feeds the plan's time model); otherwise it's a
+ * client-side display factor (tour stats recompute live, no replan needed).
  */
 function planLoopSettingsKey(
   s: PlanSettings,
@@ -140,9 +154,23 @@ function planLoopSettingsKey(
     fringeTrimMeters: s.fringeTrimMeters,
     osmParkingAccessFilter: [...s.osmParkingAccessFilter].sort(),
     osmParkingFeeFilter: s.osmParkingFeeFilter,
+    visitMinutesByType: Object.entries(s.visitMinutesByType).sort(([a], [b]) =>
+      a.localeCompare(b),
+    ),
+    timeBudgetMinutes: planTimeBudget(s) ?? null,
+    walkingKmh: planTimeBudget(s) === undefined ? null : s.avgWalkingKmh,
     // The start rides on the map-picked point now (not the search center), so
     // re-picking a start flags the plan stale.
     userStart: s.startPreference === "user-supplied-point" ? pickedStart : null,
+  });
+}
+
+/** The plan's time budget: time available minus the buffer, or none. */
+function planTimeBudget(s: PlanSettings): number | undefined {
+  return timeBudgetMinutes({
+    distanceBudgetMeters: s.distanceBudgetMeters,
+    durationMinutes: s.durationMinutes,
+    bufferMinutes: s.bufferMinutes,
   });
 }
 
@@ -166,6 +194,8 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     solvedMysteriesOnly: p.solvedMysteriesOnly,
     multiSubtype: p.multiSubtype,
     hideToolCaches: p.hideToolCaches,
+    difficulty: narrowRange(p.difficulty),
+    terrain: narrowRange(p.terrain),
     // Discovery settings (all feed discoverClusters)
     minClusterSize: s.minClusterSize,
     maxLinkMeters: s.maxLinkMeters,
@@ -175,6 +205,9 @@ function discoverInputKey(p: SearchParams, s: PlanSettings): string {
     topNClusters: s.topNClusters,
     landuseWeight: s.landuseWeight,
     centerProximityWeight: s.centerProximityWeight,
+    varietyWeight: s.varietyWeight,
+    preferredTypes: [...s.preferredTypes].sort(),
+    preferredTypeWeight: s.preferredTypeWeight,
     excludeSavedTourCaches: s.excludeSavedTourCaches,
     landuseProfileId: s.landuseProfileId ?? null,
     startPreference: s.startPreference,
@@ -203,6 +236,11 @@ export default function App(): JSX.Element {
     "plan-settings",
     DEFAULT_PLAN_SETTINGS,
   );
+  // Route profile last chosen in the planner (FR-T19); its settings live in
+  // `params` / `planSettings` once applied — this only remembers the choice.
+  const [routeProfileId, setRouteProfileId] = useLocalStorageState<
+    string | null
+  >("route-profile-id", null);
   // Persisted map viewport — restored on first mount of MapView, refreshed
   // on every `moveend`. Decoupled from `params.center` so panning around to
   // browse parking doesn't churn the search.
@@ -453,6 +491,9 @@ export default function App(): JSX.Element {
           : {}),
         osmParkingAccessFilter: [...planSettings.osmParkingAccessFilter],
         osmParkingFeeFilter: planSettings.osmParkingFeeFilter,
+        visitMinutesByType: { ...planSettings.visitMinutesByType },
+        walkingKmh: planSettings.avgWalkingKmh,
+        timeBudgetMinutes: planTimeBudget(planSettings),
       });
     },
     onSuccess: (res) => {
@@ -708,12 +749,17 @@ export default function App(): JSX.Element {
             params.multiSubtype !== "all" ? params.multiSubtype : undefined,
           hideToolCaches: params.hideToolCaches || undefined,
           contexts: params.contexts.length > 0 ? params.contexts : undefined,
+          difficulty: narrowRange(params.difficulty),
+          terrain: narrowRange(params.terrain),
         },
         softPreferences: {
           clusterDensityWeight: 1,
           loopCompactnessWeight: 1,
           landuseWeight: planSettings.landuseWeight,
           centerProximityWeight: planSettings.centerProximityWeight,
+          varietyWeight: planSettings.varietyWeight,
+          preferredTypes: [...planSettings.preferredTypes],
+          preferredTypeWeight: planSettings.preferredTypeWeight,
           ...(planSettings.landuseProfileId
             ? { landuseProfileId: planSettings.landuseProfileId }
             : {}),
@@ -795,6 +841,8 @@ export default function App(): JSX.Element {
       multiSubtype:
         params.multiSubtype !== "all" ? params.multiSubtype : undefined,
       hideToolCaches: params.hideToolCaches || undefined,
+      difficulty: narrowRange(params.difficulty),
+      terrain: narrowRange(params.terrain),
     }),
     [
       params.center,
@@ -806,6 +854,8 @@ export default function App(): JSX.Element {
       params.solvedMysteriesOnly,
       params.multiSubtype,
       params.hideToolCaches,
+      params.difficulty,
+      params.terrain,
     ],
   );
   const debouncedCacheInput = useDebouncedValue(cacheQueryInput, 350);
@@ -857,6 +907,24 @@ export default function App(): JSX.Element {
       }
     },
     [setParams],
+  );
+
+  // The planner's settings in profile shape (ADR-0039): the shared settings
+  // form edits this, and the change is mapped back onto params + planSettings.
+  const plannerProfile = useMemo(
+    () => profileFromPlanner({ search: params, plan: planSettings }),
+    [params, planSettings],
+  );
+  const handleProfileChange = useCallback(
+    (next: RouteProfileSettings) => {
+      const applied = applyRouteProfile(next, {
+        search: params,
+        plan: planSettings,
+      });
+      handleParamsChange(applied.search);
+      setPlanSettings(applied.plan);
+    },
+    [params, planSettings, handleParamsChange, setPlanSettings],
   );
 
   const handlePickCenter = useCallback(
@@ -1733,10 +1801,21 @@ export default function App(): JSX.Element {
     if (activeStep === "caches") {
       return (
         <>
+          <RouteProfilePicker
+            state={{ search: params, plan: planSettings }}
+            onApply={(next) => {
+              handleParamsChange(next.search);
+              setPlanSettings(next.plan);
+            }}
+            activeId={routeProfileId}
+            onActiveIdChange={setRouteProfileId}
+          />
           <UploadDropzone />
           <FilterSidebar
             value={params}
             onChange={handleParamsChange}
+            profile={plannerProfile}
+            onProfileChange={handleProfileChange}
             cacheCount={cacheCount}
             loading={cachesQuery.isFetching}
           />
@@ -1749,6 +1828,8 @@ export default function App(): JSX.Element {
           search={params}
           settings={planSettings}
           onSettingsChange={setPlanSettings}
+          profile={plannerProfile}
+          onProfileChange={handleProfileChange}
           hideClusterLab
           hideDebugOverlays
           clusters={clusters}
@@ -1796,8 +1877,8 @@ export default function App(): JSX.Element {
     return (
       <>
         <TourSettingsPanel
-          settings={planSettings}
-          onSettingsChange={setPlanSettings}
+          profile={plannerProfile}
+          onProfileChange={handleProfileChange}
           pickedStart={pickedStart}
           onClearPickedStart={() => setPickedStart(null)}
         />

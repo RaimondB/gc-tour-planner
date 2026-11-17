@@ -189,6 +189,36 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
     breakdown.landuseMatch = fraction * landuseWeight;
   }
 
+  // Variety (ADR-0039): mean of the normalised Shannon entropy of the cluster's
+  // cache types and of its difficulty bands (rounded D). 1 = an even mix, 0 = all
+  // the same. Normalised by ln(min(n, categories)) so small clusters can reach 1.
+  const varietyWeight = softPrefs.varietyWeight ?? 0;
+  if (varietyWeight > 0) {
+    const typeMix = normalisedEntropy(
+      caches.map((c) => c.type),
+      12,
+    );
+    const rated = caches
+      .map((c) => safeFloat(c.difficulty))
+      .filter((d): d is number => d !== null);
+    const bandMix = normalisedEntropy(
+      rated.map((d) => String(Math.round(d))),
+      5,
+    );
+    breakdown.variety = ((typeMix + bandMix) / 2) * varietyWeight;
+  }
+
+  // Preferred types (ADR-0039): fraction of the cluster's caches of a type the
+  // user favours.
+  const preferredTypes = softPrefs.preferredTypes ?? [];
+  const preferredTypeWeight = softPrefs.preferredTypeWeight ?? 1;
+  if (preferredTypes.length > 0 && preferredTypeWeight > 0) {
+    const want = new Set<string>(preferredTypes);
+    const hits = caches.filter((c) => want.has(c.type)).length;
+    breakdown.preferredTypes =
+      (caches.length > 0 ? hits / caches.length : 0) * preferredTypeWeight;
+  }
+
   // Center proximity: linear falloff of the cluster centroid's distance from
   // the search center — 1 at the center, 0 at the radius edge, clamped to 0
   // beyond (grow-mode boundary clusters lose the bonus, never go negative).
@@ -204,6 +234,27 @@ export function scoreCluster(input: ScoreClusterInput): ClusterScore {
 }
 
 /* --- helpers --------------------------------------------------------------- */
+
+/**
+ * Shannon entropy of `values`, normalised to 0..1 by the most it could be given
+ * the sample size and the number of possible categories.
+ */
+function normalisedEntropy(
+  values: readonly string[],
+  categories: number,
+): number {
+  const n = values.length;
+  const maxCats = Math.min(n, categories);
+  if (maxCats < 2) return 0;
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let h = 0;
+  for (const c of counts.values()) {
+    const p = c / n;
+    h -= p * Math.log(p);
+  }
+  return h / Math.log(maxCats);
+}
 
 function gaussianMatch(
   observed: number,

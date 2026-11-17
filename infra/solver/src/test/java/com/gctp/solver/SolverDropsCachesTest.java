@@ -100,4 +100,19 @@ class SolverDropsCachesTest {
         assertThat(solved.getScore().isFeasible()).isTrue();
         assertThat(solved.getTour().getVisitOrder()).hasSize(4);
     }
+
+    @Test
+    void usesEachCachesOwnVisitTimeAgainstTheTimeBudget() {
+        // 3 caches; cache 1 takes 60 min, the others 5. Visiting the two quick
+        // ones = 3 legs × 12 min + 10 min = 46 min, which fits 50 min; any set
+        // with the slow cache can't. Uniform 5 min would have allowed 2 of any.
+        TourSolution problem = problem(3, 100_000L, 50L * 60L);
+        problem.getCandidateCaches().get(0).setVisitSeconds(3600L);
+        TourSolution solved = solver().solve(problem);
+
+        assertThat(solved.getScore().isFeasible()).isTrue();
+        assertThat(solved.getTour().getVisitOrder())
+                .extracting(Cache::getId)
+                .containsExactlyInAnyOrder(2L, 3L);
+    }
 }

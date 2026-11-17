@@ -161,6 +161,8 @@ describe("SolverTourPlanner — determinism", () => {
     timePerCacheMinutes: 5,
     alStageVisitMinutes: 2,
     toolBonusMinutes: 5,
+    walkingKmh: 5,
+    visitMinutesByType: {},
     startPreference: "parking-waypoint",
     // 101↔103 is 1700 m (> maxLink), but 101↔102 (800) + 102↔103 (900) chain
     // them into one walk-connected component, so the pre-filter keeps all three.
@@ -332,10 +334,10 @@ describe("SolverTourPlanner — determinism", () => {
     await planner.planLoop(ownerId, input);
     const req = (solverClient.plan as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as SolverPlanRequest;
-    // 101→103 refilled with 101→102→103 = 800 + 900 m; seconds carried along the
-    // same shortest-metre path = 720 + 800 s.
+    // 101→103 refilled with 101→102→103 = 800 + 900 m. Seconds are metres at
+    // the user's pace (ADR-0039): 1700 m at the default 5 km/h = 1224 s.
     expect(req.matrixMeters[0]![2]).toBe(1700);
-    expect(req.matrixSeconds[0]![2]).toBe(1520);
+    expect(req.matrixSeconds[0]![2]).toBeCloseTo(1224);
     // The closure guarantee: no null cell survives into the posted rep matrix.
     for (const row of req.matrixMeters)
       for (const v of row) expect(v).not.toBeNull();

@@ -16,4 +16,5 @@ export * from "./save-tour.js";
 export * from "./saved-tour.js";
 export * from "./shared-tour.js";
 export * from "./stored-plan.js";
+export * from "./visit-time.js";
 export * from "./walking-graph.js";

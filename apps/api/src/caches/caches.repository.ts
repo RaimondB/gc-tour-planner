@@ -49,6 +49,9 @@ export interface FindCachesParams {
   multiSubtype?: Caches.MultiSubtypeFilter;
   /** Hide caches that require special equipment (FR-SF6). Server-side. */
   hideToolCaches?: boolean;
+  /** D/T range (ADR-0039); unrated caches pass. */
+  difficulty?: Caches.RatingRange;
+  terrain?: Caches.RatingRange;
   /**
    * Exclude these specific cache ids from the result. Used by the discovery
    * pool to drop caches already in the user's saved tours (anti-join on the
@@ -242,6 +245,21 @@ export class CachesRepository {
 
     if (p.types && p.types.length > 0) {
       q = q.where("c.type", "in", p.types as unknown as string[]);
+    }
+
+    // D/T range: unrated caches (e.g. Adventure Lab stages) pass. No index —
+    // it narrows a set the spatial predicate has already bounded.
+    if (p.difficulty) {
+      const { min, max } = p.difficulty;
+      q = q.where(
+        sql<boolean>`(c.difficulty IS NULL OR c.difficulty BETWEEN ${min} AND ${max})`,
+      );
+    }
+    if (p.terrain) {
+      const { min, max } = p.terrain;
+      q = q.where(
+        sql<boolean>`(c.terrain IS NULL OR c.terrain BETWEEN ${min} AND ${max})`,
+      );
     }
 
     // "Only solved mysteries": drop Mystery caches without a solved

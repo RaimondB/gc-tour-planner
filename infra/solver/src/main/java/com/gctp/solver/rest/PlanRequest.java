@@ -52,7 +52,8 @@ public record PlanRequest(
             double lat,
             @JsonProperty("adventureId") String adventureId,
             @JsonProperty("stageSequence") Integer stageSequence,
-            @JsonProperty("adventureSequential") Boolean adventureSequential) {}
+            @JsonProperty("adventureSequential") Boolean adventureSequential,
+            @JsonProperty("visitSeconds") Long visitSeconds) {}
 
     public record Weights(
             @JsonProperty("visitedCount") Long visitedCount,

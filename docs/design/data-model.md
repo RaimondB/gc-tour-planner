@@ -303,16 +303,22 @@ CREATE INDEX landuse_profiles_owner_idx ON landuse_profiles (owner_id);
 --   Urban        (residential, industrial)
 --   Balanced     (forest, park, meadow, heath, scrub, residential, farmland)
 
-CREATE TABLE preference_profiles (
-  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id                 UUID REFERENCES users(id) ON DELETE CASCADE,
-  name                     TEXT NOT NULL,
-  attribute_weights        JSONB NOT NULL DEFAULT '{}'::jsonb,
-  terrain_target           NUMERIC(2,1),
-  difficulty_target        NUMERIC(2,1),
-  time_per_cache_minutes   INT NOT NULL DEFAULT 5,
-  weights                  JSONB NOT NULL DEFAULT '{}'::jsonb -- cluster, loop-compactness, etc.
+CREATE TABLE route_profiles (                                  -- FR-T19, ADR-0039
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id    UUID REFERENCES users(id) ON DELETE CASCADE,    -- NULL = system preset (read-only)
+  name        TEXT NOT NULL,
+  description TEXT,
+  -- Versioned zod RouteProfileSettings (packages/shared/src/route-profiles),
+  -- validated app-side; every field defaulted, so rows may be sparse.
+  settings    JSONB NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Unique name per owner (case-insensitive); also serves the per-owner list.
+CREATE UNIQUE INDEX route_profiles_owner_name_uq
+  ON route_profiles (COALESCE(owner_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name));
+-- Seeded presets: Quick traditionals, Forest walk, Adventure Lab day.
+-- (Supersedes the never-built `preference_profiles` sketch.)
 
 CREATE TABLE cache_finds (
   cache_id  BIGINT NOT NULL REFERENCES caches(id) ON DELETE CASCADE,

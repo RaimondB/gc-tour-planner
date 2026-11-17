@@ -136,6 +136,17 @@ export const CacheDTO = z.object({
 });
 export type CacheDTO = z.infer<typeof CacheDTO>;
 
+/** Inclusive D/T range on the 1–5 scale (half steps). */
+export const RatingRange = z
+  .object({
+    min: z.number().min(1).max(5).multipleOf(0.5),
+    max: z.number().min(1).max(5).multipleOf(0.5),
+  })
+  .refine((r) => r.min <= r.max, { message: "min must be ≤ max" });
+export type RatingRange = z.infer<typeof RatingRange>;
+
+export const FULL_RATING_RANGE: RatingRange = { min: 1, max: 5 };
+
 export const CachesQuery = z.object({
   center: LngLat,
   radiusM: z.number().int().positive().max(50_000),
@@ -173,6 +184,12 @@ export const CachesQuery = z.object({
    * planner pool == the map.
    */
   hideToolCaches: z.boolean().optional(),
+  /**
+   * Difficulty / terrain range (ADR-0039). Caches without a rating (e.g.
+   * Adventure Lab stages) pass — unknown is not out of range.
+   */
+  difficulty: RatingRange.optional(),
+  terrain: RatingRange.optional(),
 });
 export type CachesQuery = z.infer<typeof CachesQuery>;
 

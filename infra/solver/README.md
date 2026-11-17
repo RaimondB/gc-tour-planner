@@ -62,6 +62,12 @@ Content-Type: application/json
 }
 ```
 
+Each cache may also carry `adventureId`, `stageSequence`, `adventureSequential`
+(Adventure Lab constraints) and `visitSeconds` — its own visit time (per-type
+minutes, AL stage time, tool bonus; ADR-0039). Caches without `visitSeconds` use
+`visitSecondsPerCache`. The Nest adapter sends travel seconds as routed metres at
+the user's walking speed, so the solver's time matches what the web displays.
+
 `null` cells in either matrix mark unreachable pairs. The solver treats any visit-order adjacency that hits a null cell as a hard violation, so unreachable insertions never survive in the final solution.
 
 ## Constraints (see `solver/TourConstraintProvider.java`)
@@ -71,7 +77,7 @@ The planning list variable allows **unassigned values** (`@PlanningListVariable(
 | Level  | Constraint          | Notes                                                                                     |
 | ------ | ------------------- | ----------------------------------------------------------------------------------------- |
 | HARD   | distance budget     | parking → first + inter-cache legs + last → parking ≤ `distanceBudgetMeters`              |
-| HARD   | time budget         | only when `timeBudgetSeconds > 0`; travel seconds + `visitSecondsPerCache` per stop       |
+| HARD   | time budget         | only when `timeBudgetSeconds > 0`; travel seconds + each cache's `visitSeconds` (else `visitSecondsPerCache`) |
 | HARD   | reachable legs      | rejects orderings with a `null` inter-cache matrix cell                                   |
 | HARD   | adventure atomicity | `completeAdventuresOnly`: an Adventure Lab is visited whole or not at all                 |
 | HARD   | adventure contiguity | when `adventureInterleave` is false, an adventure's stages are consecutive                |

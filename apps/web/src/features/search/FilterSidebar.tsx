@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useState } from "react";
-import { CACHE_TYPES, type CacheType } from "@gctp/shared/caches";
-import { LANDUSE_KINDS, type LanduseKind } from "@gctp/shared/landuse";
+import type { RouteProfileSettings } from "@gctp/shared/route-profiles";
 import type { SearchParams } from "../../lib/search-params.js";
-import { AdvancedSection } from "../shell/AdvancedSection.js";
+import {
+  CacheFiltersSection,
+  SearchAreaSection,
+} from "../settings/SettingsSections.js";
 
 export interface FilterSidebarProps {
   value: SearchParams;
@@ -15,6 +17,9 @@ export interface FilterSidebarProps {
    * recenter and manual input changes both leave the camera alone.
    */
   onChange: (next: SearchParams, opts?: { fly?: boolean }) => void;
+  /** The planner's settings in profile shape — filters + radius live here. */
+  profile: RouteProfileSettings;
+  onProfileChange: (next: RouteProfileSettings) => void;
   cacheCount: number | undefined;
   loading: boolean;
 }
@@ -22,6 +27,8 @@ export interface FilterSidebarProps {
 export function FilterSidebar({
   value,
   onChange,
+  profile,
+  onProfileChange,
   cacheCount,
   loading,
 }: FilterSidebarProps) {
@@ -52,14 +59,6 @@ export function FilterSidebar({
     if (nLng === null || nLat === null) return;
     if (nLng === value.center[0] && nLat === value.center[1]) return;
     onChange({ ...value, center: [nLng, nLat] });
-  };
-
-  const toggleType = (t: CacheType) => {
-    const isOn = value.types.includes(t);
-    onChange({
-      ...value,
-      types: isOn ? value.types.filter((x) => x !== t) : [...value.types, t],
-    });
   };
 
   const useMyLocation = () => {
@@ -116,142 +115,11 @@ export function FilterSidebar({
         <small>Click the map to set the search center.</small>
       </div>
 
-      <div className="field">
-        <label>
-          Radius (m): {value.radiusM.toLocaleString("en-US")}
-          <input
-            type="range"
-            min={500}
-            max={50_000}
-            step={500}
-            value={value.radiusM}
-            onChange={(e) =>
-              onChange({ ...value, radiusM: Number(e.target.value) })
-            }
-          />
-        </label>
-      </div>
-
-      <fieldset className="field">
-        <legend>Cache types</legend>
-        {CACHE_TYPES.map((t) => (
-          <label key={t} className="checkbox">
-            <input
-              type="checkbox"
-              checked={value.types.includes(t)}
-              onChange={() => toggleType(t)}
-            />
-            {t}
-          </label>
-        ))}
-        <small>No selection = any type</small>
-        {value.types.includes("Multi") && (
-          <div className="filter-sub" style={{ marginTop: 6 }}>
-            <small style={{ display: "block", marginBottom: 2 }}>
-              Multi sub-type
-            </small>
-            {(
-              [
-                ["all", "All"],
-                ["field-puzzle", "Field-puzzle (stages unknown)"],
-                ["mini", "Mini-multi (1–2 stages)"],
-                ["full", "Full multi (3+ stages)"],
-              ] as const
-            ).map(([val, label]) => (
-              <label key={val} className="checkbox">
-                <input
-                  type="radio"
-                  name="multi-subtype"
-                  checked={value.multiSubtype === val}
-                  onChange={() => onChange({ ...value, multiSubtype: val })}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        )}
-      </fieldset>
-
-      <fieldset className="field">
-        <legend>My finds</legend>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={value.excludeFound}
-            onChange={(e) =>
-              onChange({ ...value, excludeFound: e.target.checked })
-            }
-          />
-          Exclude caches I have found
-        </label>
-        <small>
-          Upload a Groundspeak &ldquo;My Finds&rdquo; GPX (detected
-          automatically), or mark caches one-by-one from the map popup.
-        </small>
-      </fieldset>
-
-      <AdvancedSection title="More filters">
-        <fieldset className="field">
-          <legend>Availability</legend>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={value.includeDisabled}
-              onChange={(e) =>
-                onChange({ ...value, includeDisabled: e.target.checked })
-              }
-            />
-            Include temporarily-disabled caches
-          </label>
-          <small>
-            Disabled caches are temporarily out of service (owner maintenance).
-            Hidden by default; when shown they render at 50 % opacity with a
-            &ldquo;Z&rdquo; overlay. Archived caches are always hidden.
-          </small>
-        </fieldset>
-
-        <fieldset className="field">
-          <legend>Mysteries</legend>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={value.solvedMysteriesOnly}
-              onChange={(e) =>
-                onChange({ ...value, solvedMysteriesOnly: e.target.checked })
-              }
-            />
-            Only show solved mysteries
-          </label>
-          <small>
-            Hides Mystery caches you haven&rsquo;t solved (other types are
-            unaffected). To populate solved coordinates, upload a Groundspeak
-            GPX of your solved mysteries and tick &ldquo;contains solved
-            coordinates&rdquo; on upload.
-          </small>
-        </fieldset>
-
-        <fieldset className="field">
-          <legend>Equipment</legend>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={value.hideToolCaches}
-              onChange={(e) =>
-                onChange({ ...value, hideToolCaches: e.target.checked })
-              }
-            />
-            Hide caches requiring special tools
-          </label>
-          <small>
-            Excludes caches with attributes like climbing gear, boat, scuba,
-            flashlight, snowshoes, or &ldquo;special tool required&rdquo; (e.g.
-            angler pole). Also catches caches whose description mentions a tool
-            (fishing rod, ladder, mirror, &hellip;) in en/nl/de.
-          </small>
-        </fieldset>
-
-        <fieldset className="field">
-          <legend>Landuse context</legend>
+      <SearchAreaSection value={profile} onChange={onProfileChange} />
+      <CacheFiltersSection
+        value={profile}
+        onChange={onProfileChange}
+        landuseExtras={
           <label className="checkbox">
             <input
               type="checkbox"
@@ -262,34 +130,8 @@ export function FilterSidebar({
             />
             Show landuse overlay
           </label>
-          {value.showLanduse && (
-            <>
-              {LANDUSE_KINDS.map((k) => (
-                <label key={k} className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={value.contexts.includes(k)}
-                    onChange={() => {
-                      const isOn = value.contexts.includes(k);
-                      onChange({
-                        ...value,
-                        contexts: isOn
-                          ? value.contexts.filter((c) => c !== k)
-                          : [...value.contexts, k],
-                      });
-                    }}
-                  />
-                  {labelForKind(k)}
-                </label>
-              ))}
-              <small>
-                Pick one or more to hard-filter caches to those areas. Polygons
-                are fetched from OpenStreetMap on demand.
-              </small>
-            </>
-          )}
-        </fieldset>
-      </AdvancedSection>
+        }
+      />
 
       <div className="result-count">
         {loading
@@ -320,29 +162,4 @@ function formatCoord(n: number): string {
 function parseCoord(raw: string): number | null {
   const n = Number(raw.replace(",", "."));
   return Number.isFinite(n) ? n : null;
-}
-
-function labelForKind(k: LanduseKind): string {
-  switch (k) {
-    case "forest":
-      return "Forest";
-    case "park":
-      return "Park";
-    case "residential":
-      return "Residential";
-    case "farmland":
-      return "Farmland";
-    case "industrial":
-      return "Industrial";
-    case "meadow":
-      return "Meadow";
-    case "water":
-      return "Water";
-    case "wetland":
-      return "Wetland";
-    case "heath":
-      return "Heath";
-    case "scrub":
-      return "Scrub";
-  }
 }

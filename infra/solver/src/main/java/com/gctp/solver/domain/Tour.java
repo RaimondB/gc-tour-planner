@@ -209,7 +209,7 @@ public class Tour {
         return total;
     }
 
-    /** Total seconds: legs + per-cache visit time. */
+    /** Total seconds: legs + each cache's visit time (its own, else the uniform one). */
     public double totalSeconds() {
         if (visitOrder.isEmpty()) {
             return 0.0;
@@ -224,7 +224,10 @@ public class Tour {
             total += leg;
         }
         total += cacheToParkingSeconds[visitOrder.get(visitOrder.size() - 1).getMatrixIndex()];
-        total += (double) visitSecondsPerCache * visitOrder.size();
+        for (Cache c : visitOrder) {
+            Long own = c.getVisitSeconds();
+            total += own != null ? own : visitSecondsPerCache;
+        }
         return total;
     }
 

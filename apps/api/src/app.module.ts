@@ -19,6 +19,7 @@ import { GpxModule } from "./gpx/gpx.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { LanduseProfilesModule } from "./landuse-profiles/landuse-profiles.module.js";
+import { RouteProfilesModule } from "./route-profiles/route-profiles.module.js";
 import { OsmModule } from "./osm/osm.module.js";
 import { AdventureLabImportModule } from "./jobs/adventure-lab-import/adventure-lab-import.module.js";
 import { WalkingPrecomputeModule } from "./jobs/walking-precompute/walking-precompute.module.js";
@@ -62,6 +63,7 @@ import { ToursModule } from "./tours/tours.module.js";
     CachesModule,
     OsmModule,
     LanduseProfilesModule,
+    RouteProfilesModule,
     RoutingModule,
     ToursModule,
     WalkingPrecomputeModule,
