@@ -9,7 +9,9 @@ import { walkToPlanResult } from "./walk-to-tour.js";
 import { deadlineGuard } from "./deadline-guard.js";
 import { autoReplanReason, distanceToPath } from "./replan-trigger.js";
 import {
+  effectiveDeadline,
   nextStopId,
+  planOrigin,
   walkReducer,
   type LngLat,
   type WalkSession,
@@ -29,8 +31,10 @@ function session(over: Partial<WalkSession> = {}): WalkSession {
     profileName: "Test",
     profile: RouteProfileSettings.parse({}), // 5 km/h, 10 min buffer
     deadline: iso(120),
+    durationMinutes: null,
     returnPoint: HOME,
     startPoint: HOME,
+    pendingStart: false,
     log: [],
     atCache: null,
     lockedNextId: null,
@@ -328,5 +332,45 @@ describe("walkToPlanResult", () => {
       HOME,
     ]);
     expect(walkToPlanResult(session(), new Date(T0))).toBeNull();
+  });
+});
+
+describe("starting away from the start point", () => {
+  const far: LngLat = [HOME[0] + 0.05, HOME[1]]; // ~3.4 km east
+  const pending = () =>
+    session({
+      pendingStart: true,
+      startPoint: far,
+      returnPoint: far,
+      durationMinutes: 60,
+    });
+
+  it("plans from the start point and slides a duration deadline until started", () => {
+    const s = pending();
+    expect(planOrigin(s, HOME)).toEqual(far);
+    expect(effectiveDeadline(s, new Date(T0 + 30 * 60_000))).toBe(iso(90));
+  });
+
+  it("fixes the deadline when the start is reached", () => {
+    const s = walkReducer(pending(), { type: "started", at: iso(40) });
+    expect(s.pendingStart).toBe(false);
+    expect(s.deadline).toBe(iso(100));
+    expect(planOrigin(s, HOME)).toEqual(HOME);
+    expect(effectiveDeadline(s, new Date(T0 + 70 * 60_000))).toBe(iso(100));
+  });
+
+  it("keeps a back-by time fixed", () => {
+    const s = walkReducer(
+      session({ pendingStart: true, startPoint: far, deadline: iso(120) }),
+      { type: "started", at: iso(40) },
+    );
+    expect(s.deadline).toBe(iso(120));
+  });
+
+  it("doesn't drift-replan before the start", () => {
+    const s = { ...pending(), plan: plan(), plannedAt: iso(0) };
+    expect(
+      autoReplanReason(s, new Date(T0 + 10 * 60_000), far, null, far),
+    ).toBeNull();
   });
 });

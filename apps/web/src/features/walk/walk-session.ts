@@ -23,9 +23,20 @@ export interface WalkSession {
   profile: RouteProfileSettings;
   /** Back at the return point by this time (ISO). */
   deadline: string;
+  /**
+   * Set when the walk was given a duration (not a back-by time): until the
+   * start point is reached, the deadline slides — getting there doesn't eat
+   * the walk's time.
+   */
+  durationMinutes: number | null;
   returnPoint: LngLat;
-  /** Where the walk started (the save-as-tour start). */
+  /** Where the walk starts (a map point, or where the user was). */
   startPoint: LngLat;
+  /**
+   * True until the walker reaches the start point. Plans then start at
+   * `startPoint`, not at the live position, and nothing is tracked yet.
+   */
+  pendingStart: boolean;
   /** Visits in the order they happened. */
   log: {
     cacheId: number;
@@ -66,7 +77,8 @@ export type WalkAction =
   | { type: "planned"; plan: WalkReplanResult; at: string }
   | { type: "calibrated"; calibration: WalkCalibration }
   | { type: "tracked"; point: [number, number, number] }
-  | { type: "findsFlushed"; cacheIds: readonly number[] };
+  | { type: "findsFlushed"; cacheIds: readonly number[] }
+  | { type: "started"; at: string };
 
 /** Thin the track: keep a point only every ~20 m, cap the length. */
 const TRACK_MIN_STEP_M = 20;
@@ -132,6 +144,16 @@ export function walkReducer(s: WalkSession, a: WalkAction): WalkSession {
             : track,
       };
     }
+    case "started": {
+      if (!s.pendingStart) return s;
+      const deadline =
+        s.durationMinutes !== null
+          ? new Date(
+              Date.parse(a.at) + s.durationMinutes * 60_000,
+            ).toISOString()
+          : s.deadline;
+      return { ...s, pendingStart: false, deadline };
+    }
     case "findsFlushed": {
       const sent = new Set(a.cacheIds);
       return {
@@ -162,4 +184,22 @@ export function metersBetween(
   b: readonly [number, number, ...unknown[]],
 ): number {
   return haversineMeters([a[0], a[1]], [b[0], b[1]]);
+}
+
+/** Within this of the start point counts as having reached it. */
+export const START_REACHED_M = 150;
+
+/** The deadline in force at `now` (it slides while the start is pending). */
+export function effectiveDeadline(s: WalkSession, now: Date): string {
+  return s.pendingStart && s.durationMinutes !== null
+    ? new Date(now.getTime() + s.durationMinutes * 60_000).toISOString()
+    : s.deadline;
+}
+
+/** Where a plan starts from: the start point until reached, then the walker. */
+export function planOrigin(
+  s: WalkSession,
+  position: LngLat | null,
+): LngLat | null {
+  return s.pendingStart ? s.startPoint : position;
 }

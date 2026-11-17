@@ -92,7 +92,9 @@ function Harness(): JSX.Element {
       <span data-testid="log">
         {w.session?.log.map((l) => l.outcome).join(",")}
       </span>
-      <span data-testid="pending">{w.session?.pendingFinds.join(",")}</span>
+      <span data-testid="finds">{w.session?.pendingFinds.join(",")}</span>
+      <span data-testid="pending">{String(w.session?.pendingStart)}</span>
+      <span data-testid="track">{w.session?.track.length ?? -1}</span>
       <button
         onClick={() =>
           w.start({
@@ -100,11 +102,28 @@ function Harness(): JSX.Element {
             profileName: "Test",
             profile: RouteProfileSettings.parse({}),
             deadline: new Date(Date.now() + 2 * 3_600_000),
+            durationMinutes: 120,
+            startPoint: [5.12, 52.09],
             returnPoint: [5.12, 52.09],
           })
         }
       >
         start
+      </button>
+      <button
+        onClick={() =>
+          w.start({
+            profileId: "p1",
+            profileName: "Test",
+            profile: RouteProfileSettings.parse({}),
+            deadline: new Date(Date.now() + 3_600_000),
+            durationMinutes: 60,
+            startPoint: [5.2, 52.09],
+            returnPoint: [5.2, 52.09],
+          })
+        }
+      >
+        start-away
       </button>
       <button onClick={() => w.log(7, "found")}>found</button>
       <button onClick={() => w.end()}>end</button>
@@ -166,7 +185,7 @@ describe("WalkSessionProvider (FR-T18)", () => {
     ).toEqual([7]);
     await waitFor(() => expect(markCacheFound).toHaveBeenCalledWith(7));
     await waitFor(() =>
-      expect(screen.getByTestId("pending").textContent).toBe(""),
+      expect(screen.getByTestId("finds").textContent).toBe(""),
     );
   });
 
@@ -188,7 +207,7 @@ describe("WalkSessionProvider (FR-T18)", () => {
       </QueryClientProvider>,
     );
     fireEvent.click(screen.getByText("found"));
-    expect(screen.getByTestId("pending").textContent).toBe("7");
+    expect(screen.getByTestId("finds").textContent).toBe("7");
     expect(markCacheFound).not.toHaveBeenCalled();
     mockOnline = true;
     await act(async () => {
@@ -241,5 +260,31 @@ describe("WalkSessionProvider (FR-T18)", () => {
       expect(screen.getByTestId("active").textContent).toBe("no"),
     );
     expect(stored).toBeNull();
+  });
+
+  it("starting from a map point: plans from there, tracks nothing until arrival", async () => {
+    const view = renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("hydrated").textContent).toBe("true"),
+    );
+    fireEvent.click(screen.getByText("start-away"));
+    await waitFor(() => expect(replanWalk).toHaveBeenCalled());
+    const input = replanWalk.mock.calls[0]![0] as WalkReplanInput;
+    expect(input.position).toEqual([5.2, 52.09]);
+    expect(screen.getByTestId("pending").textContent).toBe("true");
+    expect(screen.getByTestId("track").textContent).toBe("0");
+
+    // Arrive at the start point → the walk starts.
+    mockPosition = [5.2001, 52.0901];
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <WalkSessionProvider>
+          <Harness />
+        </WalkSessionProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("pending").textContent).toBe("false"),
+    );
   });
 });

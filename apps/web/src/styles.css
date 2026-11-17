@@ -3493,3 +3493,11 @@ button.danger:hover:not(:disabled) {
   padding-left: 1rem;
   font-size: 0.85rem;
 }
+.map-walk-btn--resume {
+  width: auto;
+  gap: 0.35rem;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+}

@@ -46,6 +46,8 @@ export function autoReplanReason(
   ) {
     return "changed";
   }
+  // Not at the start yet: the plan from the start point stands as it is.
+  if (s.pendingStart) return null;
   const age = now.getTime() - Date.parse(s.plannedAt);
   if (age < MIN_AUTO_INTERVAL_MS) return null;
   if (age >= DRIFT_INTERVAL_MS) return "drift";

@@ -88,9 +88,15 @@ See [design/frontend.md](../design/frontend.md) and
   - **Start.** A **Walk** button on the map opens the start form:
     - route profile (the last one used is remembered);
     - how long you have (duration chips, or a "back by" time);
-    - return point: where you are now, a point tapped on the map, or the open tour's parking.
+    - **start from**: where you are now (default), a point tapped on the map, or the open tour's parking;
+    - **end at**: back where you start (default), or explicitly somewhere else (same three choices).
 
-    Starting needs location and a connection.
+    Starting needs a connection, and location when "where I am now" is used.
+  - **Starting somewhere else.** With a start point away from you (more than 150 m), the walk is planned **from that point**.
+    - The panel shows "Not started yet", directions to the start (driving), and **Start walking now**.
+    - With a duration, the clock only starts when you reach the start point. A back-by time stays fixed.
+    - Once you're there, replans follow your live position.
+  - **Walk and planner.** **Planner** switches the panel back to the cluster planner while the walk keeps running. A **Back to walk** button on the map returns to it. **End walk** stops it.
   - **During the walk.** The command panel switches to Walk mode, hiding the planner's journey.
     - **Deadline guard,** always visible: *leave the last cache by HH:MM · N min spare*. It turns amber under 15 min spare, and red ("Head back now") once walking straight home is due.
     - **Next stop:** its distance and planned arrival, with a **Navigate** button that asks the phone's maps app for **walking** directions.

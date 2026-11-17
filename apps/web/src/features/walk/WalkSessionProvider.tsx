@@ -24,9 +24,12 @@ import { deadlineGuard, type GuardState } from "./deadline-guard.js";
 import { autoReplanReason } from "./replan-trigger.js";
 import { clearWalk, loadWalk, saveWalk } from "./walk-store.js";
 import {
+  effectiveDeadline,
   idsWith,
   isLogged,
   metersBetween,
+  planOrigin,
+  START_REACHED_M,
   walkReducer,
   type LngLat,
   type Outcome,
@@ -52,6 +55,9 @@ export interface StartWalkOptions {
   profileName: string;
   profile: RouteProfileSettings;
   deadline: Date;
+  /** Set for a duration (not a back-by time): the clock starts at the start point. */
+  durationMinutes: number | null;
+  startPoint: LngLat;
   returnPoint: LngLat;
 }
 
@@ -69,6 +75,8 @@ interface WalkValue {
   lockNext: (cacheId: number | null) => void;
   previewLock: (cacheId: number) => Promise<WalkReplanResult | null>;
   replanNow: () => void;
+  /** Start walking from here now, even before reaching the start point. */
+  startNow: () => void;
 }
 
 const WalkContext = createContext<WalkValue | null>(null);
@@ -135,7 +143,7 @@ export function WalkSessionProvider({
 
   const replan = useCallback(async () => {
     const s = sessionRef.current;
-    const position = positionRef.current;
+    const position = s ? planOrigin(s, positionRef.current) : null;
     if (!s || !position || !online) return;
     inFlight.current?.abort();
     const ac = new AbortController();
@@ -167,7 +175,7 @@ export function WalkSessionProvider({
 
   const start = useCallback(
     (opts: StartWalkOptions) => {
-      const position = positionRef.current ?? opts.returnPoint;
+      const gps = positionRef.current;
       planPositionRef.current = null;
       commit({
         id: crypto.randomUUID(),
@@ -176,8 +184,11 @@ export function WalkSessionProvider({
         profileName: opts.profileName,
         profile: opts.profile,
         deadline: opts.deadline.toISOString(),
+        durationMinutes: opts.durationMinutes,
         returnPoint: opts.returnPoint,
-        startPoint: position,
+        startPoint: opts.startPoint,
+        pendingStart:
+          !gps || metersBetween(gps, opts.startPoint) > START_REACHED_M,
         log: [],
         atCache: null,
         lockedNextId: null,
@@ -222,7 +233,7 @@ export function WalkSessionProvider({
   const previewLock = useCallback(
     async (cacheId: number): Promise<WalkReplanResult | null> => {
       const s = sessionRef.current;
-      const position = positionRef.current;
+      const position = s ? planOrigin(s, positionRef.current) : null;
       if (!s || !position || !online) return null;
       try {
         return await replanWalk(
@@ -239,6 +250,11 @@ export function WalkSessionProvider({
     [online, location.accuracyM],
   );
 
+  const startNow = useCallback(() => {
+    dispatch({ type: "started", at: new Date().toISOString() });
+    void replan();
+  }, [dispatch, replan]);
+
   const lockNext = useCallback(
     (cacheId: number | null) => {
       dispatch({ type: "locked", cacheId });
@@ -252,6 +268,13 @@ export function WalkSessionProvider({
     const s = sessionRef.current;
     const p = location.position;
     if (!s || !p) return;
+    if (s.pendingStart) {
+      // Nothing to track on the way to the start (it's often a drive).
+      if (metersBetween(p, s.startPoint) <= START_REACHED_M) {
+        dispatch({ type: "started", at: new Date().toISOString() });
+      }
+      return;
+    }
     dispatch({ type: "tracked", point: [p[0], p[1], Date.now()] });
     if (
       location.accuracyM !== null &&
@@ -287,8 +310,8 @@ export function WalkSessionProvider({
       autoReplanReason(
         s,
         now,
-        location.position,
-        location.accuracyM,
+        planOrigin(s, location.position),
+        s.pendingStart ? null : location.accuracyM,
         planPositionRef.current,
       )
     ) {
@@ -319,7 +342,10 @@ export function WalkSessionProvider({
   }, [online, session?.pendingFinds, dispatch, queryClient]);
 
   const guard = useMemo(
-    () => (session ? deadlineGuard(session, now, location.position) : null),
+    () =>
+      session && !session.pendingStart
+        ? deadlineGuard(session, now, location.position)
+        : null,
     [session, now, location.position],
   );
 
@@ -336,6 +362,7 @@ export function WalkSessionProvider({
       lockNext,
       previewLock,
       replanNow: () => void replan(),
+      startNow,
     }),
     [
       session,
@@ -349,6 +376,7 @@ export function WalkSessionProvider({
       lockNext,
       previewLock,
       replan,
+      startNow,
     ],
   );
 
@@ -372,7 +400,7 @@ function replanInput(
     position,
     ...(accuracyM !== null ? { accuracyM } : {}),
     returnPoint: s.returnPoint,
-    deadline: s.deadline,
+    deadline: effectiveDeadline(s, new Date()),
     now: new Date().toISOString(),
     profile: s.profile,
     calibration: calibrate(s),

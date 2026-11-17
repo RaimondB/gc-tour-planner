@@ -92,6 +92,7 @@ import {
   WalkBody,
   WalkPeek,
   WalkStartForm,
+  type PickTarget,
 } from "./features/walk/WalkPanel.js";
 import { nextStopId } from "./features/walk/walk-session.js";
 import { WalkLayer } from "./features/map/WalkLayer.js";
@@ -358,11 +359,25 @@ export default function App(): JSX.Element {
   const walk = useWalk();
   const { goHereNext } = useGoHereNext();
   const [walkSetup, setWalkSetup] = useState(false);
-  const [pickingReturn, setPickingReturn] = useState(false);
-  const [pickedReturn, setPickedReturn] = useState<[number, number] | null>(
-    null,
-  );
-  const walkMode = walk.session !== null || walkSetup;
+  // Which walk point a map tap sets while the start form is open.
+  const [walkPickTarget, setWalkPickTarget] = useState<PickTarget>(null);
+  const [walkPicked, setWalkPicked] = useState<{
+    start: [number, number] | null;
+    end: [number, number] | null;
+  }>({ start: null, end: null });
+  // The panel can show the planner while a walk keeps running.
+  const [showWalk, setShowWalk] = useState(true);
+  const walkMode = walkSetup || (walk.session !== null && showWalk);
+  const walkId = walk.session?.id ?? null;
+  useEffect(() => {
+    // A walk just started (or resumed): close the form, show the walk.
+    if (walkId) {
+      setWalkSetup(false);
+      setWalkPickTarget(null);
+      setWalkPicked({ start: null, end: null });
+      setShowWalk(true);
+    }
+  }, [walkId]);
   const walkNext = (() => {
     const s = walk.session;
     if (!s) return null;
@@ -1025,8 +1040,10 @@ export default function App(): JSX.Element {
     }
     if (framedWalkRef.current === s.id || !s.plan) return;
     framedWalkRef.current = s.id;
+    // Before the start is reached, frame the walk itself — not the trip there.
     fitToCoordinates([
-      ...(location.position ? [location.position] : []),
+      ...(location.position && !s.pendingStart ? [location.position] : []),
+      ...(s.pendingStart ? [s.startPoint] : []),
       s.returnPoint,
       ...s.plan.order.map((o) => o.location),
     ]);
@@ -2175,13 +2192,15 @@ export default function App(): JSX.Element {
             // search circle is a viewport-centred reticle and panning the map
             // repositions it (see RadiusLayer).
             onPickCenter={
-              walkSetup && pickingReturn
-                ? setPickedReturn
+              walkSetup && walkPickTarget
+                ? (p) =>
+                    setWalkPicked((prev) => ({ ...prev, [walkPickTarget]: p }))
                 : !walkMode &&
                     planSettings.startPreference === "user-supplied-point"
                   ? setPickedStart
                   : undefined
             }
+            pickAnywhere={walkSetup && walkPickTarget !== null}
             onReady={(m) => {
               mapRef.current = m;
             }}
@@ -2219,6 +2238,7 @@ export default function App(): JSX.Element {
               onGoHereNext={
                 walk.session ? (id) => void goHereNext(id) : undefined
               }
+              popupsEnabled={!(walkSetup && walkPickTarget !== null)}
             />
             <ClustersPreviewLayer
               candidates={walkMode ? null : clusters}
@@ -2293,11 +2313,19 @@ export default function App(): JSX.Element {
               accuracyM={location.accuracyM}
             />
             <WalkLayer
-              plan={walk.session?.plan ?? null}
-              done={walkDone}
+              plan={walkMode ? (walk.session?.plan ?? null) : null}
+              done={walkMode ? walkDone : []}
               returnPoint={
-                walk.session?.returnPoint ??
-                (walkSetup && pickingReturn ? pickedReturn : null)
+                !walkMode
+                  ? null
+                  : (walk.session?.returnPoint ??
+                    walkPicked.end ??
+                    walkPicked.start)
+              }
+              startPoint={
+                !walkMode
+                  ? null
+                  : (walk.session?.startPoint ?? walkPicked.start)
               }
             />
             <FollowTargetLayer
@@ -2344,7 +2372,7 @@ export default function App(): JSX.Element {
             />
           </button>
 
-          {!walkMode && (
+          {!walkMode && !walk.session && (
             <button
               type="button"
               className="map-walk-btn"
@@ -2356,6 +2384,16 @@ export default function App(): JSX.Element {
               title="Plan as you go — always back in time"
             >
               <Footprints size={20} aria-hidden="true" />
+            </button>
+          )}
+          {!walkMode && walk.session && (
+            <button
+              type="button"
+              className="map-walk-btn map-walk-btn--resume"
+              onClick={() => setShowWalk(true)}
+              title="Your walk is still running"
+            >
+              <Footprints size={18} aria-hidden="true" /> Back to walk
             </button>
           )}
 
@@ -2411,16 +2449,22 @@ export default function App(): JSX.Element {
           stepKey={
             walkMode ? (walk.session ? "walk" : "walk-start") : activeStep
           }
-          peek={walk.session ? <WalkPeek /> : walkSetup ? null : peek}
+          peek={
+            walk.session && showWalk ? (
+              <WalkPeek onShowPlanner={() => setShowWalk(false)} />
+            ) : walkSetup ? null : (
+              peek
+            )
+          }
           onInsetChange={setMapBottomInset}
         >
-          {walk.session ? (
+          {walk.session && showWalk ? (
             <WalkBody />
           ) : walkSetup ? (
             <WalkStartForm
-              pickedReturn={pickedReturn}
-              pickingReturn={pickingReturn}
-              onPickingReturnChange={setPickingReturn}
+              picked={walkPicked}
+              pickTarget={walkPickTarget}
+              onPickTargetChange={setWalkPickTarget}
               tourParking={
                 planResult
                   ? {
@@ -2434,8 +2478,8 @@ export default function App(): JSX.Element {
               }
               onCancel={() => {
                 setWalkSetup(false);
-                setPickingReturn(false);
-                setPickedReturn(null);
+                setWalkPickTarget(null);
+                setWalkPicked({ start: null, end: null });
               }}
             />
           ) : (

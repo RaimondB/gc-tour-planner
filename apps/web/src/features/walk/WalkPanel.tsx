@@ -5,7 +5,7 @@ import { useMemo, useState, type JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flag, Lock, Navigation, RefreshCw } from "lucide-react";
 import { listRouteProfiles, saveTour } from "../../lib/api.js";
-import { walkNavTarget } from "../../lib/maps.js";
+import { parkingNavTarget, walkNavTarget } from "../../lib/maps.js";
 import { useLocalStorageState } from "../../lib/persistent-state.js";
 import { useLocation } from "../location/LocationProvider.js";
 import { ROUTE_PROFILES_KEY } from "../route-profiles/RouteProfilesSection.js";
@@ -35,8 +35,17 @@ const hhmm = (d: Date | string): string =>
 const distance = (m: number): string =>
   m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`;
 
-function NavLink({ to, label }: { to: LngLat; label: string }): JSX.Element {
-  const nav = walkNavTarget({ coordinates: to });
+function NavLink({
+  to,
+  label,
+  drive = false,
+}: {
+  to: LngLat;
+  label: string;
+  /** Driving directions (getting to the start) instead of walking. */
+  drive?: boolean;
+}): JSX.Element {
+  const nav = (drive ? parkingNavTarget : walkNavTarget)({ coordinates: to });
   return (
     <a
       className="walk-btn walk-btn--ghost"
@@ -78,22 +87,86 @@ export function useGoHereNext(): {
 
 /* --- start ---------------------------------------------------------------- */
 
+export type PickTarget = "start" | "end" | null;
+
 export interface WalkStartFormProps {
-  /** Point picked on the map for the return point, or null. */
-  pickedReturn: LngLat | null;
-  pickingReturn: boolean;
-  onPickingReturnChange: (on: boolean) => void;
-  /** The open tour's parking, offered as a return point. */
+  /** Points picked on the map for the start / a different end. */
+  picked: { start: LngLat | null; end: LngLat | null };
+  /** Which point a map tap sets right now. */
+  pickTarget: PickTarget;
+  onPickTargetChange: (target: PickTarget) => void;
+  /** The open tour's parking, offered as a start / end point. */
   tourParking: { point: LngLat; label: string } | null;
   onCancel: () => void;
 }
 
-type ReturnChoice = "here" | "map" | "tour";
+type PlaceChoice = "here" | "map" | "tour";
+
+function PlaceChoices({
+  name,
+  value,
+  onChange,
+  picked,
+  picking,
+  tourParking,
+}: {
+  name: string;
+  value: PlaceChoice;
+  onChange: (v: PlaceChoice) => void;
+  picked: LngLat | null;
+  picking: boolean;
+  tourParking: WalkStartFormProps["tourParking"];
+}): JSX.Element {
+  return (
+    <>
+      <label className="checkbox">
+        <input
+          type="radio"
+          name={name}
+          checked={value === "here"}
+          onChange={() => onChange("here")}
+        />
+        Where I am now
+      </label>
+      <label className="checkbox">
+        <input
+          type="radio"
+          name={name}
+          checked={value === "map"}
+          onChange={() => onChange("map")}
+        />
+        A point on the map
+      </label>
+      {value === "map" && (
+        <small className="muted">
+          {picking
+            ? picked
+              ? "Picked. Tap the map again to move it."
+              : "Tap the map to set it."
+            : picked
+              ? "Picked."
+              : ""}
+        </small>
+      )}
+      {tourParking && (
+        <label className="checkbox">
+          <input
+            type="radio"
+            name={name}
+            checked={value === "tour"}
+            onChange={() => onChange("tour")}
+          />
+          {tourParking.label}
+        </label>
+      )}
+    </>
+  );
+}
 
 export function WalkStartForm({
-  pickedReturn,
-  pickingReturn,
-  onPickingReturnChange,
+  picked,
+  pickTarget,
+  onPickTargetChange,
   tourParking,
   onCancel,
 }: WalkStartFormProps): JSX.Element {
@@ -111,19 +184,37 @@ export function WalkStartForm({
   );
   const profile =
     profiles.data?.find((p) => p.id === lastProfileId) ?? profiles.data?.[0];
+  /** A duration (the clock starts at the start point) or a fixed back-by time. */
   const [minutes, setMinutes] = useState<number | null>(null);
+  const [backBy, setBackBy] = useState<Date | null>(null);
   const duration = minutes ?? profile?.settings.budget.durationMinutes ?? 120;
-  const backBy = new Date(Date.now() + duration * 60_000);
-  const [returnChoice, setReturnChoice] = useState<ReturnChoice>("here");
+  const shownBackBy = backBy ?? new Date(Date.now() + duration * 60_000);
 
-  const returnPoint: LngLat | null =
-    returnChoice === "here"
+  const [startChoice, setStartChoice] = useState<PlaceChoice>("here");
+  const [endSameAsStart, setEndSameAsStart] = useState(true);
+  const [endChoice, setEndChoice] = useState<PlaceChoice>("here");
+
+  const placeOf = (c: PlaceChoice, mapPoint: LngLat | null): LngLat | null =>
+    c === "here"
       ? location.position
-      : returnChoice === "map"
-        ? pickedReturn
+      : c === "map"
+        ? mapPoint
         : (tourParking?.point ?? null);
+  const startPoint = placeOf(startChoice, picked.start);
+  const endPoint = endSameAsStart ? startPoint : placeOf(endChoice, picked.end);
+  const needsGps =
+    startChoice === "here" || (!endSameAsStart && endChoice === "here");
 
-  const ready = !!profile && !!returnPoint && !!location.position && online;
+  const chooseStart = (c: PlaceChoice) => {
+    setStartChoice(c);
+    onPickTargetChange(c === "map" ? "start" : null);
+  };
+  const chooseEnd = (c: PlaceChoice) => {
+    setEndChoice(c);
+    onPickTargetChange(c === "map" ? "end" : null);
+  };
+
+  const ready = !!profile && !!startPoint && !!endPoint && online;
 
   return (
     <div className="walk-start">
@@ -132,7 +223,7 @@ export function WalkStartForm({
         updating as you find caches, and always gets you back in time.
       </p>
 
-      {!location.position && (
+      {needsGps && !location.position && (
         <div className="walk-start__location">
           {location.enabled ? (
             <span className="muted">Waiting for GPS…</span>
@@ -172,9 +263,12 @@ export function WalkStartForm({
             <button
               key={m}
               type="button"
-              className={`walk-chip${duration === m ? " walk-chip--on" : ""}`}
-              aria-pressed={duration === m}
-              onClick={() => setMinutes(m)}
+              className={`walk-chip${!backBy && duration === m ? " walk-chip--on" : ""}`}
+              aria-pressed={!backBy && duration === m}
+              onClick={() => {
+                setMinutes(m);
+                setBackBy(null);
+              }}
             >
               {m < 60 ? `${m} min` : `${m / 60} h`}
             </button>
@@ -184,69 +278,61 @@ export function WalkStartForm({
           Back by
           <input
             type="time"
-            value={hhmm(backBy)}
+            value={hhmm(shownBackBy)}
             onChange={(e) => {
               const [h, m] = e.target.value.split(":").map(Number);
               if (h === undefined || m === undefined) return;
               const t = new Date();
               t.setHours(h, m, 0, 0);
               if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
-              setMinutes(
-                Math.max(15, Math.round((t.getTime() - Date.now()) / 60_000)),
-              );
+              setBackBy(t);
             }}
           />
         </label>
+        {!backBy && startChoice !== "here" && (
+          <small className="muted">
+            The {duration < 60 ? `${duration} min` : `${duration / 60} h`} start
+            when you reach the start point.
+          </small>
+        )}
       </div>
 
       <fieldset className="walk-field">
-        <legend>Return to</legend>
+        <legend>Start from</legend>
+        <PlaceChoices
+          name="walk-start"
+          value={startChoice}
+          onChange={chooseStart}
+          picked={picked.start}
+          picking={pickTarget === "start"}
+          tourParking={tourParking}
+        />
+      </fieldset>
+
+      <fieldset className="walk-field">
+        <legend>End at</legend>
         <label className="checkbox">
           <input
-            type="radio"
-            name="walk-return"
-            checked={returnChoice === "here"}
-            onChange={() => {
-              setReturnChoice("here");
-              onPickingReturnChange(false);
+            type="checkbox"
+            checked={endSameAsStart}
+            onChange={(e) => {
+              setEndSameAsStart(e.target.checked);
+              onPickTargetChange(
+                !e.target.checked && endChoice === "map" ? "end" : null,
+              );
             }}
           />
-          Where I am now
+          Back where I start
         </label>
-        <label className="checkbox">
-          <input
-            type="radio"
-            name="walk-return"
-            checked={returnChoice === "map"}
-            onChange={() => {
-              setReturnChoice("map");
-              onPickingReturnChange(true);
-            }}
+        {!endSameAsStart && (
+          <PlaceChoices
+            name="walk-end"
+            value={endChoice}
+            onChange={chooseEnd}
+            picked={picked.end}
+            picking={pickTarget === "end"}
+            tourParking={tourParking}
           />
-          A point on the map
-        </label>
-        {returnChoice === "map" && (
-          <small className="muted">
-            {pickedReturn
-              ? "Picked. Tap the map again to move it."
-              : pickingReturn
-                ? "Tap the map where you want to end."
-                : ""}
-          </small>
-        )}
-        {tourParking && (
-          <label className="checkbox">
-            <input
-              type="radio"
-              name="walk-return"
-              checked={returnChoice === "tour"}
-              onChange={() => {
-                setReturnChoice("tour");
-                onPickingReturnChange(false);
-              }}
-            />
-            {tourParking.label}
-          </label>
         )}
       </fieldset>
 
@@ -257,19 +343,26 @@ export function WalkStartForm({
           disabled={!ready}
           title={online ? undefined : "Starting a walk needs a connection."}
           onClick={() => {
-            if (!profile || !returnPoint) return;
+            if (!profile || !startPoint || !endPoint) return;
             setLastProfileId(profile.id);
-            onPickingReturnChange(false);
+            onPickTargetChange(null);
             walk.start({
               profileId: profile.id,
               profileName: profile.name,
               profile: profile.settings,
-              deadline: new Date(Date.now() + duration * 60_000),
-              returnPoint,
+              deadline: backBy ?? new Date(Date.now() + duration * 60_000),
+              durationMinutes: backBy ? null : duration,
+              startPoint,
+              returnPoint: endPoint,
             });
           }}
         >
-          Start walk · back by {hhmm(backBy)}
+          Start walk ·{" "}
+          {backBy || startChoice === "here"
+            ? `back by ${hhmm(shownBackBy)}`
+            : duration < 60
+              ? `${duration} min`
+              : `${duration / 60} h`}
         </button>
         <button type="button" className="link-button" onClick={onCancel}>
           Cancel
@@ -296,12 +389,62 @@ function GuardLine({ guard }: { guard: GuardState }): JSX.Element {
   );
 }
 
-export function WalkPeek(): JSX.Element | null {
+export function WalkPeek({
+  onShowPlanner,
+}: {
+  /** Switch the panel back to the planner; the walk keeps running. */
+  onShowPlanner: () => void;
+}): JSX.Element | null {
   const walk = useWalk();
   const location = useLocation();
   const online = useOnline();
   const s = walk.session;
   if (!s) return null;
+
+  const plannerButton = (
+    <button
+      type="button"
+      className="walk-btn walk-btn--ghost"
+      onClick={onShowPlanner}
+    >
+      Planner
+    </button>
+  );
+
+  if (s.pendingStart) {
+    const toStart = location.position
+      ? metersBetween(location.position, s.startPoint)
+      : null;
+    const stops = s.plan?.order.length ?? 0;
+    const length =
+      s.durationMinutes === null
+        ? null
+        : s.durationMinutes < 60
+          ? `${s.durationMinutes} min`
+          : `${s.durationMinutes / 60} h`;
+    return (
+      <div className="walk-peek">
+        <p className="walk-guard walk-guard--ok" role="status">
+          {length
+            ? `Not started yet — your ${length} start when you reach the start point.`
+            : `Not started yet — back by ${hhmm(s.deadline)}.`}
+        </p>
+        <p className="walk-next">
+          {toStart !== null && `Start point ${distance(toStart)} away · `}
+          {s.plan
+            ? `${stops} cache${stops === 1 ? "" : "s"} planned from there`
+            : "Planning…"}
+        </p>
+        <div className="walk-actions">
+          <NavLink to={s.startPoint} label="Directions to start" drive />
+          <button type="button" className="walk-btn" onClick={walk.startNow}>
+            Start walking now
+          </button>
+          {plannerButton}
+        </div>
+      </div>
+    );
+  }
 
   const nextId = nextStopId(s);
   const next =
@@ -406,6 +549,7 @@ export function WalkPeek(): JSX.Element | null {
           Replan
         </button>
         <NavLink to={s.returnPoint} label="Head back" />
+        {plannerButton}
       </div>
       {!online && (
         <p className="muted walk-note">
@@ -460,7 +604,10 @@ export function WalkBody(): JSX.Element | null {
   return (
     <div className="walk-body">
       <h3 className="walk-heading">
-        {s.profileName} · back by {hhmm(s.deadline)}
+        {s.profileName} ·{" "}
+        {s.pendingStart && s.durationMinutes !== null
+          ? `${s.durationMinutes < 60 ? `${s.durationMinutes} min` : `${s.durationMinutes / 60} h`} from the start point`
+          : `back by ${hhmm(s.deadline)}`}
       </h3>
 
       <ol className="walk-list">

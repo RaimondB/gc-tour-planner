@@ -4,6 +4,7 @@
 import { useEffect } from "react";
 import type * as maplibregl from "maplibre-gl";
 import type { WalkReplanResult } from "@gctp/shared/walks";
+import { haversineMeters } from "@gctp/shared/geo";
 import { useMap } from "./MapContext.js";
 import { applyLayerOrder } from "./map-layers.js";
 
@@ -25,6 +26,8 @@ export interface WalkLayerProps {
   /** Stops already visited / skipped on this walk, drawn gray with ✓ / –. */
   done: readonly { location: [number, number]; mark: string }[];
   returnPoint: [number, number] | null;
+  /** Where the walk starts — drawn as "S" when it isn't also the return point. */
+  startPoint?: [number, number] | null;
 }
 
 function upsert(
@@ -54,7 +57,15 @@ const point = (
  * stops, gray visited ones, and the return point. Ready-gated, idempotent
  * re-adders like every layer (ADR-0029), so it survives a map recreate.
  */
-export function WalkLayer({ plan, done, returnPoint }: WalkLayerProps): null {
+/** A start this close to the return point is the same place: one "R" marker. */
+const SAME_PLACE_M = 30;
+
+export function WalkLayer({
+  plan,
+  done,
+  returnPoint,
+  startPoint = null,
+}: WalkLayerProps): null {
   const { map, ready } = useMap();
 
   useEffect(() => {
@@ -84,13 +95,15 @@ export function WalkLayer({ plan, done, returnPoint }: WalkLayerProps): null {
         ...done.map((d) => point(d.location, { label: d.mark, done: 1 })),
       ],
     });
-    upsert(
-      map,
-      RETURN_SRC,
-      returnPoint
-        ? { type: "FeatureCollection", features: [point(returnPoint, {})] }
-        : empty,
-    );
+    const ends: GeoJSON.Feature[] = [];
+    if (returnPoint) ends.push(point(returnPoint, { label: "R", start: 0 }));
+    if (
+      startPoint &&
+      (!returnPoint || haversineMeters(startPoint, returnPoint) > SAME_PLACE_M)
+    ) {
+      ends.push(point(startPoint, { label: "S", start: 1 }));
+    }
+    upsert(map, RETURN_SRC, { type: "FeatureCollection", features: ends });
 
     if (!map.getLayer(WALK_PATH_LINE)) {
       map.addLayer({
@@ -146,7 +159,12 @@ export function WalkLayer({ plan, done, returnPoint }: WalkLayerProps): null {
         source: RETURN_SRC,
         paint: {
           "circle-radius": 13,
-          "circle-color": "#1e3a8a",
+          "circle-color": [
+            "case",
+            ["==", ["get", "start"], 1],
+            WALK_GREEN,
+            "#1e3a8a",
+          ],
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 3,
         },
@@ -158,7 +176,7 @@ export function WalkLayer({ plan, done, returnPoint }: WalkLayerProps): null {
         type: "symbol",
         source: RETURN_SRC,
         layout: {
-          "text-field": "R",
+          "text-field": ["get", "label"],
           "text-font": SYMBOL_FONT,
           "text-size": 13,
           "text-allow-overlap": true,
@@ -168,7 +186,7 @@ export function WalkLayer({ plan, done, returnPoint }: WalkLayerProps): null {
       });
     }
     applyLayerOrder(map);
-  }, [map, ready, plan, done, returnPoint]);
+  }, [map, ready, plan, done, returnPoint, startPoint]);
 
   return null;
 }
