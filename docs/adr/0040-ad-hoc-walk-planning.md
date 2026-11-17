@@ -1,6 +1,6 @@
 # ADR-0040 — Ad-hoc walk planning: open path, deadline, rolling replan
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-17
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0002](0002-planner-strategy-interface.md), [ADR-0005](0005-timefold-solver-sidecar.md), [ADR-0037](0037-location-awareness-and-follow-mode.md) (amended for this), [ADR-0039](0039-route-profiles.md) (profiles drive the walk); [FR-T18](../requirements/tour-planning.md).
