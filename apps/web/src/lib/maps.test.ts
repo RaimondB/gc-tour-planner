@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { googleMapsDirUrl, parkingNavTarget } from "./maps.js";
+import { googleMapsDirUrl, parkingNavTarget, walkNavTarget } from "./maps.js";
 
 // GeoJSON order is [lng, lat]; the parking sits at lat 52.1, lng 5.2.
 const PARKING = { coordinates: [5.2, 52.1] as const };
@@ -65,5 +65,22 @@ describe("parkingNavTarget", () => {
       href: "https://www.google.com/maps/dir/?api=1&destination=52.1,5.2",
       external: true,
     });
+  });
+});
+
+describe("walkNavTarget (FR-T18)", () => {
+  const point = { coordinates: [5.12, 52.09] as [number, number] };
+
+  it("asks for walking directions on every platform", () => {
+    stubUa("Mozilla/5.0 (Linux; Android 14)");
+    expect(walkNavTarget(point).href).toBe(
+      "google.navigation:q=52.09,5.12&mode=w",
+    );
+    stubUa("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+    expect(walkNavTarget(point).href).toBe("maps://?daddr=52.09,5.12&dirflg=w");
+    stubUa("Mozilla/5.0 (X11; Linux x86_64)");
+    const desktop = walkNavTarget(point);
+    expect(desktop.href).toContain("travelmode=walking");
+    expect(desktop.external).toBe(true);
   });
 });

@@ -98,6 +98,12 @@ Each rule below is a real incident that cost UAT round-trips.
   IndexedDB (`lib/tour-cache.ts`) with a small localStorage pointer; React Query
   is the fetch/cache layer. A slow/failed fetch must not leave the wrong item
   resuming.
+- **The ad-hoc walk follows the same rule** (FR-W6): `WalkSessionProvider`
+  owns the active walk, one IndexedDB record written on every action via a
+  pure reducer. The server is stateless, so the record must be complete enough
+  to replan from. Offline, the walk keeps working on-device: the deadline guard
+  is computed locally and Found is queued in the record. Don't move walk state
+  into `App` `useState` or router state.
 - Global store still banned (CLAUDE.md): TanStack Query + URL params + these
   scoped providers. A provider for one concern ≠ a global store.
 

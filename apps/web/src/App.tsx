@@ -86,6 +86,15 @@ import type {
 } from "@gctp/shared/tours";
 import { FilterSidebar } from "./features/search/FilterSidebar.js";
 import { RouteProfilePicker } from "./features/route-profiles/RouteProfilePicker.js";
+import { useWalk } from "./features/walk/WalkSessionProvider.js";
+import {
+  useGoHereNext,
+  WalkBody,
+  WalkPeek,
+  WalkStartForm,
+} from "./features/walk/WalkPanel.js";
+import { nextStopId } from "./features/walk/walk-session.js";
+import { WalkLayer } from "./features/map/WalkLayer.js";
 import {
   timeBudgetMinutes,
   type RouteProfileSettings,
@@ -116,6 +125,7 @@ import {
   Route,
   Save,
   Wrench,
+  Footprints,
 } from "lucide-react";
 import { parkingNavTarget } from "./lib/maps.js";
 import { haversineMeters } from "@gctp/shared/geo";
@@ -343,6 +353,38 @@ export default function App(): JSX.Element {
 
   // ── Current location (opt-in GPS) ────────────────────────────────────
   const location = useLocation();
+  // Ad-hoc walk (FR-T18): the session lives in WalkSessionProvider; App only
+  // owns the start form's open state and the map-picked return point.
+  const walk = useWalk();
+  const { goHereNext } = useGoHereNext();
+  const [walkSetup, setWalkSetup] = useState(false);
+  const [pickingReturn, setPickingReturn] = useState(false);
+  const [pickedReturn, setPickedReturn] = useState<[number, number] | null>(
+    null,
+  );
+  const walkMode = walk.session !== null || walkSetup;
+  const walkNext = (() => {
+    const s = walk.session;
+    if (!s) return null;
+    const id = nextStopId(s);
+    if (id === null) return null;
+    return (
+      s.plan?.order.find((o) => o.cacheId === id)?.location ??
+      s.knownStops[id]?.location ??
+      null
+    );
+  })();
+  const walkDone = useMemo(
+    () =>
+      (walk.session?.log ?? []).flatMap((l) => {
+        const at = walk.session?.knownStops[l.cacheId]?.location;
+        if (!at) return [];
+        const mark =
+          l.outcome === "found" ? "✓" : l.outcome === "dnf" ? "✕" : "–";
+        return [{ location: at, mark }];
+      }),
+    [walk.session],
+  );
   // After enabling from "off", fly to the first fix once it lands.
   const recenterOnFixRef = useRef(false);
   useEffect(() => {
@@ -971,6 +1013,24 @@ export default function App(): JSX.Element {
     },
     [mapBottomInset],
   );
+
+  // Frame each walk once — when it starts (first plan) or resumes after a
+  // reload: the walker, the return point and the planned stops.
+  const framedWalkRef = useRef<string | null>(null);
+  useEffect(() => {
+    const s = walk.session;
+    if (!s) {
+      framedWalkRef.current = null;
+      return;
+    }
+    if (framedWalkRef.current === s.id || !s.plan) return;
+    framedWalkRef.current = s.id;
+    fitToCoordinates([
+      ...(location.position ? [location.position] : []),
+      s.returnPoint,
+      ...s.plan.order.map((o) => o.location),
+    ]);
+  }, [walk.session, location.position, fitToCoordinates]);
 
   // Grow / recenter the search circle so it always covers the active context (a
   // focused cluster, added AL stages, or an opened saved tour). The circle bounds
@@ -2115,9 +2175,12 @@ export default function App(): JSX.Element {
             // search circle is a viewport-centred reticle and panning the map
             // repositions it (see RadiusLayer).
             onPickCenter={
-              planSettings.startPreference === "user-supplied-point"
-                ? setPickedStart
-                : undefined
+              walkSetup && pickingReturn
+                ? setPickedReturn
+                : !walkMode &&
+                    planSettings.startPreference === "user-supplied-point"
+                  ? setPickedStart
+                  : undefined
             }
             onReady={(m) => {
               mapRef.current = m;
@@ -2133,7 +2196,7 @@ export default function App(): JSX.Element {
             />
             <RadiusLayer
               params={params}
-              interactive={activeStep === "caches"}
+              interactive={activeStep === "caches" && !walkMode}
               onCenterChange={handlePickCenter}
             />
             <StartPointPickLayer
@@ -2153,9 +2216,12 @@ export default function App(): JSX.Element {
               onParkingSelect={setSelectedParking}
               online={online}
               droppedById={droppedById}
+              onGoHereNext={
+                walk.session ? (id) => void goHereNext(id) : undefined
+              }
             />
             <ClustersPreviewLayer
-              candidates={clusters}
+              candidates={walkMode ? null : clusters}
               caches={caches}
               focusedClusterId={focusedClusterId}
               chosenClusterId={chosenClusterId}
@@ -2164,7 +2230,7 @@ export default function App(): JSX.Element {
               onCentroidHover={setFocusedClusterId}
             />
             <TourLayer
-              result={planResult}
+              result={walkMode ? null : planResult}
               caches={caches}
               editMode={editMode}
               legPicks={legPicks}
@@ -2226,7 +2292,17 @@ export default function App(): JSX.Element {
               position={location.position}
               accuracyM={location.accuracyM}
             />
-            <FollowTargetLayer target={followTarget?.coord ?? null} />
+            <WalkLayer
+              plan={walk.session?.plan ?? null}
+              done={walkDone}
+              returnPoint={
+                walk.session?.returnPoint ??
+                (walkSetup && pickingReturn ? pickedReturn : null)
+              }
+            />
+            <FollowTargetLayer
+              target={walkMode ? walkNext : (followTarget?.coord ?? null)}
+            />
             <ZoomDebugBadge />
           </MapView>
 
@@ -2268,6 +2344,21 @@ export default function App(): JSX.Element {
             />
           </button>
 
+          {!walkMode && (
+            <button
+              type="button"
+              className="map-walk-btn"
+              onClick={() => {
+                setWalkSetup(true);
+                if (!location.enabled) location.enable();
+              }}
+              aria-label="Start an ad-hoc walk"
+              title="Plan as you go — always back in time"
+            >
+              <Footprints size={20} aria-hidden="true" />
+            </button>
+          )}
+
           {/* Offline fallback: when basemap tiles can't load, show the opened
               tour's stored snapshot (FR-W4) — it bakes in the basemap + route.
               Driven by real tile load failures, not navigator.onLine. The image
@@ -2287,14 +2378,16 @@ export default function App(): JSX.Element {
             </div>
           )}
 
-          <JourneyRail
-            current={activeStep}
-            enabled={railEnabled}
-            done={railDone}
-            lockedReason={railLocked}
-            attention={{ clusters: clustersStale }}
-            onSelect={selectStep}
-          />
+          {!walkMode && (
+            <JourneyRail
+              current={activeStep}
+              enabled={railEnabled}
+              done={railDone}
+              lockedReason={railLocked}
+              attention={{ clusters: clustersStale }}
+              onSelect={selectStep}
+            />
+          )}
 
           {activeStep === "caches" && !reticleHintSeen && (
             <p className="map-reticle-hint" aria-hidden="true">
@@ -2314,12 +2407,40 @@ export default function App(): JSX.Element {
         </main>
 
         <CommandPanel
-          title={JOURNEY_LABELS[activeStep]}
-          stepKey={activeStep}
-          peek={peek}
+          title={walkMode ? "Walk" : JOURNEY_LABELS[activeStep]}
+          stepKey={
+            walkMode ? (walk.session ? "walk" : "walk-start") : activeStep
+          }
+          peek={walk.session ? <WalkPeek /> : walkSetup ? null : peek}
           onInsetChange={setMapBottomInset}
         >
-          {body}
+          {walk.session ? (
+            <WalkBody />
+          ) : walkSetup ? (
+            <WalkStartForm
+              pickedReturn={pickedReturn}
+              pickingReturn={pickingReturn}
+              onPickingReturnChange={setPickingReturn}
+              tourParking={
+                planResult
+                  ? {
+                      point: planResult.parking.point.coordinates as [
+                        number,
+                        number,
+                      ],
+                      label: "The current tour's parking",
+                    }
+                  : null
+              }
+              onCancel={() => {
+                setWalkSetup(false);
+                setPickingReturn(false);
+                setPickedReturn(null);
+              }}
+            />
+          ) : (
+            body
+          )}
         </CommandPanel>
       </div>
 

@@ -89,7 +89,7 @@ export interface ScheduleLeg {
   /** Travel seconds into this stop. */
   travelSeconds: number;
   visitSeconds: number;
-  cacheId: number;
+  cache: Pick<Caches.CacheDTO, "id" | "code" | "name" | "type" | "location">;
 }
 
 /** Arrival/leave times along the path, and the return. Times are epoch ms. */
@@ -105,7 +105,14 @@ export function schedule(
     const arriveAt = new Date(t).toISOString();
     t += leg.visitSeconds * 1000;
     stops.push({
-      cacheId: leg.cacheId,
+      cacheId: leg.cache.id,
+      code: leg.cache.code,
+      name: leg.cache.name,
+      type: leg.cache.type,
+      location: [
+        leg.cache.location.coordinates[0]!,
+        leg.cache.location.coordinates[1]!,
+      ],
       arriveAt,
       leaveAt: new Date(t).toISOString(),
     });

@@ -109,6 +109,10 @@ const FEATURES: readonly { title: string; body: string }[] = [
     body: "Send anyone a private link to a tour — they see the map, the stops, and the totals, no account needed. Revoke it anytime.",
   },
   {
+    title: "Plan as you go — always back in time",
+    body: "Start a walk from where you are: pick a profile and when you need to be back. The route keeps updating as you find caches, skip one or pick your own next cache — and always gets you back to your car before your deadline, even if you lose signal.",
+  },
+  {
     title: "Find tours near you & follow on foot",
     body: "Turn on your location to see your position on the map, how far each saved tour is, and which are closest — then follow a tour stop-by-stop with walking directions handed to your phone’s maps app. Your location stays on your device.",
   },

@@ -66,29 +66,38 @@ describe("reach", () => {
   });
 });
 
+const stop = (id: number) => ({
+  id,
+  code: `GC${id}`,
+  name: `Cache ${id}`,
+  type: "Traditional" as const,
+  location: {
+    type: "Point" as const,
+    coordinates: [5.1, 52.1] as [number, number],
+  },
+});
+
 describe("schedule", () => {
   it("lays out arrival / leave times and the return", () => {
     const start = Date.parse("2026-11-17T10:00:00Z");
     const res = schedule(
       start,
       [
-        { cacheId: 1, travelSeconds: 600, visitSeconds: 300 },
-        { cacheId: 2, travelSeconds: 300, visitSeconds: 300 },
+        { cache: stop(1), travelSeconds: 600, visitSeconds: 300 },
+        { cache: stop(2), travelSeconds: 300, visitSeconds: 300 },
       ],
       900,
     );
-    expect(res.stops).toEqual([
-      {
-        cacheId: 1,
-        arriveAt: "2026-11-17T10:10:00.000Z",
-        leaveAt: "2026-11-17T10:15:00.000Z",
-      },
-      {
-        cacheId: 2,
-        arriveAt: "2026-11-17T10:20:00.000Z",
-        leaveAt: "2026-11-17T10:25:00.000Z",
-      },
+    expect(res.stops.map((s) => [s.cacheId, s.arriveAt, s.leaveAt])).toEqual([
+      [1, "2026-11-17T10:10:00.000Z", "2026-11-17T10:15:00.000Z"],
+      [2, "2026-11-17T10:20:00.000Z", "2026-11-17T10:25:00.000Z"],
     ]);
+    expect(res.stops[0]).toMatchObject({
+      code: "GC1",
+      name: "Cache 1",
+      type: "Traditional",
+      location: [5.1, 52.1],
+    });
     expect(new Date(res.returnMs).toISOString()).toBe(
       "2026-11-17T10:40:00.000Z",
     );

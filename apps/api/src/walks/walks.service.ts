@@ -348,7 +348,7 @@ export class WalksService {
   }): Promise<Walks.WalkReplanResult> {
     const path = [...(args.lead ? [args.lead] : []), ...args.stops];
     const legs: ScheduleLeg[] = path.map((s) => ({
-      cacheId: s.cache.id,
+      cache: s.cache,
       travelSeconds: s.travel,
       visitSeconds: s.visit,
     }));

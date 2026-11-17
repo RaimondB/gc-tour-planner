@@ -3308,3 +3308,188 @@ button.danger:hover:not(:disabled) {
   color: #b45309;
   font-size: 0.75rem;
 }
+
+/* ── Ad-hoc walk (FR-T18) ─────────────────────────────────────────────── */
+.map-walk-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 148px;
+  z-index: 5;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #15803d;
+  border-radius: 50%;
+  background: #15803d;
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.map-walk-btn:hover {
+  background: #166534;
+}
+.walk-start,
+.walk-body,
+.walk-peek {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+.walk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.walk-field > span,
+.walk-field > legend {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.walk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.walk-chip {
+  min-height: 36px;
+  padding: 0 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+.walk-chip--on {
+  border-color: #15803d;
+  background: #dcfce7;
+  color: #14532d;
+  font-weight: 600;
+}
+.walk-backby {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.walk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.walk-actions--small {
+  font-size: 0.8rem;
+}
+.walk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.walk-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.walk-btn--primary {
+  border-color: #15803d;
+  background: #15803d;
+  color: #ffffff;
+  font-weight: 600;
+}
+.walk-btn--ghost {
+  border-color: transparent;
+  background: #f3f4f6;
+}
+.walk-guard {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.walk-guard--ok {
+  background: #dcfce7;
+  color: #14532d;
+}
+.walk-guard--tight {
+  background: #fef3c7;
+  color: #78350f;
+}
+.walk-guard--head-back,
+.walk-guard--late {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+.walk-warning {
+  margin: 0;
+  color: #b91c1c;
+}
+.walk-next,
+.walk-at {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+}
+.walk-note {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.walk-spin {
+  animation: gctp-spin 1s linear infinite;
+}
+.walk-heading,
+.walk-subheading {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.walk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.walk-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.walk-list__n {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #15803d;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.walk-list__what {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.walk-log {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+}
