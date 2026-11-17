@@ -3501,3 +3501,30 @@ button.danger:hover:not(:disabled) {
   font: inherit;
   font-weight: 600;
 }
+
+/* Testing mode: simulated location (admin tools). */
+.map-sim-banner {
+  position: absolute;
+  top: calc(var(--space-3) + 56px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #ffffff;
+  font-size: 0.85rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+.map-sim-banner .link-button {
+  color: #ffffff;
+  text-decoration: underline;
+}
+.admin-sim {
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}

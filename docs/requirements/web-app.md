@@ -113,3 +113,8 @@ See [design/frontend.md](../design/frontend.md) and
     - The last route stays, and the deadline guard runs on-device (straight-line × 1.3 at the profile pace, never faster).
     - Replans pause, and **Found is queued** and sent when back online.
   - **End.** **Save as tour & end** saves the caches actually visited along the walked GPS track as a normal saved tour; **End walk** discards it.
+  - **Testing mode (admins).** Admin tools → *Simulate my location*.
+    - While it's on, the position comes from map taps instead of GPS, so a walk can be tried from a desk: tap next to a stop to "arrive", tap elsewhere to go off-plan.
+    - Follow mode and nearby tours use the simulated position too.
+    - A purple banner on the map shows the mode is on and has a **Stop** button.
+    - It's device-only and kept across reloads until stopped.

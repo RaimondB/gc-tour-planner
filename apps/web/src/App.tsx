@@ -2195,12 +2195,16 @@ export default function App(): JSX.Element {
               walkSetup && walkPickTarget
                 ? (p) =>
                     setWalkPicked((prev) => ({ ...prev, [walkPickTarget]: p }))
-                : !walkMode &&
-                    planSettings.startPreference === "user-supplied-point"
-                  ? setPickedStart
-                  : undefined
+                : location.simulated
+                  ? location.setSimulatedPosition
+                  : !walkMode &&
+                      planSettings.startPreference === "user-supplied-point"
+                    ? setPickedStart
+                    : undefined
             }
-            pickAnywhere={walkSetup && walkPickTarget !== null}
+            pickAnywhere={
+              (walkSetup && walkPickTarget !== null) || location.simulated
+            }
             onReady={(m) => {
               mapRef.current = m;
             }}
@@ -2371,6 +2375,24 @@ export default function App(): JSX.Element {
               }
             />
           </button>
+
+          {location.simulated && (
+            <div className="map-sim-banner" role="status">
+              <span>
+                Simulated location —{" "}
+                {location.position
+                  ? "tap the map to move"
+                  : "tap the map to set it"}
+              </span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => location.setSimulated(false)}
+              >
+                Stop
+              </button>
+            </div>
+          )}
 
           {!walkMode && !walk.session && (
             <button
