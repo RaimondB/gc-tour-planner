@@ -1,6 +1,6 @@
 # ADR-0039 — Route profiles (saved, server-side planning presets)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-16
 - **Deciders:** Raimond Brookman (owner)
 - **Related:** [ADR-0002](0002-planner-strategy-interface.md) (no strategy-specific knobs in `PlanInput`), [ADR-0029](0029-frontend-offline-resilience-caching-and-state.md); [FR-T19](../requirements/tour-planning.md). Prepares FR-T18 (ad-hoc walk, ADR-0040).

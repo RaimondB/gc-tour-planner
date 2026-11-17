@@ -48,4 +48,4 @@ We use lightweight ADRs (Michael Nygard style) to record decisions whose _why_ i
 | [0036](0036-osm-place-names.md)                               | OSM place names (settlement nodes + named landuse) for tour naming | Accepted                                  |
 | [0037](0037-location-awareness-and-follow-mode.md)            | Location awareness, nearby tours & follow-mode navigation     | Accepted                                      |
 | [0038](0038-exclude-saved-tour-caches-from-discovery.md)      | Exclude saved-tour caches from cluster discovery (default on)  | Accepted                                      |
-| [0039](0039-route-profiles.md)                               | Route profiles (saved, server-side planning presets)           | Proposed                                      |
+| [0039](0039-route-profiles.md)                               | Route profiles (saved, server-side planning presets)           | Accepted                                      |
